@@ -33,6 +33,16 @@ jobs:
         with:
           workspaces: src-tauri
 
+      - name: Download WinDivert
+        shell: pwsh
+        run: |
+          $version = "2.2.2"
+          $url = "https://github.com/basil00/Divert/releases/download/v${version}/WinDivert-${version}-A.zip"
+          Invoke-WebRequest -Uri $url -OutFile WinDivert.zip
+          Expand-Archive -Path WinDivert.zip -DestinationPath WinDivert-extract
+          Copy-Item "WinDivert-extract/WinDivert-${version}-A/x64/WinDivert.dll" -Destination src-tauri/
+          Copy-Item "WinDivert-extract/WinDivert-${version}-A/x64/WinDivert64.sys" -Destination src-tauri/
+
       - name: Install frontend dependencies
         run: npm install
 

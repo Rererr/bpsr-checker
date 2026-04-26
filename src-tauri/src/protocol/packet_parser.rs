@@ -1,0 +1,158 @@
+use crate::capture::binary_reader::BinaryReader;
+use crate::protocol::opcodes::{FragmentType, Pkt};
+use log::debug;
+use tokio::sync::mpsc;
+
+pub async fn process_packet(
+    mut packets_reader: BinaryReader,
+    packet_sender: mpsc::Sender<(Pkt, Vec<u8>)>,
+) {
+    while packets_reader.remaining() > 0 {
+        let packet_size = match packets_reader.peek_u32() {
+            Ok(sz) => sz,
+            Err(e) => {
+                debug!("Malformed packet: failed to peek_u32: {e}");
+                break;
+            }
+        };
+        if packet_size < 6 {
+            debug!("Malformed packet: packet_size < 6");
+            break;
+        }
+
+        let mut reader = match packets_reader.read_bytes(packet_size as usize) {
+            Ok(bytes) => BinaryReader::from(bytes),
+            Err(e) => {
+                debug!("Malformed packet: failed to read_bytes: {e}");
+                continue;
+            }
+        };
+        if reader.read_u32().is_err() {
+            debug!("Malformed packet: failed to skip u32");
+            continue;
+        }
+        let packet_type = match reader.read_u16() {
+            Ok(pt) => pt,
+            Err(e) => {
+                debug!("Malformed packet: failed to read_u16: {e}");
+                continue;
+            }
+        };
+        let is_zstd_compressed =
+            packet_type & crate::protocol::constants::packet::COMPRESSION_FLAG;
+        let msg_type_id = crate::protocol::constants::packet::extract_type(packet_type);
+
+        match FragmentType::from(msg_type_id) {
+            FragmentType::Notify => {
+                let service_uuid = match reader.read_u64() {
+                    Ok(su) => su,
+                    Err(e) => {
+                        debug!("Malformed Notify: failed to read_u64 service_uuid: {e}");
+                        continue;
+                    }
+                };
+                let _stub_id = match reader.read_u32() {
+                    Ok(sid) => sid,
+                    Err(e) => {
+                        debug!("Malformed Notify: failed to read_u32 stub_id: {e}");
+                        continue;
+                    }
+                };
+                let method_id_raw = match reader.read_u32() {
+                    Ok(mid) => mid,
+                    Err(e) => {
+                        debug!("Malformed Notify: failed to read_u32 method_id: {e}");
+                        continue;
+                    }
+                };
+
+                let msg_payload = reader.read_remaining();
+                let mut tcp_fragment_vec = msg_payload.to_vec();
+                if is_zstd_compressed != 0 {
+                    match zstd::decode_all(tcp_fragment_vec.as_slice()) {
+                        Ok(decoded) => tcp_fragment_vec = decoded,
+                        Err(e) => {
+                            debug!("Notify: zstd decompression failed: {e}");
+                            continue;
+                        }
+                    }
+                }
+
+                // SocialNtf scene data
+                if service_uuid == crate::protocol::constants::SOCIAL_NTF_SERVICE_ID
+                    && method_id_raw
+                        == crate::protocol::constants::SOCIAL_NTF_NOTIFY_METHOD_ID
+                {
+                    if let Err(err) = packet_sender
+                        .send((Pkt::NotifySocialData, tcp_fragment_vec))
+                        .await
+                    {
+                        debug!("Failed to send SocialNtf packet: {err}");
+                    }
+                    continue;
+                }
+
+                if service_uuid != crate::protocol::constants::SERVICE_UUID {
+                    continue;
+                }
+
+                let method_id = match Pkt::try_from(method_id_raw) {
+                    Ok(mid) => mid,
+                    Err(_) => {
+                        debug!("Notify: Skipping unknown methodId: {method_id_raw}");
+                        continue;
+                    }
+                };
+
+                if let Err(err) = packet_sender.send((method_id, tcp_fragment_vec)).await {
+                    debug!("Failed to send packet: {err}");
+                }
+            }
+            FragmentType::FrameDown => {
+                let _server_sequence_id = match reader.read_u32() {
+                    Ok(sid) => sid,
+                    Err(e) => {
+                        debug!("FrameDown: failed to read_u32 server_sequence_id: {e}");
+                        continue;
+                    }
+                };
+                if reader.remaining() == 0 {
+                    debug!("FrameDown: reader.remaining() == 0");
+                    break;
+                }
+
+                let nested_packet = reader.read_remaining();
+                if is_zstd_compressed != 0 {
+                    match zstd::decode_all(nested_packet) {
+                        Ok(tcp_fragment_decompressed) => {
+                            packets_reader = BinaryReader::from(tcp_fragment_decompressed);
+                        }
+                        Err(e) => {
+                            debug!("FrameDown: zstd decompression failed: {e}");
+                            continue;
+                        }
+                    }
+                } else {
+                    packets_reader = BinaryReader::from(Vec::from(nested_packet));
+                }
+            }
+            _ => {
+                debug!("Unknown fragment type: {msg_type_id}");
+                continue;
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::capture::binary_reader::BinaryReader;
+
+    #[tokio::test]
+    async fn test_process_empty_packet() {
+        let (packet_sender, _rx) = mpsc::channel::<(Pkt, Vec<u8>)>(1);
+        let reader = BinaryReader::from(vec![]);
+        process_packet(reader, packet_sender).await;
+    }
+}

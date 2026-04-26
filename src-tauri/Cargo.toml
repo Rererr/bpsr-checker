@@ -30,7 +30,7 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-window-state = "2"
 tauri-specta = { version = "2.0.0-rc.24", features = ["typescript"] }
 thiserror = "2"
-tokio = { version = "1", features = ["macros", "sync", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "sync", "rt-multi-thread", "time"] }
 zstd = "0.13"
 
 [target.'cfg(target_os = "windows")'.dependencies]

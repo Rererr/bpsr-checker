@@ -1,0 +1,37 @@
+[package]
+name = "ww-dps"
+version = "0.1.0"
+description = "軽量DPSチェッカー for Blue Protocol: Star Resonance"
+authors = ["Rererr"]
+edition = "2024"
+
+[lib]
+name = "ww_dps_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+prost-build = { version = "0.14", features = ["vendored-protoc"] }
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+bytes = "1"
+byteorder = "1"
+chrono = "0.4"
+etherparse = "0.19"
+log = "0.4"
+prost = "0.14"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+specta = "2.0.0-rc.24"
+specta-typescript = "0.0.11"
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-log = { version = "2", features = ["colored"] }
+tauri-plugin-single-instance = "2"
+tauri-plugin-window-state = "2"
+tauri-specta = { version = "2.0.0-rc.24", features = ["typescript"] }
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "sync", "rt-multi-thread"] }
+zstd = "0.13"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windivert = { version = "0.6", features = ["vendored"] }

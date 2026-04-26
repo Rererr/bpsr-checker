@@ -1,0 +1,337 @@
+use crate::capture::binary_reader::BinaryReader;
+use crate::capture::server::Server;
+use crate::capture::tcp_reassembler::TcpReassembler;
+use crate::protocol::opcodes::Pkt;
+use crate::protocol::packet_parser::process_packet;
+use etherparse::NetSlice::Ipv4;
+use etherparse::SlicedPacket;
+use etherparse::TransportSlice::Tcp;
+use log::{debug, error, info, warn};
+use std::collections::HashMap;
+use std::sync::OnceLock;
+use tokio::sync::watch;
+use windivert::WinDivert;
+use windivert::prelude::WinDivertFlags;
+
+// Global sender for restart signal
+static RESTART_SENDER: OnceLock<watch::Sender<bool>> = OnceLock::new();
+
+fn send_server_change_info(packet_sender: &tokio::sync::mpsc::Sender<(Pkt, Vec<u8>)>) {
+    let _ = packet_sender.try_send((Pkt::ServerChangeInfo, Vec::new()));
+}
+
+const HANDLE_CLEANUP_DELAY_MS: u64 = 500;
+const MAX_SUBNET_CONNECTIONS: usize = 16;
+
+pub fn start_capture() -> tokio::sync::mpsc::Receiver<(Pkt, Vec<u8>)> {
+    const PACKET_CHANNEL_CAPACITY: usize = 256;
+    let (packet_sender, packet_receiver) =
+        tokio::sync::mpsc::channel::<(Pkt, Vec<u8>)>(PACKET_CHANNEL_CAPACITY);
+    let (restart_sender, mut restart_receiver) = watch::channel(false);
+    RESTART_SENDER.set(restart_sender.clone()).ok();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            read_packets(&packet_sender, &mut restart_receiver).await;
+            // Wait for restart signal
+            while !*restart_receiver.borrow() {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+            // Reset signal to false before next loop
+            let _ = restart_sender.send(false);
+            // Delay to allow kernel to fully release the old handle
+            tokio::time::sleep(std::time::Duration::from_millis(HANDLE_CLEANUP_DELAY_MS)).await;
+        }
+    });
+    packet_receiver
+}
+
+async fn read_packets(
+    packet_sender: &tokio::sync::mpsc::Sender<(Pkt, Vec<u8>)>,
+    restart_receiver: &mut watch::Receiver<bool>,
+) {
+    let windivert = match WinDivert::network(
+        "!loopback && ip && tcp",
+        0,
+        WinDivertFlags::new().set_sniff(),
+    ) {
+        Ok(handle) => {
+            info!("WinDivert handle opened");
+            handle
+        }
+        Err(e) => {
+            error!("Failed to initialize WinDivert: {e}");
+            return;
+        }
+    };
+
+    let mut windivert_buffer = vec![0u8; 10 * 1024 * 1024];
+    let mut known_server: Option<Server> = None;
+    let mut tcp_reassembler = TcpReassembler::new();
+    let mut game_subnet: Option<[u8; 2]> = None;
+    let mut subnet_reassemblers: HashMap<Server, TcpReassembler> = HashMap::new();
+
+    while let Ok(packet) = windivert.recv(Some(&mut windivert_buffer)) {
+        let Ok(network_slices) = SlicedPacket::from_ip(packet.data.as_ref()) else {
+            continue;
+        };
+        let Some(Ipv4(ip_packet)) = network_slices.net else {
+            continue;
+        };
+        let Some(Tcp(tcp_packet)) = network_slices.transport else {
+            continue;
+        };
+        let curr_server = Server::new(
+            ip_packet.header().source(),
+            tcp_packet.to_header().source_port,
+            ip_packet.header().destination(),
+            tcp_packet.to_header().destination_port,
+        );
+
+        if known_server != Some(curr_server) {
+            let tcp_payload = tcp_packet.payload();
+            let mut detected = false;
+
+            // 1. Try to identify game server via fragment signature
+            let mut tcp_payload_reader = BinaryReader::from(tcp_payload.to_vec());
+            if tcp_payload_reader.remaining() >= 10 {
+                match tcp_payload_reader.read_bytes(10) {
+                    Ok(bytes) => {
+                        if bytes[4] == 0 {
+                            const FRAG_LENGTH_SIZE: usize = 4;
+                            let mut i = 0usize;
+                            while tcp_payload_reader.remaining() >= FRAG_LENGTH_SIZE {
+                                i += 1;
+                                if i > 1000 {
+                                    info!("Potential infinite loop in server detection, iteration={i}");
+                                }
+                                let tcp_frag_payload_len =
+                                    match tcp_payload_reader.read_u32() {
+                                        Ok(len) => {
+                                            len.saturating_sub(FRAG_LENGTH_SIZE as u32) as usize
+                                        }
+                                        Err(e) => {
+                                            debug!(
+                                                "Malformed TCP fragment: failed to read_u32: {e}"
+                                            );
+                                            break;
+                                        }
+                                    };
+                                if tcp_payload_reader.remaining() >= tcp_frag_payload_len {
+                                    match tcp_payload_reader.read_bytes(tcp_frag_payload_len) {
+                                        Ok(tcp_frag) => {
+                                            let signature = crate::protocol::constants::server_detection::SERVER_SIGNATURE;
+                                            let offset = crate::protocol::constants::packet_layout::SERVER_SIGNATURE_OFFSET;
+                                            if tcp_frag.len() >= offset + signature.len()
+                                                && tcp_frag[offset..offset + signature.len()]
+                                                    == signature[..]
+                                            {
+                                                info!(
+                                                    "Got Scene Server Address (by change): {curr_server}"
+                                                );
+                                                update_known_server(
+                                                    &curr_server,
+                                                    &mut known_server,
+                                                    &mut game_subnet,
+                                                    &mut tcp_reassembler,
+                                                    tcp_packet.sequence_number() as usize
+                                                        + tcp_payload_reader.len(),
+                                                    &mut subnet_reassemblers,
+                                                );
+                                                send_server_change_info(packet_sender);
+                                                detected = true;
+                                                break;
+                                            }
+                                        }
+                                        Err(e) => {
+                                            debug!(
+                                                "Malformed TCP fragment: failed to read_bytes: {e}"
+                                            );
+                                            break;
+                                        }
+                                    }
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        debug!("Malformed TCP payload: failed to read_bytes(10): {e}");
+                    }
+                }
+            }
+
+            // 2. Login return packet detection
+            if !detected
+                && known_server.is_none()
+                && tcp_payload.len()
+                    == crate::protocol::constants::server_detection::LOGIN_RETURN_SIGNATURE_SIZE
+            {
+                let sig1 =
+                    crate::protocol::constants::server_detection::LOGIN_RETURN_SIGNATURE_1;
+                let sig2 =
+                    crate::protocol::constants::server_detection::LOGIN_RETURN_SIGNATURE_2;
+                if tcp_payload.len() >= 20
+                    && tcp_payload[0..10] == sig1[..]
+                    && tcp_payload[14..20] == sig2[..]
+                {
+                    info!(
+                        "Got Scene Server Address by Login Return Packet: {curr_server}"
+                    );
+                    update_known_server(
+                        &curr_server,
+                        &mut known_server,
+                        &mut game_subnet,
+                        &mut tcp_reassembler,
+                        tcp_packet.sequence_number() as usize + tcp_payload.len(),
+                        &mut subnet_reassemblers,
+                    );
+                    send_server_change_info(packet_sender);
+                    detected = true;
+                }
+            }
+
+            // 3. Auto-track game subnet connections
+            if !detected && !tcp_payload.is_empty() {
+                if let Some(prefix) = &game_subnet {
+                    if curr_server.src_matches_subnet(prefix) {
+                        if !subnet_reassemblers.contains_key(&curr_server) {
+                            if subnet_reassemblers.len() < MAX_SUBNET_CONNECTIONS {
+                                subnet_reassemblers
+                                    .insert(curr_server, TcpReassembler::new());
+                            }
+                        }
+                        if let Some(reassembler) = subnet_reassemblers.get_mut(&curr_server) {
+                            reassemble_and_process(
+                                reassembler,
+                                &tcp_packet,
+                                packet_sender,
+                                true,
+                            );
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+
+        // Primary server reassembly
+        reassemble_and_process(&mut tcp_reassembler, &tcp_packet, packet_sender, false);
+
+        if *restart_receiver.borrow() {
+            info!("WinDivert restart requested during packet processing, closing handle");
+            break;
+        }
+    }
+
+    drop(windivert);
+    info!("WinDivert handle closed and dropped");
+}
+
+fn update_known_server(
+    server: &Server,
+    known_server: &mut Option<Server>,
+    game_subnet: &mut Option<[u8; 2]>,
+    reassembler: &mut TcpReassembler,
+    seq: usize,
+    subnet_reassemblers: &mut HashMap<Server, TcpReassembler>,
+) {
+    *known_server = Some(*server);
+    let src = server.src_addr();
+    let dst = server.dst_addr();
+    let prefix = if src[0] != 10 && src[0] != 172 && src[0] != 192 {
+        [src[0], src[1]]
+    } else {
+        [dst[0], dst[1]]
+    };
+    *game_subnet = Some(prefix);
+    info!("Game server subnet detected: {}.{}.*", prefix[0], prefix[1]);
+    reassembler.clear(seq);
+    subnet_reassemblers.clear();
+}
+
+fn reassemble_and_process(
+    reassembler: &mut TcpReassembler,
+    tcp_packet: &etherparse::TcpSlice<'_>,
+    packet_sender: &tokio::sync::mpsc::Sender<(Pkt, Vec<u8>)>,
+    clear_on_malformed: bool,
+) {
+    if tcp_packet.payload().is_empty() {
+        return;
+    }
+    if reassembler.next_seq.is_none() {
+        reassembler.next_seq = Some(tcp_packet.sequence_number() as usize);
+    }
+
+    // Only insert if this segment is not behind next_seq
+    if let Some(next_seq) = reassembler.next_seq {
+        let pkt_seq = tcp_packet.sequence_number() as usize;
+        if next_seq.saturating_sub(pkt_seq) == 0 {
+            reassembler
+                .cache
+                .insert(pkt_seq, Vec::from(tcp_packet.payload()));
+        }
+    }
+
+    let mut i = 0usize;
+    loop {
+        let next_seq = match reassembler.next_seq {
+            Some(s) => s,
+            None => break,
+        };
+        if !reassembler.cache.contains_key(&next_seq) {
+            break;
+        }
+        i += 1;
+        if i % 1000 == 0 {
+            warn!(
+                "Potential infinite loop in cache processing: iteration={i}, next_seq={next_seq}, cache_size={}, data_len={}",
+                reassembler.cache.len(),
+                reassembler.data.len()
+            );
+        }
+        let cached_tcp_data = reassembler.cache.remove(&next_seq).expect("just checked");
+        reassembler.data.extend_from_slice(&cached_tcp_data);
+        reassembler.next_seq = Some(next_seq.wrapping_add(cached_tcp_data.len()));
+    }
+
+    while reassembler.data.len() > 4 {
+        let packet_size = match BinaryReader::from(reassembler.data.clone()).read_u32() {
+            Ok(sz) => sz,
+            Err(e) => {
+                debug!("Malformed reassembled packet: failed to read_u32: {e}");
+                break;
+            }
+        };
+        const MIN_PACKET_SIZE: u32 = 6;
+        const MAX_PACKET_SIZE: u32 = 10 * 1024 * 1024;
+        if packet_size < MIN_PACKET_SIZE || packet_size > MAX_PACKET_SIZE {
+            if clear_on_malformed {
+                reassembler.data.clear();
+                break;
+            }
+            warn!(
+                "Malformed reassembled packet: invalid packet_size={packet_size}, data_len={}",
+                reassembler.data.len()
+            );
+            reassembler.data.drain(0..1);
+            continue;
+        }
+        if reassembler.data.len() < packet_size as usize {
+            break;
+        }
+        let (left, right) = reassembler.data.split_at(packet_size as usize);
+        let packet = left.to_vec();
+        reassembler.data = right.to_vec();
+        let sender = packet_sender.clone();
+        tauri::async_runtime::spawn(async move {
+            process_packet(BinaryReader::from(packet), sender).await;
+        });
+    }
+}
+
+pub fn request_restart() {
+    if let Some(sender) = RESTART_SENDER.get() {
+        let _ = sender.send(true);
+    }
+}

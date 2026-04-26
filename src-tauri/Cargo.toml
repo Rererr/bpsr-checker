@@ -10,7 +10,7 @@ name = "ww_dps_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-prost-build = { version = "0.14", features = ["vendored-protoc"] }
+prost-build = "0.14"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]

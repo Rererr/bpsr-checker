@@ -1,4 +1,5 @@
 import { createEffect, onCleanup } from "solid-js";
+import { invoke } from "@tauri-apps/api/core";
 import { t } from "../lib/i18n";
 import {
   header,
@@ -101,6 +102,13 @@ export function Header(props: HeaderProps) {
           title={t("settings")}
         >
           S
+        </button>
+        <button
+          onClick={() => invoke("quit_app")}
+          style={controlBtnStyle()}
+          title={t("quit")}
+        >
+          ×
         </button>
       </div>
     </div>

@@ -67,14 +67,14 @@ export function Header(props: HeaderProps) {
       </div>
 
       {/* Stats */}
-      <div style={{ flex: "1", display: "flex", gap: "12px", "align-items": "center" }}>
-        <span style={{ color: "#4fc3f7" }}>
+      <div data-tauri-drag-region style={{ flex: "1", display: "flex", gap: "12px", "align-items": "center" }}>
+        <span data-tauri-drag-region style={{ color: "#4fc3f7" }}>
           {formatDps(h().totalDps)} DPS
         </span>
-        <span style={{ color: "#aaa" }}>
+        <span data-tauri-drag-region style={{ color: "#aaa" }}>
           {formatNumber(h().totalDmg)}
         </span>
-        <span style={{ color: "#888" }}>
+        <span data-tauri-drag-region style={{ color: "#888" }}>
           {formatElapsed(h().elapsedMs)}
         </span>
       </div>

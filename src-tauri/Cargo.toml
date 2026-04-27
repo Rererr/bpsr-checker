@@ -1,12 +1,12 @@
 [package]
-name = "ww-dps"
+name = "bpsr-checker"
 version = "0.1.0"
 description = "軽量DPSチェッカー for Blue Protocol: Star Resonance"
 authors = ["Rererr"]
 edition = "2024"
 
 [lib]
-name = "ww_dps_lib"
+name = "bpsr_checker_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

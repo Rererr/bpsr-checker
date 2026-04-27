@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    ww_dps_lib::run()
+    bpsr_checker_lib::run()
 }

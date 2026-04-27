@@ -158,7 +158,7 @@ fn make_player_row(
     elapsed_secs: f64,
 ) -> PlayerRow {
     let display_name = if name.is_empty() {
-        format!("Player {uid}")
+        format!("プレイヤー#{}", uid & 0xFFFF)
     } else {
         name.to_string()
     };
@@ -166,8 +166,8 @@ fn make_player_row(
     PlayerRow {
         uid: uid as f64,
         name: display_name,
-        class_name: class.unwrap_or(Class::Unknown).name_en().to_string(),
-        class_spec_name: class_spec.unwrap_or(ClassSpec::Unknown).name().to_string(),
+        class_name: class.unwrap_or(Class::Unknown).name_ja().to_string(),
+        class_spec_name: class_spec.unwrap_or(ClassSpec::Unknown).name_ja().to_string(),
         ability_score: f64::from(ability_score.unwrap_or(-1)),
         total_value: entity_stats.total as f64,
         value_per_sec: nan_is_zero(entity_stats.total as f64 / elapsed_secs),

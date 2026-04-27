@@ -138,7 +138,7 @@ function PlayerRowItem(props: PlayerRowItemProps) {
           {props.row.name}
         </span>
         <span style={{ color: "#666", "font-size": "10px", "flex-shrink": "0" }}>
-          {props.row.classSpecName !== "Unknown Spec" ? props.row.classSpecName : ""}
+          {props.row.classSpecName !== "不明スペック" ? props.row.classSpecName : ""}
         </span>
       </div>
 

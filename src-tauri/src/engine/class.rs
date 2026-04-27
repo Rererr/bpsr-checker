@@ -114,6 +114,28 @@ impl ClassSpec {
             ClassSpec::Unknown => "Unknown Spec",
         }
     }
+
+    pub fn name_ja(self) -> &'static str {
+        match self {
+            ClassSpec::Iaido => "居合",
+            ClassSpec::Moonstrike => "月閃",
+            ClassSpec::Icicle => "氷柱",
+            ClassSpec::Frostbeam => "氷光線",
+            ClassSpec::Vanguard => "先鋒",
+            ClassSpec::Skyward => "翔空",
+            ClassSpec::Smite => "裁き",
+            ClassSpec::Lifebind => "生命結",
+            ClassSpec::Earthfort => "大地砦",
+            ClassSpec::Block => "防御",
+            ClassSpec::Wildpack => "狼群",
+            ClassSpec::Falconry => "鷹匠",
+            ClassSpec::Recovery => "回復",
+            ClassSpec::Shield => "盾",
+            ClassSpec::Dissonance => "不協和音",
+            ClassSpec::Concerto => "協奏曲",
+            ClassSpec::Unknown => "不明スペック",
+        }
+    }
 }
 
 pub fn get_class_spec_from_skill_id(skill_id: i32) -> ClassSpec {

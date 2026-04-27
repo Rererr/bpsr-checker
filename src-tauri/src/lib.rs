@@ -51,7 +51,7 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .invoke_handler(builder.invoke_handler())
         .setup(|app| {
-            info!("starting ww-dps v{}", app.package_info().version);
+            info!("starting bpsr-checker v{}", app.package_info().version);
 
             let app_handle = app.handle().clone();
             setup_logs(&app_handle)?;
@@ -86,7 +86,7 @@ pub fn run() {
 fn setup_logs(app: &tauri::AppHandle) -> tauri::Result<()> {
     let version = &app.package_info().version;
     let timestamp = chrono::Utc::now().format("%Y-%m-%d_%H-%M-%S");
-    let log_name = format!("ww-dps-v{version}-{timestamp}");
+    let log_name = format!("bpsr-checker-v{version}-{timestamp}");
 
     app.plugin(
         tauri_plugin_log::Builder::new()

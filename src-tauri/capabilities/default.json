@@ -15,6 +15,7 @@
     "core:window:allow-unminimize",
     "core:window:allow-set-ignore-cursor-events",
     "core:window:allow-set-always-on-top",
+    "core:window:allow-start-dragging",
     "window-state:default",
     "log:default"
   ]

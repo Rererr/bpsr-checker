@@ -56,11 +56,7 @@ fn now_ms() -> u128 {
 pub fn process_opcode(app_handle: &AppHandle, op: Pkt, data: Vec<u8>) -> AppResult<()> {
     match op {
         Pkt::ServerChangeInfo => {
-            let state = app_handle.state::<EncounterMutex>();
-            let mut encounter = state
-                .lock()
-                .map_err(|e| AppError::LockPoisoned(e.to_string()))?;
-            on_server_change(&mut encounter);
+            info!("[ServerChangeInfo] received (encounter retained; use reset to clear)");
         }
 
         Pkt::NotifySocialData => {
@@ -78,14 +74,9 @@ pub fn process_opcode(app_handle: &AppHandle, op: Pkt, data: Vec<u8>) -> AppResu
             if let Some(scene) = scene_data {
                 if scene.line_id != 0 {
                     info!(
-                        "[SocialNtf] scene changed: line_id={} level_map_id={}",
+                        "[SocialNtf] scene changed: line_id={} level_map_id={} (encounter retained)",
                         scene.line_id, scene.level_map_id
                     );
-                    let state = app_handle.state::<EncounterMutex>();
-                    let mut encounter = state
-                        .lock()
-                        .map_err(|e| AppError::LockPoisoned(e.to_string()))?;
-                    encounter.entities.clear();
                 }
             }
         }
@@ -146,11 +137,6 @@ pub fn process_opcode(app_handle: &AppHandle, op: Pkt, data: Vec<u8>) -> AppResu
     }
 
     Ok(())
-}
-
-fn on_server_change(encounter: &mut Encounter) {
-    info!("on server change");
-    encounter.clone_from(&Encounter::default());
 }
 
 fn process_sync_near_entities(encounter: &mut Encounter, msg: pb::SyncNearEntities) {

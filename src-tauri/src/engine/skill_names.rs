@@ -10,5 +10,5 @@ pub fn get_skill_name(id: i32) -> String {
     SKILL_NAMES
         .get(&id)
         .cloned()
-        .unwrap_or_else(|| format!("UNKNOWN SKILL ({id})"))
+        .unwrap_or_else(|| format!("不明な技 ({id})"))
 }

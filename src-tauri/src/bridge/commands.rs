@@ -36,11 +36,9 @@ pub fn get_header_info(state: tauri::State<'_, EncounterMutex>) -> HeaderInfo {
         }
     };
 
-    if encounter.dmg_stats.total == 0 {
-        return HeaderInfo::default();
-    }
-
-    let elapsed_ms = encounter.time_last_combat_packet_ms - encounter.time_fight_start_ms;
+    let elapsed_ms = encounter
+        .time_last_combat_packet_ms
+        .saturating_sub(encounter.time_fight_start_ms);
     let elapsed_secs = elapsed_ms as f64 / 1000.0;
 
     HeaderInfo {
@@ -96,7 +94,9 @@ fn build_players_window(
     encounter: MutexGuard<'_, Encounter>,
     stat_type: StatType,
 ) -> PlayersWindow {
-    let elapsed_ms = encounter.time_last_combat_packet_ms - encounter.time_fight_start_ms;
+    let elapsed_ms = encounter
+        .time_last_combat_packet_ms
+        .saturating_sub(encounter.time_fight_start_ms);
     let elapsed_secs = elapsed_ms as f64 / 1000.0;
 
     let encounter_stats = match stat_type {
@@ -207,7 +207,9 @@ pub fn get_skills(
         return Err(format!("Could not find player with uid {player_uid}"));
     };
 
-    let elapsed_ms = encounter.time_last_combat_packet_ms - encounter.time_fight_start_ms;
+    let elapsed_ms = encounter
+        .time_last_combat_packet_ms
+        .saturating_sub(encounter.time_fight_start_ms);
     let elapsed_secs = elapsed_ms as f64 / 1000.0;
 
     let player_stats = &player.dmg_stats;

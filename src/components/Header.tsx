@@ -21,6 +21,7 @@ import {
   showHeaderSparkline,
   alwaysOnTop,
   setAlwaysOnTop,
+  opacity,
 } from "../stores/settings";
 import type { Tab } from "../App";
 
@@ -70,7 +71,7 @@ export function Header(props: HeaderProps) {
         "align-items": "center",
         gap: "8px",
         padding: "4px 8px",
-        background: "rgba(0,0,0,0.3)",
+        background: `rgba(0,0,0,${0.3 * opacity()})`,
         "border-bottom": "1px solid rgba(255,255,255,0.1)",
         "font-size": "12px",
         "user-select": "none",

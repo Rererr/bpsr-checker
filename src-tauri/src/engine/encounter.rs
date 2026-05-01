@@ -19,3 +19,31 @@ pub struct Encounter {
     pub last_sample_total_dmg: i64,
     pub local_player_uid: i64,
 }
+
+impl Encounter {
+    /// Reset combat statistics while keeping each entity's identity (name,
+    /// class, ability score, monster id, etc.) intact. Used for both manual
+    /// reset and automatic encounter rollover so player names don't get
+    /// replaced by `プレイヤー#XXXX` fallbacks after a reset.
+    pub fn clear_combat_stats(&mut self) {
+        self.is_paused = false;
+        self.time_fight_start_ms = 0;
+        self.time_last_combat_packet_ms = 0;
+        self.dmg_stats = CombatStats::default();
+        self.dmg_stats_boss_only = CombatStats::default();
+        self.heal_stats = CombatStats::default();
+        self.time_series.clear();
+        self.last_sample_ms = 0;
+        self.last_sample_total_dmg = 0;
+        for entity in self.entities.values_mut() {
+            entity.dmg_stats = CombatStats::default();
+            entity.dmg_stats_boss_only = CombatStats::default();
+            entity.heal_stats = CombatStats::default();
+            entity.skill_uid_to_dps_stats.clear();
+            entity.skill_uid_to_dps_stats_boss_only.clear();
+            entity.skill_uid_to_heal_stats.clear();
+            entity.time_series.clear();
+            entity.last_sample_total_dmg = 0;
+        }
+    }
+}

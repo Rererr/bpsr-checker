@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onCleanup } from "solid-js";
+import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { t } from "../lib/i18n";
 import {
@@ -15,7 +15,7 @@ import {
 } from "../stores/encounter";
 import { Sparkline } from "./Sparkline";
 import { formatDps, formatNumber, formatElapsed, formatRowAsText } from "../utils";
-import { pollIntervalMs, copyTemplate } from "../stores/settings";
+import { pollIntervalMs, copyTemplate, showHeaderSparkline } from "../stores/settings";
 import type { Tab } from "../App";
 
 interface HeaderProps {
@@ -96,9 +96,11 @@ export function Header(props: HeaderProps) {
         <span data-tauri-drag-region style={{ color: "#888" }}>
           {formatElapsed(h().elapsedMs)}
         </span>
-        <span data-tauri-drag-region style={{ "margin-left": "4px", display: "flex", "align-items": "center" }}>
-          <Sparkline points={timeSeries()} width={100} height={18} />
-        </span>
+        <Show when={showHeaderSparkline()}>
+          <span data-tauri-drag-region style={{ "margin-left": "4px", display: "flex", "align-items": "center" }}>
+            <Sparkline points={timeSeries()} width={100} height={18} />
+          </span>
+        </Show>
       </div>
 
       {/* Controls */}

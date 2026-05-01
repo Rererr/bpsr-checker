@@ -61,5 +61,8 @@
   "font_size": "Font size",
   "highlight_local": "Highlight self",
   "privacy_mask": "Privacy mask",
-  "startup_tab": "Startup tab"
+  "startup_tab": "Startup tab",
+  "header_sparkline": "Header total graph",
+  "graph_player_count": "Graph player count",
+  "graph_for_local": "Graph for self"
 }

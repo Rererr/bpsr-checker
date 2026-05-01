@@ -21,6 +21,9 @@ import {
   highlightLocalPlayer, setHighlightLocalPlayer,
   privacyMaskNames, setPrivacyMaskNames,
   startupTab, setStartupTab,
+  showHeaderSparkline, setShowHeaderSparkline,
+  graphPlayerCount, setGraphPlayerCount,
+  graphForLocalPlayer, setGraphForLocalPlayer,
 } from "../stores/settings";
 import { clearHistory } from "../stores/encounter";
 import { formatRowAsText } from "../utils";
@@ -41,6 +44,7 @@ const SAMPLE_ROW: PlayerRow = {
   luckyValueRate: 2.1,
   hits: 124,
   hitsPerMinute: 78.5,
+  timeSeries: [],
 };
 
 const sectionHeaderStyle = {
@@ -123,6 +127,43 @@ export function SettingsPanel() {
               <Toggle label={t("hpm")} value={showHpm()} onChange={setShowHpm} />
               <Toggle label={t("score")} value={showScore()} onChange={setShowScore} />
             </div>
+          </div>
+
+          {/* Header total sparkline */}
+          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+            <span style={{ color: "#aaa", width: "60px" }}>{t("header_sparkline")}</span>
+            <Toggle label="" value={showHeaderSparkline()} onChange={setShowHeaderSparkline} />
+          </div>
+
+          {/* Graph player count */}
+          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+            <span style={{ color: "#aaa", width: "60px" }}>{t("graph_player_count")}</span>
+            <input
+              type="number"
+              min="0"
+              max="10"
+              step="1"
+              value={graphPlayerCount()}
+              onInput={(e) => {
+                const v = parseInt(e.currentTarget.value, 10);
+                if (!isNaN(v) && v >= 0 && v <= 10) setGraphPlayerCount(v);
+              }}
+              style={{
+                width: "60px",
+                background: "rgba(255,255,255,0.1)",
+                border: "1px solid rgba(255,255,255,0.2)",
+                color: "#ddd",
+                "border-radius": "3px",
+                padding: "2px 4px",
+                "font-size": "11px",
+              }}
+            />
+          </div>
+
+          {/* Graph for local player */}
+          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+            <span style={{ color: "#aaa", width: "60px" }}>{t("graph_for_local")}</span>
+            <Toggle label="" value={graphForLocalPlayer()} onChange={setGraphForLocalPlayer} />
           </div>
         </div>
       </details>

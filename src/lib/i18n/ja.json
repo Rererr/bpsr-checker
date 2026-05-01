@@ -61,5 +61,8 @@
   "font_size": "フォントサイズ",
   "highlight_local": "自分を強調",
   "privacy_mask": "名前マスク",
-  "startup_tab": "起動時タブ"
+  "startup_tab": "起動時タブ",
+  "header_sparkline": "ヘッダー合計グラフ",
+  "graph_player_count": "グラフ表示人数",
+  "graph_for_local": "自分キャラのグラフ"
 }

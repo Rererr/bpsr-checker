@@ -1,6 +1,6 @@
 [package]
 name = "bpsr-checker"
-version = "0.1.3"
+version = "0.2.0"
 description = "軽量DPSチェッカー for Blue Protocol: Star Resonance"
 authors = ["Rererr"]
 edition = "2024"
@@ -32,6 +32,7 @@ tauri-specta = { version = "2.0.0-rc.24", features = ["typescript"] }
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "sync", "rt-multi-thread", "time"] }
 zstd = "0.13"
+tauri-plugin-global-shortcut = "2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windivert = { version = "0.6", features = ["vendored"] }

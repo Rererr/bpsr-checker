@@ -6,7 +6,57 @@ import {
   showLucky, setShowLucky,
   showHpm, setShowHpm,
   showScore, setShowScore,
+  showCritValue, setShowCritValue,
+  showLuckyValue, setShowLuckyValue,
+  showHits, setShowHits,
+  copyTemplate, setCopyTemplate,
+  pollIntervalMs, setPollIntervalMs,
+  combatExitSec, setCombatExitSec,
+  historyLimit, setHistoryLimit,
+  timeSeriesSamples, setTimeSeriesSamples,
+  timeSeriesIntervalMs, setTimeSeriesIntervalMs,
+  alwaysOnTop, setAlwaysOnTop,
+  clickThrough, setClickThrough,
+  fontSize, setFontSize,
+  highlightLocalPlayer, setHighlightLocalPlayer,
+  privacyMaskNames, setPrivacyMaskNames,
+  startupTab, setStartupTab,
 } from "../stores/settings";
+import { clearHistory } from "../stores/encounter";
+import { formatRowAsText } from "../utils";
+import type { PlayerRow } from "../stores/encounter";
+
+const SAMPLE_ROW: PlayerRow = {
+  uid: 0,
+  name: "Sample",
+  className: "ストームブレイド",
+  classSpecName: "炎",
+  abilityScore: 12345,
+  totalValue: 1234567,
+  valuePerSec: 45678,
+  valuePct: 35.5,
+  critRate: 42.3,
+  critValueRate: 18.7,
+  luckyRate: 5.5,
+  luckyValueRate: 2.1,
+  hits: 124,
+  hitsPerMinute: 78.5,
+};
+
+const sectionHeaderStyle = {
+  color: "#aaa",
+  "font-weight": "bold",
+  "font-size": "10px",
+  "text-transform": "uppercase",
+  "letter-spacing": "0.05em",
+  cursor: "pointer",
+};
+
+const sectionStyle = {
+  display: "flex",
+  "flex-direction": "column" as const,
+  gap: "6px",
+};
 
 export function SettingsPanel() {
   return (
@@ -17,55 +67,347 @@ export function SettingsPanel() {
         "border-bottom": "1px solid rgba(255,255,255,0.1)",
         display: "flex",
         "flex-direction": "column",
-        gap: "6px",
+        gap: "8px",
         "font-size": "11px",
       }}
     >
-      {/* Opacity */}
-      <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-        <span style={{ color: "#aaa", width: "60px" }}>{t("transparency")}</span>
-        <input
-          type="range"
-          min="0.3"
-          max="1"
-          step="0.05"
-          value={opacity()}
-          onInput={(e) => setOpacity(parseFloat(e.currentTarget.value))}
-          style={{ flex: "1" }}
-        />
-        <span style={{ color: "#888", width: "30px", "text-align": "right" }}>
-          {Math.round(opacity() * 100)}%
-        </span>
-      </div>
+      <details open>
+        <summary style={sectionHeaderStyle}>{t("settings_display")}</summary>
+        <div style={{ ...sectionStyle, "margin-top": "6px" }}>
+          {/* Opacity */}
+          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+            <span style={{ color: "#aaa", width: "60px" }}>{t("transparency")}</span>
+            <input
+              type="range"
+              min="0.3"
+              max="1"
+              step="0.05"
+              value={opacity()}
+              onInput={(e) => setOpacity(parseFloat(e.currentTarget.value))}
+              style={{ flex: "1" }}
+            />
+            <span style={{ color: "#888", width: "30px", "text-align": "right" }}>
+              {Math.round(opacity() * 100)}%
+            </span>
+          </div>
 
-      {/* Language */}
-      <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-        <span style={{ color: "#aaa", width: "60px" }}>{t("language")}</span>
-        <select
-          value={locale()}
-          onChange={(e) => setLocale(e.currentTarget.value as Locale)}
-          style={{
-            background: "rgba(255,255,255,0.1)",
-            border: "1px solid rgba(255,255,255,0.2)",
-            color: "#ddd",
-            "border-radius": "3px",
-            padding: "2px 4px",
-            "font-size": "11px",
-          }}
-        >
-          <option value="ja">日本語</option>
-          <option value="en">English</option>
-        </select>
-      </div>
+          {/* Language */}
+          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+            <span style={{ color: "#aaa", width: "60px" }}>{t("language")}</span>
+            <select
+              value={locale()}
+              onChange={(e) => setLocale(e.currentTarget.value as Locale)}
+              style={{
+                background: "rgba(255,255,255,0.1)",
+                border: "1px solid rgba(255,255,255,0.2)",
+                color: "#ddd",
+                "border-radius": "3px",
+                padding: "2px 4px",
+                "font-size": "11px",
+              }}
+            >
+              <option value="ja">日本語</option>
+              <option value="en">English</option>
+            </select>
+          </div>
 
-      {/* Column toggles */}
-      <div style={{ display: "flex", "align-items": "center", gap: "8px", "flex-wrap": "wrap" }}>
-        <span style={{ color: "#aaa", width: "60px" }}>{t("columns")}</span>
-        <Toggle label={t("crit_rate")} value={showCrit()} onChange={setShowCrit} />
-        <Toggle label={t("lucky_rate")} value={showLucky()} onChange={setShowLucky} />
-        <Toggle label={t("hpm")} value={showHpm()} onChange={setShowHpm} />
-        <Toggle label={t("score")} value={showScore()} onChange={setShowScore} />
-      </div>
+          {/* Column toggles */}
+          <div style={{ display: "flex", "align-items": "flex-start", gap: "8px" }}>
+            <span style={{ color: "#aaa", width: "60px", "padding-top": "1px" }}>{t("columns")}</span>
+            <div style={{ display: "flex", "flex-wrap": "wrap", gap: "6px 10px", flex: "1" }}>
+              <Toggle label={t("crit_rate")} value={showCrit()} onChange={setShowCrit} />
+              <Toggle label={t("crit_value")} value={showCritValue()} onChange={setShowCritValue} />
+              <Toggle label={t("lucky_rate")} value={showLucky()} onChange={setShowLucky} />
+              <Toggle label={t("lucky_value")} value={showLuckyValue()} onChange={setShowLuckyValue} />
+              <Toggle label={t("hits")} value={showHits()} onChange={setShowHits} />
+              <Toggle label={t("hpm")} value={showHpm()} onChange={setShowHpm} />
+              <Toggle label={t("score")} value={showScore()} onChange={setShowScore} />
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary style={sectionHeaderStyle}>{t("settings_copy")}</summary>
+        <div style={{ ...sectionStyle, "margin-top": "6px" }}>
+          {/* Template textarea */}
+          <div style={{ display: "flex", "align-items": "flex-start", gap: "8px" }}>
+            <span style={{ color: "#aaa", width: "60px", "padding-top": "2px" }}>{t("copy_template")}</span>
+            <textarea
+              rows="2"
+              value={copyTemplate()}
+              onInput={(e) => setCopyTemplate(e.currentTarget.value)}
+              style={{
+                flex: "1",
+                background: "rgba(255,255,255,0.1)",
+                border: "1px solid rgba(255,255,255,0.2)",
+                color: "#ddd",
+                "border-radius": "3px",
+                padding: "3px 5px",
+                "font-size": "11px",
+                "font-family": "monospace",
+                resize: "vertical",
+              }}
+            />
+          </div>
+
+          {/* Placeholder reference */}
+          <div style={{ color: "#666", "font-size": "10px", "padding-left": "68px", "font-family": "monospace" }}>
+            {"{rank} {name} {class} {spec} {dmg} {dps} {pct} {crit} {critV} {lucky} {luckyV} {hits} {hpm} {score}"}
+          </div>
+
+          {/* Live preview */}
+          <div style={{ display: "flex", "align-items": "flex-start", gap: "8px" }}>
+            <span style={{ color: "#aaa", width: "60px", "padding-top": "2px" }}>{t("copy_template_preview")}</span>
+            <pre style={{
+              flex: "1",
+              margin: "0",
+              padding: "4px 6px",
+              background: "rgba(0,0,0,0.3)",
+              "border-radius": "3px",
+              color: "#ddd",
+              "font-size": "11px",
+              "white-space": "pre-wrap",
+              "word-break": "break-all",
+            }}>
+              {formatRowAsText(SAMPLE_ROW, 1, copyTemplate())}
+            </pre>
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary style={sectionHeaderStyle}>{t("settings_combat")}</summary>
+        <div style={{ ...sectionStyle, "margin-top": "6px" }}>
+          {/* Combat exit timeout */}
+          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+            <span style={{ color: "#aaa", width: "80px" }}>{t("combat_exit_sec")}</span>
+            <input
+              type="number"
+              min="0"
+              max="60"
+              step="1"
+              value={combatExitSec()}
+              onInput={(e) => {
+                const v = parseInt(e.currentTarget.value, 10);
+                if (!isNaN(v) && v >= 0 && v <= 60) setCombatExitSec(v);
+              }}
+              style={{
+                width: "70px",
+                background: "rgba(255,255,255,0.1)",
+                border: "1px solid rgba(255,255,255,0.2)",
+                color: "#ddd",
+                "border-radius": "3px",
+                padding: "2px 4px",
+                "font-size": "11px",
+              }}
+            />
+          </div>
+
+          {/* Poll interval */}
+          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+            <span style={{ color: "#aaa", width: "80px" }}>{t("poll_interval_ms")}</span>
+            <input
+              type="number"
+              min="50"
+              max="2000"
+              step="50"
+              value={pollIntervalMs()}
+              onInput={(e) => {
+                const v = parseInt(e.currentTarget.value, 10);
+                if (!isNaN(v) && v >= 50 && v <= 2000) setPollIntervalMs(v);
+              }}
+              style={{
+                width: "70px",
+                background: "rgba(255,255,255,0.1)",
+                border: "1px solid rgba(255,255,255,0.2)",
+                color: "#ddd",
+                "border-radius": "3px",
+                padding: "2px 4px",
+                "font-size": "11px",
+              }}
+            />
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary style={sectionHeaderStyle}>{t("settings_history")}</summary>
+        <div style={{ ...sectionStyle, "margin-top": "6px" }}>
+          {/* History limit */}
+          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+            <span style={{ color: "#aaa", width: "80px" }}>{t("history_limit")}</span>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="1"
+              value={historyLimit()}
+              onInput={(e) => {
+                const v = parseInt(e.currentTarget.value, 10);
+                if (!isNaN(v) && v >= 0 && v <= 100) setHistoryLimit(v);
+              }}
+              style={{
+                width: "70px",
+                background: "rgba(255,255,255,0.1)",
+                border: "1px solid rgba(255,255,255,0.2)",
+                color: "#ddd",
+                "border-radius": "3px",
+                padding: "2px 4px",
+                "font-size": "11px",
+              }}
+            />
+          </div>
+
+          {/* Time series samples */}
+          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+            <span style={{ color: "#aaa", width: "80px" }}>{t("time_series_samples")}</span>
+            <input
+              type="number"
+              min="10"
+              max="200"
+              step="10"
+              value={timeSeriesSamples()}
+              onInput={(e) => {
+                const v = parseInt(e.currentTarget.value, 10);
+                if (!isNaN(v) && v >= 10 && v <= 200) setTimeSeriesSamples(v);
+              }}
+              style={{
+                width: "70px",
+                background: "rgba(255,255,255,0.1)",
+                border: "1px solid rgba(255,255,255,0.2)",
+                color: "#ddd",
+                "border-radius": "3px",
+                padding: "2px 4px",
+                "font-size": "11px",
+              }}
+            />
+          </div>
+
+          {/* Time series interval */}
+          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+            <span style={{ color: "#aaa", width: "80px" }}>{t("time_series_interval")}</span>
+            <input
+              type="number"
+              min="250"
+              max="5000"
+              step="250"
+              value={timeSeriesIntervalMs()}
+              onInput={(e) => {
+                const v = parseInt(e.currentTarget.value, 10);
+                if (!isNaN(v) && v >= 250 && v <= 5000) setTimeSeriesIntervalMs(v);
+              }}
+              style={{
+                width: "70px",
+                background: "rgba(255,255,255,0.1)",
+                border: "1px solid rgba(255,255,255,0.2)",
+                color: "#ddd",
+                "border-radius": "3px",
+                padding: "2px 4px",
+                "font-size": "11px",
+              }}
+            />
+          </div>
+
+          {/* Clear history */}
+          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+            <button
+              onClick={() => clearHistory()}
+              style={{
+                padding: "2px 8px",
+                border: "1px solid rgba(255,255,255,0.2)",
+                "border-radius": "3px",
+                background: "transparent",
+                color: "#ccc",
+                cursor: "pointer",
+                "font-size": "11px",
+              }}
+            >
+              {t("clear_history")}
+            </button>
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary style={sectionHeaderStyle}>{t("settings_overlay")}</summary>
+        <div style={{ ...sectionStyle, "margin-top": "6px" }}>
+          {/* Always on top */}
+          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+            <span style={{ color: "#aaa", width: "80px" }}>{t("always_on_top")}</span>
+            <Toggle label="" value={alwaysOnTop()} onChange={setAlwaysOnTop} />
+          </div>
+
+          {/* Click-through */}
+          <div style={{ display: "flex", "flex-direction": "column", gap: "2px" }}>
+            <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+              <span style={{ color: "#aaa", width: "80px" }}>{t("click_through")}</span>
+              <Toggle label="" value={clickThrough()} onChange={setClickThrough} />
+            </div>
+            <span style={{ color: "#555", "font-size": "10px", "padding-left": "88px" }}>
+              {t("click_through_hint")}
+            </span>
+          </div>
+
+          {/* Font size */}
+          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+            <span style={{ color: "#aaa", width: "80px" }}>{t("font_size")}</span>
+            <input
+              type="number"
+              min="10"
+              max="18"
+              step="1"
+              value={fontSize()}
+              onInput={(e) => {
+                const v = parseInt(e.currentTarget.value, 10);
+                if (!isNaN(v) && v >= 10 && v <= 18) setFontSize(v);
+              }}
+              style={{
+                width: "60px",
+                background: "rgba(255,255,255,0.1)",
+                border: "1px solid rgba(255,255,255,0.2)",
+                color: "#ddd",
+                "border-radius": "3px",
+                padding: "2px 4px",
+                "font-size": "11px",
+              }}
+            />
+          </div>
+
+          {/* Highlight local player */}
+          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+            <span style={{ color: "#aaa", width: "80px" }}>{t("highlight_local")}</span>
+            <Toggle label="" value={highlightLocalPlayer()} onChange={setHighlightLocalPlayer} />
+          </div>
+
+          {/* Privacy mask */}
+          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+            <span style={{ color: "#aaa", width: "80px" }}>{t("privacy_mask")}</span>
+            <Toggle label="" value={privacyMaskNames()} onChange={setPrivacyMaskNames} />
+          </div>
+
+          {/* Startup tab */}
+          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+            <span style={{ color: "#aaa", width: "80px" }}>{t("startup_tab")}</span>
+            <select
+              value={startupTab()}
+              onChange={(e) => setStartupTab(e.currentTarget.value)}
+              style={{
+                background: "rgba(255,255,255,0.1)",
+                border: "1px solid rgba(255,255,255,0.2)",
+                color: "#ddd",
+                "border-radius": "3px",
+                padding: "2px 4px",
+                "font-size": "11px",
+              }}
+            >
+              <option value="dps">{t("tab_dps")}</option>
+              <option value="heal">{t("tab_heal")}</option>
+              <option value="history">{t("tab_history")}</option>
+            </select>
+          </div>
+        </div>
+      </details>
     </div>
   );
 }

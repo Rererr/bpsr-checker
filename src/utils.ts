@@ -37,3 +37,29 @@ const CLASS_COLORS: Record<string, string> = {
 export function getClassColor(className: string): string {
   return CLASS_COLORS[className] ?? "#95a5a6";
 }
+
+export function maskPlayerName(name: string, uid: number): string {
+  return `Player#${(uid & 0xffff).toString(16).padStart(4, "0").toUpperCase()}`;
+}
+
+import type { PlayerRow } from "./stores/encounter";
+
+export function formatRowAsText(row: PlayerRow, rank: number, template: string): string {
+  const map: Record<string, string> = {
+    rank: rank.toString(),
+    name: row.name,
+    class: row.className,
+    spec: row.classSpecName,
+    dmg: formatNumber(row.totalValue),
+    dps: formatDps(row.valuePerSec),
+    pct: formatPct(row.valuePct),
+    crit: formatPct(row.critRate),
+    critV: formatPct(row.critValueRate),
+    lucky: formatPct(row.luckyRate),
+    luckyV: formatPct(row.luckyValueRate),
+    hits: row.hits.toString(),
+    hpm: row.hitsPerMinute.toFixed(1),
+    score: row.abilityScore > 0 ? formatNumber(row.abilityScore) : "-",
+  };
+  return template.replace(/\{(\w+)\}/g, (_m, k) => map[k] ?? `{${k}}`);
+}

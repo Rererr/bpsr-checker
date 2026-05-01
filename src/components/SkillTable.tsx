@@ -1,8 +1,8 @@
 import { createSignal, createEffect, For, Show, onCleanup } from "solid-js";
 import { t } from "../lib/i18n";
 import { fetchSkills } from "../stores/encounter";
-import { showCrit, showLucky } from "../stores/settings";
-import { formatNumber, formatDps, formatPct, getClassColor } from "../utils";
+import { showCrit, showLucky, showHpm, showCritValue, showLuckyValue, showHits, pollIntervalMs, privacyMaskNames } from "../stores/settings";
+import { formatNumber, formatDps, formatPct, getClassColor, maskPlayerName } from "../utils";
 import type { SkillsWindow, SkillRow } from "../stores/encounter";
 
 interface SkillTableProps {
@@ -20,14 +20,18 @@ export function SkillTable(props: SkillTableProps) {
       if (result) setData(result);
     };
     fetchLoop();
-    const interval = setInterval(fetchLoop, 200);
+    const interval = setInterval(fetchLoop, pollIntervalMs());
     onCleanup(() => clearInterval(interval));
   });
 
   const gridCols = () => {
     let cols = "minmax(80px, 1.5fr) 70px 65px 45px";
     if (showCrit()) cols += " 50px";
+    if (showCritValue()) cols += " 50px";
     if (showLucky()) cols += " 50px";
+    if (showLuckyValue()) cols += " 50px";
+    if (showHits()) cols += " 50px";
+    if (showHpm()) cols += " 50px";
     return cols;
   };
 
@@ -70,7 +74,7 @@ export function SkillTable(props: SkillTableProps) {
                     background: getClassColor(p().className),
                   }}
                 />
-                <span>{p().name}</span>
+                <span>{privacyMaskNames() ? maskPlayerName(p().name, p().uid) : p().name}</span>
                 <span style={{ color: "#4fc3f7" }}>{formatDps(p().valuePerSec)} DPS</span>
                 <span style={{ color: "#aaa" }}>{formatPct(p().valuePct)}</span>
               </div>
@@ -97,8 +101,20 @@ export function SkillTable(props: SkillTableProps) {
         <Show when={showCrit()}>
           <span style={{ "text-align": "right" }}>{t("crit_rate")}</span>
         </Show>
+        <Show when={showCritValue()}>
+          <span style={{ "text-align": "right" }}>{t("crit_value")}</span>
+        </Show>
         <Show when={showLucky()}>
           <span style={{ "text-align": "right" }}>{t("lucky_rate")}</span>
+        </Show>
+        <Show when={showLuckyValue()}>
+          <span style={{ "text-align": "right" }}>{t("lucky_value")}</span>
+        </Show>
+        <Show when={showHits()}>
+          <span style={{ "text-align": "right" }}>{t("hits")}</span>
+        </Show>
+        <Show when={showHpm()}>
+          <span style={{ "text-align": "right" }}>{t("hpm")}</span>
         </Show>
       </div>
 
@@ -170,9 +186,29 @@ function SkillRowItem(props: SkillRowItemProps) {
           {formatPct(props.row.critRate)}
         </span>
       </Show>
+      <Show when={showCritValue()}>
+        <span style={{ "text-align": "right", "z-index": "1", color: "#f39c12" }}>
+          {formatPct(props.row.critValueRate)}
+        </span>
+      </Show>
       <Show when={showLucky()}>
         <span style={{ "text-align": "right", "z-index": "1", color: "#2ecc71" }}>
           {formatPct(props.row.luckyRate)}
+        </span>
+      </Show>
+      <Show when={showLuckyValue()}>
+        <span style={{ "text-align": "right", "z-index": "1", color: "#2ecc71" }}>
+          {formatPct(props.row.luckyValueRate)}
+        </span>
+      </Show>
+      <Show when={showHits()}>
+        <span style={{ "text-align": "right", "z-index": "1" }}>
+          {props.row.hits}
+        </span>
+      </Show>
+      <Show when={showHpm()}>
+        <span style={{ "text-align": "right", "z-index": "1" }}>
+          {props.row.hitsPerMinute.toFixed(1)}
         </span>
       </Show>
     </div>

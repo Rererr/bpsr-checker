@@ -123,3 +123,45 @@ export async function resetEncounter() {
 export async function togglePause() {
   await invoke("toggle_pause");
 }
+
+export interface TimeSeriesPoint {
+  tMs: number;
+  totalDmg: number;
+  totalDps: number;
+}
+
+export interface EncounterSnapshot {
+  id: number;
+  startMs: number;
+  endMs: number;
+  durationMs: number;
+  totalDmg: number;
+  totalDps: number;
+  playerRows: PlayerRow[];
+  timeSeries: TimeSeriesPoint[];
+}
+
+const [history, setHistory] = createSignal<EncounterSnapshot[]>([]);
+export { history };
+
+export async function fetchHistory() {
+  try {
+    const data = await invoke<EncounterSnapshot[]>("get_history");
+    setHistory(data);
+  } catch {}
+}
+
+export async function clearHistory() {
+  await invoke("clear_history");
+  await fetchHistory();
+}
+
+const [timeSeries, setTimeSeries] = createSignal<TimeSeriesPoint[]>([]);
+export { timeSeries };
+
+export async function fetchTimeSeries() {
+  try {
+    const data = await invoke<TimeSeriesPoint[]>("get_time_series");
+    setTimeSeries(data);
+  } catch {}
+}

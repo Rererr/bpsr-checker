@@ -11,6 +11,7 @@ use std::fs;
 use tauri::menu::MenuBuilder;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Position, Size, Window, WindowEvent};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 use tauri_specta::{Builder, collect_commands};
@@ -28,6 +29,14 @@ pub fn run() {
         commands::reset_encounter,
         commands::toggle_pause,
         commands::quit_app,
+        commands::set_combat_exit_timeout,
+        commands::set_history_limit,
+        commands::get_history,
+        commands::clear_history,
+        commands::set_time_series_config,
+        commands::get_time_series,
+        commands::set_always_on_top,
+        commands::set_click_through,
     ]);
 
     #[cfg(debug_assertions)]
@@ -49,6 +58,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|_app, _argv, _cwd| {}))
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(builder.invoke_handler())
         .setup(|app| {
             info!("starting bpsr-checker v{}", app.package_info().version);
@@ -58,6 +68,16 @@ pub fn run() {
             setup_tray(&app_handle)?;
 
             app.manage(EncounterMutex::default());
+
+            let app_handle_for_shortcut = app_handle.clone();
+            app.global_shortcut().on_shortcut("Ctrl+Shift+Z", move |_, _, event| {
+                if event.state == ShortcutState::Pressed {
+                    if let Some(w) = app_handle_for_shortcut.get_webview_window(WINDOW_MAIN_LABEL) {
+                        let _ = w.set_ignore_cursor_events(false);
+                        let _ = w.emit("click-through-disabled", ());
+                    }
+                }
+            })?;
 
             // Start packet capture pipeline
             let handle = app_handle.clone();

@@ -1,6 +1,7 @@
+use crate::bridge::models::TimeSeriesPoint;
 use crate::engine::combat_stats::CombatStats;
 use crate::engine::entity::Entity;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 pub type EncounterMutex = std::sync::Mutex<Encounter>;
 
@@ -13,4 +14,7 @@ pub struct Encounter {
     pub dmg_stats: CombatStats,
     pub dmg_stats_boss_only: CombatStats,
     pub heal_stats: CombatStats,
+    pub time_series: VecDeque<TimeSeriesPoint>,
+    pub last_sample_ms: u128,
+    pub last_sample_total_dmg: i64,
 }

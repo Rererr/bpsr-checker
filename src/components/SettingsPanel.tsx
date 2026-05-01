@@ -15,7 +15,6 @@ import {
   historyLimit, setHistoryLimit,
   timeSeriesSamples, setTimeSeriesSamples,
   timeSeriesIntervalMs, setTimeSeriesIntervalMs,
-  alwaysOnTop, setAlwaysOnTop,
   clickThrough, setClickThrough,
   fontSize, setFontSize,
   highlightLocalPlayer, setHighlightLocalPlayer,
@@ -373,12 +372,6 @@ export function SettingsPanel() {
       <details>
         <summary style={sectionHeaderStyle}>{t("settings_overlay")}</summary>
         <div style={{ ...sectionStyle, "margin-top": "6px" }}>
-          {/* Always on top */}
-          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-            <span style={{ color: "#aaa", width: "80px" }}>{t("always_on_top")}</span>
-            <Toggle label="" value={alwaysOnTop()} onChange={setAlwaysOnTop} />
-          </div>
-
           {/* Click-through */}
           <div style={{ display: "flex", "flex-direction": "column", gap: "2px" }}>
             <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>

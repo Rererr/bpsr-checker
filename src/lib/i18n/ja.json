@@ -10,6 +10,7 @@
   "pause": "一時停止",
   "resume": "再開",
   "quit": "終了",
+  "minimize": "最小化 (Ctrl+Shift+H)",
   "elapsed": "経過",
   "total_dps": "合計DPS",
   "total_dmg": "合計ダメージ",

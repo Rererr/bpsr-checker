@@ -1,5 +1,6 @@
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { t } from "../lib/i18n";
 import {
   header,
@@ -193,6 +194,13 @@ export function Header(props: HeaderProps) {
           title={t("settings")}
         >
           S
+        </button>
+        <button
+          onClick={() => getCurrentWindow().minimize()}
+          style={controlBtnStyle()}
+          title={t("minimize")}
+        >
+          −
         </button>
         <button
           onClick={() => invoke("quit_app")}

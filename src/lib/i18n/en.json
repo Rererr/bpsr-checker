@@ -10,6 +10,7 @@
   "pause": "Pause",
   "resume": "Resume",
   "quit": "Quit",
+  "minimize": "Minimize (Ctrl+Shift+H)",
   "elapsed": "Elapsed",
   "total_dps": "Total DPS",
   "total_dmg": "Total Damage",

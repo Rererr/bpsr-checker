@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { createEffect } from "solid-js";
+import { createEffect, createSignal } from "solid-js";
 import { persisted } from "../lib/persisted";
 
 const [opacity, setOpacity] = persisted<number>("opacity", 0.85);
@@ -19,7 +19,8 @@ const [historyLimit, setHistoryLimit] = persisted<number>("historyLimit", 20);
 const [timeSeriesSamples, setTimeSeriesSamples] = persisted<number>("timeSeriesSamples", 60);
 const [timeSeriesIntervalMs, setTimeSeriesIntervalMs] = persisted<number>("timeSeriesIntervalMs", 1000);
 const [alwaysOnTop, setAlwaysOnTop] = persisted<boolean>("alwaysOnTop", true);
-const [clickThrough, setClickThrough] = persisted<boolean>("clickThrough", false);
+try { localStorage.removeItem("bpsr.settings.clickThrough"); } catch {}
+const [clickThrough, setClickThrough] = createSignal<boolean>(false);
 const [fontSize, setFontSize] = persisted<number>("fontSize", 12);
 const [highlightLocalPlayer, setHighlightLocalPlayer] = persisted<boolean>("highlightLocalPlayer", true);
 const [privacyMaskNames, setPrivacyMaskNames] = persisted<boolean>("privacyMaskNames", false);

@@ -4,7 +4,7 @@ import { PlayerTable } from "./components/PlayerTable";
 import { SkillTable } from "./components/SkillTable";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { HistoryView } from "./components/HistoryView";
-import { wireBackendSettings, fontSize, startupTab } from "./stores/settings";
+import { wireBackendSettings, fontSize, startupTab, opacity } from "./stores/settings";
 
 export type Tab = "dps" | "heal" | "history" | "skills";
 
@@ -32,7 +32,7 @@ export default function App() {
 
   return (
     <div style={{
-      background: "rgba(20, 20, 30, 0.85)",
+      background: `rgba(20, 20, 30, ${opacity()})`,
       "min-height": "100vh",
       display: "flex",
       "flex-direction": "column",

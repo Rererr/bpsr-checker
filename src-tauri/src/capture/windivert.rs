@@ -7,14 +7,70 @@ use etherparse::NetSlice::Ipv4;
 use etherparse::SlicedPacket;
 use etherparse::TransportSlice::Tcp;
 use log::{debug, error, info, warn};
+use std::cell::UnsafeCell;
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
 use tokio::sync::watch;
 use windivert::WinDivert;
-use windivert::prelude::WinDivertFlags;
+use windivert::layer::NetworkLayer;
+use windivert::prelude::{WinDivertFlags, WinDivertShutdownMode};
 
 // Global sender for restart signal
 static RESTART_SENDER: OnceLock<watch::Sender<bool>> = OnceLock::new();
+
+/// Thread-shareable wrapper around an open WinDivert handle.
+///
+/// Rust forces `WinDivert::shutdown` to take `&mut self`, but the underlying
+/// `WinDivertShutdown` C API is documented as thread-safe and is in fact
+/// designed to be called from a different thread than the one blocked in
+/// `WinDivertRecv`. We use `UnsafeCell` + `unsafe impl Send/Sync` to bypass
+/// the borrow rule and let the exit handler signal recv to abort.
+struct SharedDivert {
+    inner: UnsafeCell<WinDivert<NetworkLayer>>,
+}
+unsafe impl Send for SharedDivert {}
+unsafe impl Sync for SharedDivert {}
+
+impl SharedDivert {
+    fn new(divert: WinDivert<NetworkLayer>) -> Self {
+        Self { inner: UnsafeCell::new(divert) }
+    }
+    fn recv<'a>(
+        &self,
+        buffer: Option<&'a mut [u8]>,
+    ) -> Result<windivert::packet::WinDivertPacket<'a, NetworkLayer>, windivert::error::WinDivertError> {
+        // SAFETY: WinDivert::recv only reads &self in the underlying impl.
+        unsafe { (*self.inner.get()).recv(buffer) }
+    }
+    fn shutdown(&self, mode: WinDivertShutdownMode) {
+        // SAFETY: WinDivertShutdown is thread-safe per the WinDivert C docs;
+        // it is intended to be called from a different thread than the one
+        // blocking on recv() to abort the pending recv.
+        unsafe {
+            let _ = (*self.inner.get()).shutdown(mode);
+        }
+    }
+}
+
+// Active capture handle. Set when the recv loop opens WinDivert; cleared
+// when the loop exits. The exit handler reads this to abort recv and close
+// the handle so `WinDivert::uninstall()` can succeed.
+static ACTIVE_DIVERT: OnceLock<Mutex<Option<Arc<SharedDivert>>>> = OnceLock::new();
+
+fn active_divert_slot() -> &'static Mutex<Option<Arc<SharedDivert>>> {
+    ACTIVE_DIVERT.get_or_init(|| Mutex::new(None))
+}
+
+/// Signal the WinDivert handle to abort its blocking recv() and unblock the
+/// capture loop so the kernel handle can be released. Called on app exit
+/// just before `WinDivert::uninstall()`.
+pub fn request_shutdown() {
+    if let Ok(guard) = active_divert_slot().lock() {
+        if let Some(divert) = guard.as_ref() {
+            divert.shutdown(WinDivertShutdownMode::Both);
+        }
+    }
+}
 
 fn send_server_change_info(packet_sender: &tokio::sync::mpsc::Sender<(Pkt, Vec<u8>)>) {
     let _ = packet_sender.try_send((Pkt::ServerChangeInfo, Vec::new()));
@@ -63,6 +119,10 @@ async fn read_packets(
             return;
         }
     };
+    let windivert = Arc::new(SharedDivert::new(windivert));
+    if let Ok(mut slot) = active_divert_slot().lock() {
+        *slot = Some(windivert.clone());
+    }
 
     let mut windivert_buffer = vec![0u8; 10 * 1024 * 1024];
     let mut known_server: Option<Server> = None;
@@ -224,6 +284,9 @@ async fn read_packets(
         }
     }
 
+    if let Ok(mut slot) = active_divert_slot().lock() {
+        *slot = None;
+    }
     drop(windivert);
     info!("WinDivert handle closed and dropped");
 }

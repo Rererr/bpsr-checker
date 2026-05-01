@@ -8,6 +8,7 @@ use bridge::commands;
 use engine::encounter::EncounterMutex;
 use log::{info, warn};
 use std::fs;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::menu::MenuBuilder;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Position, Size, Window, WindowEvent};
@@ -17,6 +18,12 @@ use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 use tauri_specta::{Builder, collect_commands};
 
 pub const WINDOW_MAIN_LABEL: &str = "main";
+
+pub static IS_EXITING: AtomicBool = AtomicBool::new(false);
+
+pub fn begin_exit() {
+    IS_EXITING.store(true, Ordering::Relaxed);
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -94,10 +101,13 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|_app_handle, event| {
             if let tauri::RunEvent::ExitRequested { .. } = event {
+                begin_exit();
                 #[cfg(target_os = "windows")]
                 {
-                    info!("App closing, cleaning up WinDivert...");
-                    // WinDivert cleanup would go here
+                    info!("App closing, attempting WinDivert driver uninstall...");
+                    if let Err(e) = windivert::WinDivert::uninstall() {
+                        warn!("WinDivert uninstall failed (best-effort): {e}");
+                    }
                 }
             }
         });
@@ -173,7 +183,10 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
                     let _ = show_window(&w);
                 }
             }
-            "quit" => tray_app.exit(0),
+            "quit" => {
+                begin_exit();
+                tray_app.exit(0);
+            }
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
@@ -195,6 +208,11 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
 fn on_window_event(window: &Window, event: &WindowEvent) {
     match event {
         WindowEvent::CloseRequested { api, .. } => {
+            if IS_EXITING.load(Ordering::Relaxed) {
+                // Quit was requested explicitly — let the close proceed so the
+                // process actually terminates and file handles are released.
+                return;
+            }
             api.prevent_close();
             let _ = window.hide();
         }

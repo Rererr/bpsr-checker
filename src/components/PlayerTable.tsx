@@ -5,8 +5,10 @@ import {
   showCrit, showLucky, showHpm, showScore,
   showCritValue, showLuckyValue, showHits,
   copyTemplate, privacyMaskNames, highlightLocalPlayer,
+  graphPlayerCount, graphForLocalPlayer,
 } from "../stores/settings";
 import { formatNumber, formatDps, formatPct, getClassColor, formatRowAsText, maskPlayerName } from "../utils";
+import { Sparkline } from "./Sparkline";
 import type { Tab } from "../App";
 import type { PlayerRow, PlayersWindow } from "../stores/encounter";
 
@@ -38,6 +40,7 @@ export function PlayerTable(props: PlayerTableProps) {
         }}
       >
         <span>{t("player")}</span>
+        <span />
         <span style={{ "text-align": "right" }}>{t("damage")}</span>
         <span style={{ "text-align": "right" }}>{t("dps")}</span>
         <span style={{ "text-align": "right" }}>{t("pct")}</span>
@@ -74,15 +77,25 @@ export function PlayerTable(props: PlayerTableProps) {
         }
       >
         <For each={data().playerRows}>
-          {(row, index) => (
-            <PlayerRowItem
-              row={row}
-              rank={index() + 1}
-              topValue={data().topValue}
-              isLocal={row.uid === data().localPlayerUid}
-              onClick={() => props.onSelectPlayer(row.uid)}
-            />
-          )}
+          {(row, index) => {
+            const isLocal = row.uid === data().localPlayerUid;
+            const nonLocalRankAbove = data().playerRows
+              .slice(0, index())
+              .filter((r) => r.uid !== data().localPlayerUid).length;
+            const showSparkline = isLocal
+              ? graphForLocalPlayer()
+              : nonLocalRankAbove < graphPlayerCount();
+            return (
+              <PlayerRowItem
+                row={row}
+                rank={index() + 1}
+                topValue={data().topValue}
+                isLocal={isLocal}
+                showSparkline={showSparkline}
+                onClick={() => props.onSelectPlayer(row.uid)}
+              />
+            );
+          }}
         </For>
       </Show>
     </div>
@@ -94,6 +107,7 @@ interface PlayerRowItemProps {
   rank: number;
   topValue: number;
   isLocal: boolean;
+  showSparkline: boolean;
   onClick: () => void;
 }
 
@@ -175,6 +189,16 @@ function PlayerRowItem(props: PlayerRowItemProps) {
         </span>
       </div>
 
+      <span style={{ "z-index": "1", display: "flex", "align-items": "center", "justify-content": "center" }}>
+        <Show when={props.showSparkline}>
+          <Sparkline
+            points={props.row.timeSeries}
+            width={60}
+            height={14}
+            color={classColor()}
+          />
+        </Show>
+      </span>
       <span style={{ "text-align": "right", "z-index": "1" }}>
         {formatNumber(props.row.totalValue)}
       </span>
@@ -250,7 +274,7 @@ function PlayerRowItem(props: PlayerRowItemProps) {
 }
 
 function gridCols(): string {
-  let cols = "minmax(100px, 1.5fr) 70px 65px 45px";
+  let cols = "minmax(80px, 1.2fr) 64px 70px 65px 45px";
   if (showCrit()) cols += " 50px";
   if (showCritValue()) cols += " 50px";
   if (showLucky()) cols += " 50px";

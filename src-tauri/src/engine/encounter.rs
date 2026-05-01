@@ -17,4 +17,5 @@ pub struct Encounter {
     pub time_series: VecDeque<TimeSeriesPoint>,
     pub last_sample_ms: u128,
     pub last_sample_total_dmg: i64,
+    pub local_player_uid: i64,
 }

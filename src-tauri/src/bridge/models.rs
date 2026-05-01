@@ -40,6 +40,7 @@ pub struct PlayerRow {
     pub lucky_value_rate: f64,
     pub hits: f64,
     pub hits_per_minute: f64,
+    pub time_series: Vec<TimeSeriesPoint>,
 }
 
 #[derive(specta::Type, serde::Serialize, serde::Deserialize, Debug, Default, Clone)]

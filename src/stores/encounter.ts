@@ -24,6 +24,7 @@ export interface PlayerRow {
   luckyValueRate: number;
   hits: number;
   hitsPerMinute: number;
+  timeSeries: TimeSeriesPoint[];
 }
 
 export interface PlayersWindow {

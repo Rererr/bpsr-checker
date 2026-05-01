@@ -25,6 +25,9 @@ const [highlightLocalPlayer, setHighlightLocalPlayer] = persisted<boolean>("high
 const [privacyMaskNames, setPrivacyMaskNames] = persisted<boolean>("privacyMaskNames", false);
 const [startupTab, setStartupTab] = persisted<string>("startupTab", "dps");
 const [rememberWindowPos, setRememberWindowPos] = persisted<boolean>("rememberWindowPos", true);
+const [showHeaderSparkline, setShowHeaderSparkline] = persisted<boolean>("showHeaderSparkline", false);
+const [graphPlayerCount, setGraphPlayerCount] = persisted<number>("graphPlayerCount", 3);
+const [graphForLocalPlayer, setGraphForLocalPlayer] = persisted<boolean>("graphForLocalPlayer", true);
 
 export {
   opacity, setOpacity,
@@ -49,6 +52,9 @@ export {
   privacyMaskNames, setPrivacyMaskNames,
   startupTab, setStartupTab,
   rememberWindowPos, setRememberWindowPos,
+  showHeaderSparkline, setShowHeaderSparkline,
+  graphPlayerCount, setGraphPlayerCount,
+  graphForLocalPlayer, setGraphForLocalPlayer,
 };
 
 export function wireBackendSettings() {

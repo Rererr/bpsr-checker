@@ -1,7 +1,8 @@
+use crate::bridge::models::TimeSeriesPoint;
 use crate::engine::class::{Class, ClassSpec};
 use crate::engine::combat_stats::CombatStats;
 use crate::protocol::pb::EEntityType;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 #[derive(Debug, Default, Clone)]
 pub struct Entity {
@@ -26,4 +27,8 @@ pub struct Entity {
     pub monster_id: Option<u32>,
     pub curr_hp: Option<u64>,
     pub max_hp: Option<u64>,
+
+    // Per-entity DPS time series (sampled alongside encounter-wide series)
+    pub time_series: VecDeque<TimeSeriesPoint>,
+    pub last_sample_total_dmg: i64,
 }

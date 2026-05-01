@@ -175,6 +175,8 @@ fn process_sync_container_data(encounter: &mut Encounter, msg: pb::SyncContainer
         return;
     }
 
+    encounter.local_player_uid = player_uid;
+
     let target_entity = encounter.entities.entry(player_uid).or_default();
     target_entity.entity_type = EEntityType::EntChar;
 
@@ -349,22 +351,49 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
             } else {
                 ts.saturating_sub(encounter.last_sample_ms)
             };
+            let elapsed_since_start = ts.saturating_sub(encounter.time_fight_start_ms);
+            let cap = crate::engine::runtime_settings::TS_SAMPLES.load(std::sync::atomic::Ordering::Relaxed);
+
             let dmg_delta = encounter.dmg_stats.total - encounter.last_sample_total_dmg;
             let dps_window = if interval_actual > 0 {
                 (dmg_delta as f64) * 1000.0 / (interval_actual as f64)
             } else {
                 0.0
             };
-            let elapsed_since_start = ts.saturating_sub(encounter.time_fight_start_ms);
             encounter.time_series.push_back(crate::bridge::models::TimeSeriesPoint {
                 t_ms: elapsed_since_start as f64,
                 total_dmg: encounter.dmg_stats.total as f64,
                 total_dps: dps_window.max(0.0),
             });
-            let cap = crate::engine::runtime_settings::TS_SAMPLES.load(std::sync::atomic::Ordering::Relaxed);
             while encounter.time_series.len() > cap {
                 encounter.time_series.pop_front();
             }
+
+            // Per-entity sampling (only for entities that have dealt damage)
+            for entity in encounter.entities.values_mut() {
+                if entity.entity_type != EEntityType::EntChar {
+                    continue;
+                }
+                if entity.dmg_stats.total == 0 && entity.time_series.is_empty() {
+                    continue;
+                }
+                let entity_delta = entity.dmg_stats.total - entity.last_sample_total_dmg;
+                let entity_dps = if interval_actual > 0 {
+                    (entity_delta as f64) * 1000.0 / (interval_actual as f64)
+                } else {
+                    0.0
+                };
+                entity.time_series.push_back(crate::bridge::models::TimeSeriesPoint {
+                    t_ms: elapsed_since_start as f64,
+                    total_dmg: entity.dmg_stats.total as f64,
+                    total_dps: entity_dps.max(0.0),
+                });
+                while entity.time_series.len() > cap {
+                    entity.time_series.pop_front();
+                }
+                entity.last_sample_total_dmg = entity.dmg_stats.total;
+            }
+
             encounter.last_sample_ms = ts;
             encounter.last_sample_total_dmg = encounter.dmg_stats.total;
         }

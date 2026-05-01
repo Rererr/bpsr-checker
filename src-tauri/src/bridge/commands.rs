@@ -1,9 +1,10 @@
-use crate::bridge::models::{EncounterSnapshot, HeaderInfo, PlayerRow, PlayersWindow, SkillRow, SkillsWindow};
+use crate::bridge::models::{EncounterSnapshot, HeaderInfo, PlayerRow, PlayersWindow, SkillRow, SkillsWindow, TimeSeriesPoint};
 use crate::engine::class::{Class, ClassSpec};
 use crate::engine::combat_stats::CombatStats;
 use crate::engine::encounter::{Encounter, EncounterMutex};
 use crate::engine::skill_names::get_skill_name;
 use crate::protocol::pb::EEntityType;
+use std::collections::VecDeque;
 use log::info;
 use tauri::AppHandle;
 
@@ -106,7 +107,7 @@ fn build_players_window(
 
     let mut window = PlayersWindow {
         player_rows: Vec::new(),
-        local_player_uid: 0.0,
+        local_player_uid: encounter.local_player_uid as f64,
         top_value: 0.0,
     };
 
@@ -132,6 +133,7 @@ fn build_players_window(
             entity_stats,
             encounter_stats,
             elapsed_secs,
+            &entity.time_series,
         );
         window.player_rows.push(row);
     }
@@ -154,6 +156,7 @@ fn make_player_row(
     entity_stats: &CombatStats,
     encounter_stats: &CombatStats,
     elapsed_secs: f64,
+    time_series: &VecDeque<TimeSeriesPoint>,
 ) -> PlayerRow {
     let display_name = if name.is_empty() {
         format!("プレイヤー#{}", uid & 0xFFFF)
@@ -186,6 +189,7 @@ fn make_player_row(
         ),
         hits: entity_stats.hit_count as f64,
         hits_per_minute: nan_is_zero(entity_stats.hit_count as f64 / elapsed_secs * 60.0),
+        time_series: time_series.iter().cloned().collect(),
     }
 }
 
@@ -222,12 +226,13 @@ pub fn get_skills(
         player_stats,
         encounter_stats,
         elapsed_secs,
+        &player.time_series,
     );
 
     let mut skill_window = SkillsWindow {
         inspected_player,
         skill_rows: Vec::new(),
-        local_player_uid: 0.0,
+        local_player_uid: encounter.local_player_uid as f64,
         top_value: 0.0,
     };
 
@@ -278,7 +283,9 @@ pub fn get_skills(
 pub fn reset_encounter(state: tauri::State<'_, EncounterMutex>) {
     match state.lock() {
         Ok(mut encounter) => {
+            let preserved_local_uid = encounter.local_player_uid;
             encounter.clone_from(&Encounter::default());
+            encounter.local_player_uid = preserved_local_uid;
             info!("Encounter reset");
         }
         Err(e) => log::error!("Lock poisoned in reset_encounter: {e}"),

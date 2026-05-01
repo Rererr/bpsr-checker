@@ -283,9 +283,7 @@ pub fn get_skills(
 pub fn reset_encounter(state: tauri::State<'_, EncounterMutex>) {
     match state.lock() {
         Ok(mut encounter) => {
-            let preserved_local_uid = encounter.local_player_uid;
-            encounter.clone_from(&Encounter::default());
-            encounter.local_player_uid = preserved_local_uid;
+            encounter.clear_combat_stats();
             info!("Encounter reset");
         }
         Err(e) => log::error!("Lock poisoned in reset_encounter: {e}"),

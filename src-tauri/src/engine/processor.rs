@@ -253,7 +253,7 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
             if !snapshot.player_rows.is_empty() {
                 crate::engine::history::push(snapshot);
             }
-            encounter.clone_from(&crate::engine::encounter::Encounter::default());
+            encounter.clear_combat_stats();
         }
     }
 

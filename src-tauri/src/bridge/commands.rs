@@ -307,6 +307,7 @@ pub fn toggle_pause(state: tauri::State<'_, EncounterMutex>) {
 #[tauri::command]
 #[specta::specta]
 pub fn quit_app(app: AppHandle) {
+    crate::begin_exit();
     app.exit(0);
 }
 

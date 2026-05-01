@@ -6,6 +6,7 @@ mod protocol;
 
 use bridge::commands;
 use engine::encounter::EncounterMutex;
+use engine::name_cache;
 use log::{info, warn};
 use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -76,6 +77,12 @@ pub fn run() {
 
             app.manage(EncounterMutex::default());
 
+            if let Ok(dir) = app_handle.path().app_local_data_dir() {
+                name_cache::init(dir.join("name_cache.json"));
+            } else {
+                warn!("Name cache: could not resolve app local data dir; cache disabled");
+            }
+
             let app_handle_for_shortcut = app_handle.clone();
             app.global_shortcut().on_shortcut("Ctrl+Shift+Z", move |_, _, event| {
                 if event.state == ShortcutState::Pressed {
@@ -111,6 +118,7 @@ pub fn run() {
         .run(|_app_handle, event| {
             if let tauri::RunEvent::ExitRequested { .. } = event {
                 begin_exit();
+                name_cache::flush();
                 #[cfg(target_os = "windows")]
                 {
                     info!("App closing, releasing WinDivert handle...");

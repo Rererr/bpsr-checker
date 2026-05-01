@@ -5,6 +5,7 @@ use crate::engine::combat_stats::process_stats;
 use crate::engine::encounter::{Encounter, EncounterMutex};
 use crate::engine::entity::Entity;
 use crate::engine::monster_names::MONSTER_NAMES_BOSS;
+use crate::engine::name_cache;
 use crate::error::{AppError, AppResult};
 use crate::protocol::constants::{attr_type, entity};
 use crate::protocol::opcodes::Pkt;
@@ -15,6 +16,43 @@ use prost::Message;
 use std::io::Cursor;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
+
+/// Get-or-create an entity, pre-populating identity (name/class/score)
+/// from the persistent name cache when the entity is freshly created
+/// and represents a player. Lets us show real names for players whose
+/// ATTR_NAME packets we missed (e.g., started the checker mid-session).
+fn get_or_create_entity(
+    encounter: &mut Encounter,
+    uid: i64,
+    entity_type: EEntityType,
+) -> &mut Entity {
+    let was_new = !encounter.entities.contains_key(&uid);
+    let entity = encounter
+        .entities
+        .entry(uid)
+        .or_insert_with(|| Entity {
+            entity_type,
+            ..Default::default()
+        });
+    if was_new && entity_type == EEntityType::EntChar {
+        if let Some(cached) = name_cache::lookup(uid) {
+            if !cached.name.is_empty() {
+                entity.name = Some(cached.name);
+            }
+            if let Some(cid) = cached.class_id {
+                if cid != 0 {
+                    entity.class = Some(Class::from(cid));
+                }
+            }
+            if let Some(score) = cached.ability_score {
+                if score > 0 {
+                    entity.ability_score = Some(score);
+                }
+            }
+        }
+    }
+    entity
+}
 
 fn decode_packet<T: Message + Default>(data: Vec<u8>, packet_name: &str) -> Option<T> {
     match T::decode(Bytes::from(data)) {
@@ -148,13 +186,13 @@ fn process_sync_near_entities(encounter: &mut Encounter, msg: pb::SyncNearEntiti
         let target_uid = entity::get_player_uid(target_uuid);
         let target_entity_type = EEntityType::from(target_uuid);
 
-        let target_entity = encounter.entities.entry(target_uid).or_default();
+        let target_entity = get_or_create_entity(encounter, target_uid, target_entity_type);
         target_entity.entity_type = target_entity_type;
 
         if let Some(attrs) = &pkt_entity.attrs {
             match target_entity_type {
                 EEntityType::EntChar => {
-                    process_player_attrs(target_entity, attrs.attrs.clone());
+                    process_player_attrs(target_uid, target_entity, attrs.attrs.clone());
                 }
                 EEntityType::EntMonster => {
                     process_monster_attrs(target_entity, attrs.attrs.clone());
@@ -177,15 +215,21 @@ fn process_sync_container_data(encounter: &mut Encounter, msg: pb::SyncContainer
 
     encounter.local_player_uid = player_uid;
 
-    let target_entity = encounter.entities.entry(player_uid).or_default();
+    let target_entity = get_or_create_entity(encounter, player_uid, EEntityType::EntChar);
     target_entity.entity_type = EEntityType::EntChar;
+
+    let mut cache_name: Option<String> = None;
+    let mut cache_class: Option<i32> = None;
+    let mut cache_score: Option<i32> = None;
 
     if let Some(char_base) = &v_data.char_base {
         if !char_base.name.is_empty() {
             target_entity.name = Some(char_base.name.clone());
+            cache_name = Some(char_base.name.clone());
         }
         if char_base.fight_point != 0 {
             target_entity.ability_score = Some(char_base.fight_point);
+            cache_score = Some(char_base.fight_point);
         }
     }
 
@@ -193,8 +237,11 @@ fn process_sync_container_data(encounter: &mut Encounter, msg: pb::SyncContainer
         if profession_list.cur_profession_id != 0 {
             let player_class = Class::from(profession_list.cur_profession_id);
             target_entity.class = Some(player_class);
+            cache_class = Some(profession_list.cur_profession_id);
         }
     }
+
+    name_cache::update(player_uid, cache_name.as_deref(), cache_class, cache_score);
 }
 
 fn process_sync_to_me_delta_info(encounter: &mut Encounter, msg: pb::SyncToMeDeltaInfo) {
@@ -217,18 +264,12 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
 
     // Process attributes on the target entity
     {
-        let target_entity = encounter
-            .entities
-            .entry(target_uid)
-            .or_insert_with(|| Entity {
-                entity_type: target_entity_type,
-                ..Default::default()
-            });
+        let target_entity = get_or_create_entity(encounter, target_uid, target_entity_type);
 
         if let Some(attrs_collection) = aoi_sync_delta.attrs {
             match target_entity_type {
                 EEntityType::EntChar => {
-                    process_player_attrs(target_entity, attrs_collection.attrs);
+                    process_player_attrs(target_uid, target_entity, attrs_collection.attrs);
                 }
                 EEntityType::EntMonster => {
                     process_monster_attrs(target_entity, attrs_collection.attrs);
@@ -273,14 +314,9 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
             continue; // no attacker — skip
         };
         let attacker_uid = entity::get_player_uid(attacker_uuid);
+        let attacker_entity_type = EEntityType::from(attacker_uuid);
 
-        let attacker_entity = encounter
-            .entities
-            .entry(attacker_uid)
-            .or_insert_with(|| Entity {
-                entity_type: EEntityType::from(attacker_uuid),
-                ..Default::default()
-            });
+        let attacker_entity = get_or_create_entity(encounter, attacker_uid, attacker_entity_type);
 
         let skill_uid = sync_damage_info.owner_id;
         if skill_uid == 0 {
@@ -400,8 +436,12 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
     }
 }
 
-fn process_player_attrs(player_entity: &mut Entity, attrs: Vec<pb::Attr>) {
+fn process_player_attrs(uid: i64, player_entity: &mut Entity, attrs: Vec<pb::Attr>) {
     use crate::capture::binary_reader::BinaryReader;
+
+    let mut cache_name: Option<String> = None;
+    let mut cache_class: Option<i32> = None;
+    let mut cache_score: Option<i32> = None;
 
     for attr in attrs {
         if attr.raw_data.is_empty() || attr.id == 0 {
@@ -416,6 +456,7 @@ fn process_player_attrs(player_entity: &mut Entity, attrs: Vec<pb::Attr>) {
                 match BinaryReader::from(raw_bytes).read_string() {
                     Ok(player_name) => {
                         debug!("Found player name: {player_name}");
+                        cache_name = Some(player_name.clone());
                         player_entity.name = Some(player_name);
                     }
                     Err(e) => {
@@ -426,15 +467,21 @@ fn process_player_attrs(player_entity: &mut Entity, attrs: Vec<pb::Attr>) {
             attr_type::ATTR_PROFESSION_ID => {
                 if let Ok(class_id) = decode_protobuf_int32(&attr.raw_data) {
                     player_entity.class = Some(Class::from(class_id));
+                    cache_class = Some(class_id);
                 }
             }
             attr_type::ATTR_FIGHT_POINT => {
                 if let Ok(ability_score) = decode_protobuf_int32(&attr.raw_data) {
                     player_entity.ability_score = Some(ability_score);
+                    cache_score = Some(ability_score);
                 }
             }
             _ => {}
         }
+    }
+
+    if cache_name.is_some() || cache_class.is_some() || cache_score.is_some() {
+        name_cache::update(uid, cache_name.as_deref(), cache_class, cache_score);
     }
 }
 

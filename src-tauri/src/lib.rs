@@ -113,7 +113,17 @@ pub fn run() {
                 begin_exit();
                 #[cfg(target_os = "windows")]
                 {
-                    info!("App closing, attempting WinDivert driver uninstall...");
+                    info!("App closing, releasing WinDivert handle...");
+                    // Step 1: abort the blocking recv so the capture task
+                    // can return and drop its WinDivert handle.
+                    capture::windivert::request_shutdown();
+                    // Step 2: give the capture task a moment to actually
+                    // drop the handle. Without this, uninstall() races the
+                    // task and ControlService(STOP) fails because the
+                    // handle is still open, which leaves WinDivert64.sys
+                    // locked and prevents version updates from overwriting
+                    // it.
+                    std::thread::sleep(std::time::Duration::from_millis(800));
                     if let Err(e) = windivert::WinDivert::uninstall() {
                         warn!("WinDivert uninstall failed (best-effort): {e}");
                     }

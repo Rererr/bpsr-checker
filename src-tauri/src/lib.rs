@@ -86,6 +86,15 @@ pub fn run() {
                 }
             })?;
 
+            let app_handle_for_minimize = app_handle.clone();
+            app.global_shortcut().on_shortcut("Ctrl+Shift+H", move |_, _, event| {
+                if event.state == ShortcutState::Pressed {
+                    if let Some(w) = app_handle_for_minimize.get_webview_window(WINDOW_MAIN_LABEL) {
+                        let _ = w.minimize();
+                    }
+                }
+            })?;
+
             // Start packet capture pipeline
             let handle = app_handle.clone();
             tauri::async_runtime::spawn(async move {

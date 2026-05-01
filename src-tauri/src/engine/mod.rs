@@ -4,6 +4,8 @@ pub mod combat_stats;
 pub mod encounter;
 pub mod entity;
 pub mod event;
+pub mod history;
 pub mod monster_names;
 pub mod processor;
+pub mod runtime_settings;
 pub mod skill_names;

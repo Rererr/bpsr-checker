@@ -42,6 +42,27 @@ pub struct PlayerRow {
     pub hits_per_minute: f64,
 }
 
+#[derive(specta::Type, serde::Serialize, serde::Deserialize, Debug, Default, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TimeSeriesPoint {
+    pub t_ms: f64,
+    pub total_dmg: f64,
+    pub total_dps: f64,
+}
+
+#[derive(specta::Type, serde::Serialize, serde::Deserialize, Debug, Default, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct EncounterSnapshot {
+    pub id: f64,
+    pub start_ms: f64,
+    pub end_ms: f64,
+    pub duration_ms: f64,
+    pub total_dmg: f64,
+    pub total_dps: f64,
+    pub player_rows: Vec<PlayerRow>,
+    pub time_series: Vec<TimeSeriesPoint>,
+}
+
 pub type SkillRows = Vec<SkillRow>;
 
 #[derive(specta::Type, serde::Serialize, serde::Deserialize, Debug, Default, Clone)]

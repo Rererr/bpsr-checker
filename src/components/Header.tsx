@@ -1,4 +1,4 @@
-import { createEffect, onCleanup } from "solid-js";
+import { createEffect, createSignal, onCleanup } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { t } from "../lib/i18n";
 import {
@@ -6,10 +6,16 @@ import {
   fetchDpsData,
   fetchHealData,
   fetchBossData,
+  dpsPlayers,
+  healPlayers,
   resetEncounter,
   togglePause,
+  timeSeries,
+  fetchTimeSeries,
 } from "../stores/encounter";
-import { formatDps, formatNumber, formatElapsed } from "../utils";
+import { Sparkline } from "./Sparkline";
+import { formatDps, formatNumber, formatElapsed, formatRowAsText } from "../utils";
+import { pollIntervalMs, copyTemplate } from "../stores/settings";
 import type { Tab } from "../App";
 
 interface HeaderProps {
@@ -19,18 +25,30 @@ interface HeaderProps {
 }
 
 export function Header(props: HeaderProps) {
-  // Poll every 200ms
   createEffect(() => {
     const tab = props.tab;
+    const ms = pollIntervalMs();
     const interval = setInterval(() => {
       fetchDpsData();
+      fetchTimeSeries();
       if (tab === "heal") fetchHealData();
       if (tab === "dps") fetchBossData(); // prefetch for boss tab
-    }, 200);
+    }, ms);
     onCleanup(() => clearInterval(interval));
   });
 
   const h = () => header();
+
+  const [copiedAll, setCopiedAll] = createSignal(false);
+  const handleCopyAll = async () => {
+    const rows = props.tab === "heal" ? healPlayers().playerRows : dpsPlayers().playerRows;
+    if (rows.length === 0) return;
+    const tpl = copyTemplate();
+    const text = rows.map((r, i) => formatRowAsText(r, i + 1, tpl)).join("\n");
+    await navigator.clipboard.writeText(text);
+    setCopiedAll(true);
+    setTimeout(() => setCopiedAll(false), 800);
+  };
 
   return (
     <div
@@ -49,7 +67,7 @@ export function Header(props: HeaderProps) {
     >
       {/* Tabs */}
       <div style={{ display: "flex", gap: "2px" }}>
-        {(["dps", "heal"] as Tab[]).map((tab) => (
+        {(["dps", "heal", "history"] as Tab[]).map((tab) => (
           <button
             onClick={() => props.onTabChange(tab)}
             style={{
@@ -62,7 +80,7 @@ export function Header(props: HeaderProps) {
               "font-size": "11px",
             }}
           >
-            {t(tab === "dps" ? "tab_dps" : "tab_heal")}
+            {tab === "dps" ? t("tab_dps") : tab === "heal" ? t("tab_heal") : t("tab_history")}
           </button>
         ))}
       </div>
@@ -77,6 +95,9 @@ export function Header(props: HeaderProps) {
         </span>
         <span data-tauri-drag-region style={{ color: "#888" }}>
           {formatElapsed(h().elapsedMs)}
+        </span>
+        <span data-tauri-drag-region style={{ "margin-left": "4px", display: "flex", "align-items": "center" }}>
+          <Sparkline points={timeSeries()} width={100} height={18} />
         </span>
       </div>
 
@@ -95,6 +116,13 @@ export function Header(props: HeaderProps) {
           title={t("reset")}
         >
           R
+        </button>
+        <button
+          onClick={handleCopyAll}
+          style={{ ...controlBtnStyle(), color: copiedAll() ? "#2ecc71" : "#ccc" }}
+          title={t("copy_all")}
+        >
+          {copiedAll() ? "✓" : "C"}
         </button>
         <button
           onClick={props.onToggleSettings}

@@ -240,6 +240,21 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
         return; // no damage in this delta, that's fine
     };
 
+    if !skill_effect.damages.is_empty() {
+        let ts = now_ms();
+        let timeout_ms = u128::from(crate::engine::runtime_settings::COMBAT_EXIT_TIMEOUT_MS.load(std::sync::atomic::Ordering::Relaxed));
+        if timeout_ms > 0
+            && encounter.time_last_combat_packet_ms != 0
+            && ts.saturating_sub(encounter.time_last_combat_packet_ms) > timeout_ms
+        {
+            let snapshot = crate::bridge::commands::build_encounter_snapshot(encounter);
+            if !snapshot.player_rows.is_empty() {
+                crate::engine::history::push(snapshot);
+            }
+            encounter.clone_from(&crate::engine::encounter::Encounter::default());
+        }
+    }
+
     // Process each damage event
     for sync_damage_info in skill_effect.damages {
         let is_boss = encounter
@@ -321,6 +336,39 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
         encounter.time_fight_start_ms = ts;
     }
     encounter.time_last_combat_packet_ms = ts;
+
+    // Time-series sampling
+    let interval_ms = u128::from(crate::engine::runtime_settings::TS_INTERVAL_MS.load(std::sync::atomic::Ordering::Relaxed));
+    if interval_ms > 0 {
+        let due = encounter.last_sample_ms == 0
+            || ts.saturating_sub(encounter.last_sample_ms) >= interval_ms;
+        if due {
+            // When first sample, use interval_ms as the window so DPS isn't artificially inflated
+            let interval_actual = if encounter.last_sample_ms == 0 {
+                interval_ms
+            } else {
+                ts.saturating_sub(encounter.last_sample_ms)
+            };
+            let dmg_delta = encounter.dmg_stats.total - encounter.last_sample_total_dmg;
+            let dps_window = if interval_actual > 0 {
+                (dmg_delta as f64) * 1000.0 / (interval_actual as f64)
+            } else {
+                0.0
+            };
+            let elapsed_since_start = ts.saturating_sub(encounter.time_fight_start_ms);
+            encounter.time_series.push_back(crate::bridge::models::TimeSeriesPoint {
+                t_ms: elapsed_since_start as f64,
+                total_dmg: encounter.dmg_stats.total as f64,
+                total_dps: dps_window.max(0.0),
+            });
+            let cap = crate::engine::runtime_settings::TS_SAMPLES.load(std::sync::atomic::Ordering::Relaxed);
+            while encounter.time_series.len() > cap {
+                encounter.time_series.pop_front();
+            }
+            encounter.last_sample_ms = ts;
+            encounter.last_sample_total_dmg = encounter.dmg_stats.total;
+        }
+    }
 }
 
 fn process_player_attrs(player_entity: &mut Entity, attrs: Vec<pb::Attr>) {

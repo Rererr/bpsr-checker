@@ -1,11 +1,10 @@
-use crate::bridge::models::{HeaderInfo, PlayerRow, PlayersWindow, SkillRow, SkillsWindow};
+use crate::bridge::models::{EncounterSnapshot, HeaderInfo, PlayerRow, PlayersWindow, SkillRow, SkillsWindow};
 use crate::engine::class::{Class, ClassSpec};
 use crate::engine::combat_stats::CombatStats;
 use crate::engine::encounter::{Encounter, EncounterMutex};
 use crate::engine::skill_names::get_skill_name;
 use crate::protocol::pb::EEntityType;
 use log::info;
-use std::sync::MutexGuard;
 use tauri::AppHandle;
 
 fn nan_is_zero(value: f64) -> f64 {
@@ -61,7 +60,7 @@ pub fn get_dps_players(state: tauri::State<'_, EncounterMutex>) -> PlayersWindow
             return PlayersWindow::default();
         }
     };
-    build_players_window(encounter, StatType::Dmg)
+    build_players_window(&*encounter, StatType::Dmg)
 }
 
 #[tauri::command]
@@ -74,7 +73,7 @@ pub fn get_dps_boss_players(state: tauri::State<'_, EncounterMutex>) -> PlayersW
             return PlayersWindow::default();
         }
     };
-    build_players_window(encounter, StatType::DmgBossOnly)
+    build_players_window(&*encounter, StatType::DmgBossOnly)
 }
 
 #[tauri::command]
@@ -87,11 +86,11 @@ pub fn get_heal_players(state: tauri::State<'_, EncounterMutex>) -> PlayersWindo
             return PlayersWindow::default();
         }
     };
-    build_players_window(encounter, StatType::Heal)
+    build_players_window(&*encounter, StatType::Heal)
 }
 
 fn build_players_window(
-    encounter: MutexGuard<'_, Encounter>,
+    encounter: &Encounter,
     stat_type: StatType,
 ) -> PlayersWindow {
     let elapsed_ms = encounter
@@ -136,7 +135,6 @@ fn build_players_window(
         );
         window.player_rows.push(row);
     }
-    drop(encounter);
 
     window.player_rows.sort_by(|a, b| {
         b.total_value
@@ -303,4 +301,89 @@ pub fn toggle_pause(state: tauri::State<'_, EncounterMutex>) {
 #[specta::specta]
 pub fn quit_app(app: AppHandle) {
     app.exit(0);
+}
+
+// ─── Encounter snapshot ───────────────────────────────────────────────────────
+
+pub fn build_encounter_snapshot(encounter: &Encounter) -> EncounterSnapshot {
+    let elapsed_ms = encounter
+        .time_last_combat_packet_ms
+        .saturating_sub(encounter.time_fight_start_ms);
+    let elapsed_secs = elapsed_ms as f64 / 1000.0;
+    let total_dmg = encounter.dmg_stats.total as f64;
+    let total_dps = if elapsed_secs > 0.0 { total_dmg / elapsed_secs } else { 0.0 };
+
+    let window = build_players_window(encounter, StatType::Dmg);
+
+    EncounterSnapshot {
+        id: 0.0,
+        start_ms: encounter.time_fight_start_ms as f64,
+        end_ms: encounter.time_last_combat_packet_ms as f64,
+        duration_ms: elapsed_ms as f64,
+        total_dmg,
+        total_dps,
+        player_rows: window.player_rows,
+        time_series: encounter.time_series.iter().cloned().collect(),
+    }
+}
+
+// ─── History commands ─────────────────────────────────────────────────────────
+
+#[tauri::command]
+#[specta::specta]
+pub fn set_combat_exit_timeout(secs: f64) {
+    let ms = (secs * 1000.0).max(0.0) as u64;
+    crate::engine::runtime_settings::COMBAT_EXIT_TIMEOUT_MS.store(ms, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn set_history_limit(limit: f64) {
+    let n = limit.max(0.0) as usize;
+    crate::engine::runtime_settings::HISTORY_LIMIT.store(n, std::sync::atomic::Ordering::Relaxed);
+    crate::engine::history::trim_to_limit();
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_history() -> Vec<crate::bridge::models::EncounterSnapshot> {
+    crate::engine::history::snapshot_list()
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn set_time_series_config(samples: f64, interval_ms: f64) {
+    let n = samples.max(1.0) as usize;
+    let i = interval_ms.max(50.0) as u64;
+    crate::engine::runtime_settings::TS_SAMPLES.store(n, std::sync::atomic::Ordering::Relaxed);
+    crate::engine::runtime_settings::TS_INTERVAL_MS.store(i, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_time_series(state: tauri::State<'_, EncounterMutex>) -> Vec<crate::bridge::models::TimeSeriesPoint> {
+    match state.lock() {
+        Ok(e) => e.time_series.iter().cloned().collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn clear_history() {
+    crate::engine::history::clear();
+}
+
+// ─── Overlay commands ─────────────────────────────────────────────────────────
+
+#[tauri::command]
+#[specta::specta]
+pub fn set_always_on_top(window: tauri::WebviewWindow, enabled: bool) -> Result<(), String> {
+    window.set_always_on_top(enabled).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn set_click_through(window: tauri::WebviewWindow, enabled: bool) -> Result<(), String> {
+    window.set_ignore_cursor_events(enabled).map_err(|e| e.to_string())
 }

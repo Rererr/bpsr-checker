@@ -3,3 +3,4 @@ target/
 dist/
 .DS_Store
 .claude/
+src-tauri/gen/

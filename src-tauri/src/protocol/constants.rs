@@ -40,6 +40,8 @@ pub mod attr_type {
     pub const ATTR_MAX_HP: i32 = 0x2C38;
     pub const ATTR_PROFESSION_ID: i32 = 0xDC;
     pub const ATTR_FIGHT_POINT: i32 = 0x272E;
+    pub const ATTR_SEASON_LEVEL: i32 = 0x2756;
+    pub const ATTR_SEASON_STRENGTH: i32 = 0x2CB0;
     pub const ATTR_POS: i32 = 0x34;
 }
 

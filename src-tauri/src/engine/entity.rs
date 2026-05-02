@@ -22,6 +22,8 @@ pub struct Entity {
     pub class: Option<Class>,
     pub class_spec: Option<ClassSpec>,
     pub ability_score: Option<i32>,
+    pub season_level: Option<i32>,
+    pub season_strength: Option<i32>,
 
     // Monsters
     pub monster_id: Option<u32>,

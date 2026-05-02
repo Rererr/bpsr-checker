@@ -16,6 +16,10 @@ pub struct CachedPlayer {
     #[serde(default)]
     pub ability_score: Option<i32>,
     #[serde(default)]
+    pub season_level: Option<i32>,
+    #[serde(default)]
+    pub season_strength: Option<i32>,
+    #[serde(default)]
     pub last_seen_ms: u64,
 }
 
@@ -71,13 +75,15 @@ pub fn lookup(uid: i64) -> Option<CachedPlayer> {
     cache().lock().ok()?.entries.get(&uid).cloned()
 }
 
-/// Record a name/class/score update for a player. Persists to disk if
-/// any field actually changed. Pass `None` for fields you don't have.
+/// Record a name/class/score/season update for a player. Persists to disk
+/// if any field actually changed. Pass `None` for fields you don't have.
 pub fn update(
     uid: i64,
     name: Option<&str>,
     class_id: Option<i32>,
     ability_score: Option<i32>,
+    season_level: Option<i32>,
+    season_strength: Option<i32>,
 ) {
     if uid == 0 {
         return;
@@ -101,6 +107,18 @@ pub fn update(
     if let Some(s) = ability_score {
         if s > 0 && entry.ability_score != Some(s) {
             entry.ability_score = Some(s);
+            changed = true;
+        }
+    }
+    if let Some(lv) = season_level {
+        if lv > 0 && entry.season_level != Some(lv) {
+            entry.season_level = Some(lv);
+            changed = true;
+        }
+    }
+    if let Some(st) = season_strength {
+        if st > 0 && entry.season_strength != Some(st) {
+            entry.season_strength = Some(st);
             changed = true;
         }
     }

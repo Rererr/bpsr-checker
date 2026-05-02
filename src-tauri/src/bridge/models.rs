@@ -30,6 +30,8 @@ pub struct PlayerRow {
     pub class_name: String,
     pub class_spec_name: String,
     pub ability_score: f64,
+    pub season_level: f64,
+    pub season_strength: f64,
     // Stats
     pub total_value: f64,
     pub value_per_sec: f64,

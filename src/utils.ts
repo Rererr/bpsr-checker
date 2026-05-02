@@ -44,12 +44,15 @@ export function maskPlayerName(name: string, uid: number): string {
 
 import type { PlayerRow } from "./stores/encounter";
 
+const MISSING = "—";
+
 export function formatRowAsText(row: PlayerRow, rank: number, template: string): string {
+  const spec = row.classSpecName && row.classSpecName !== "不明" ? row.classSpecName : "";
   const map: Record<string, string> = {
     rank: rank.toString(),
     name: row.name,
     class: row.className,
-    spec: row.classSpecName,
+    spec,
     dmg: formatNumber(row.totalValue),
     dps: formatDps(row.valuePerSec),
     pct: formatPct(row.valuePct),
@@ -59,7 +62,9 @@ export function formatRowAsText(row: PlayerRow, rank: number, template: string):
     luckyV: formatPct(row.luckyValueRate),
     hits: row.hits.toString(),
     hpm: row.hitsPerMinute.toFixed(1),
-    score: row.abilityScore > 0 ? formatNumber(row.abilityScore) : "-",
+    score: row.abilityScore > 0 ? formatNumber(row.abilityScore) : MISSING,
+    seasonLv: row.seasonLevel > 0 ? row.seasonLevel.toString() : MISSING,
+    seasonStr: row.seasonStrength > 0 ? formatNumber(row.seasonStrength) : MISSING,
   };
   return template.replace(/\{(\w+)\}/g, (_m, k) => map[k] ?? `{${k}}`);
 }

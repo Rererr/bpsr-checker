@@ -49,6 +49,16 @@ fn get_or_create_entity(
                     entity.ability_score = Some(score);
                 }
             }
+            if let Some(lv) = cached.season_level {
+                if lv > 0 {
+                    entity.season_level = Some(lv);
+                }
+            }
+            if let Some(st) = cached.season_strength {
+                if st > 0 {
+                    entity.season_strength = Some(st);
+                }
+            }
         }
     }
     entity
@@ -241,7 +251,14 @@ fn process_sync_container_data(encounter: &mut Encounter, msg: pb::SyncContainer
         }
     }
 
-    name_cache::update(player_uid, cache_name.as_deref(), cache_class, cache_score);
+    name_cache::update(
+        player_uid,
+        cache_name.as_deref(),
+        cache_class,
+        cache_score,
+        None,
+        None,
+    );
 }
 
 fn process_sync_to_me_delta_info(encounter: &mut Encounter, msg: pb::SyncToMeDeltaInfo) {
@@ -442,6 +459,8 @@ fn process_player_attrs(uid: i64, player_entity: &mut Entity, attrs: Vec<pb::Att
     let mut cache_name: Option<String> = None;
     let mut cache_class: Option<i32> = None;
     let mut cache_score: Option<i32> = None;
+    let mut cache_season_lv: Option<i32> = None;
+    let mut cache_season_str: Option<i32> = None;
 
     for attr in attrs {
         if attr.raw_data.is_empty() || attr.id == 0 {
@@ -476,12 +495,36 @@ fn process_player_attrs(uid: i64, player_entity: &mut Entity, attrs: Vec<pb::Att
                     cache_score = Some(ability_score);
                 }
             }
+            attr_type::ATTR_SEASON_LEVEL => {
+                if let Ok(lv) = decode_protobuf_int32(&attr.raw_data) {
+                    player_entity.season_level = Some(lv);
+                    cache_season_lv = Some(lv);
+                }
+            }
+            attr_type::ATTR_SEASON_STRENGTH => {
+                if let Ok(st) = decode_protobuf_int32(&attr.raw_data) {
+                    player_entity.season_strength = Some(st);
+                    cache_season_str = Some(st);
+                }
+            }
             _ => {}
         }
     }
 
-    if cache_name.is_some() || cache_class.is_some() || cache_score.is_some() {
-        name_cache::update(uid, cache_name.as_deref(), cache_class, cache_score);
+    if cache_name.is_some()
+        || cache_class.is_some()
+        || cache_score.is_some()
+        || cache_season_lv.is_some()
+        || cache_season_str.is_some()
+    {
+        name_cache::update(
+            uid,
+            cache_name.as_deref(),
+            cache_class,
+            cache_score,
+            cache_season_lv,
+            cache_season_str,
+        );
     }
 }
 

@@ -12,6 +12,8 @@ const [showCritValue, setShowCritValue] = persisted<boolean>("showCritValue", fa
 const [showLuckyValue, setShowLuckyValue] = persisted<boolean>("showLuckyValue", false);
 const [showHits, setShowHits] = persisted<boolean>("showHits", false);
 const [copyTemplate, setCopyTemplate] = persisted<string>("copyTemplate", "{rank}. {name} ({class}) {dmg} / {dps} DPS ({pct})");
+export const DEFAULT_NAME_TEMPLATE = "{name} {spec}({score} - {seasonLv} - {seasonStr})";
+const [nameTemplate, setNameTemplate] = persisted<string>("nameTemplate", DEFAULT_NAME_TEMPLATE);
 const [copySeparator, setCopySeparator] = persisted<string>("copySeparator", "\t");
 const [combatExitSec, setCombatExitSec] = persisted<number>("combatExitSec", 8);
 const [pollIntervalMs, setPollIntervalMs] = persisted<number>("pollIntervalMs", 200);
@@ -40,6 +42,7 @@ export {
   showLuckyValue, setShowLuckyValue,
   showHits, setShowHits,
   copyTemplate, setCopyTemplate,
+  nameTemplate, setNameTemplate,
   copySeparator, setCopySeparator,
   combatExitSec, setCombatExitSec,
   pollIntervalMs, setPollIntervalMs,

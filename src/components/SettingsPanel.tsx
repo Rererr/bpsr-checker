@@ -10,6 +10,8 @@ import {
   showLuckyValue, setShowLuckyValue,
   showHits, setShowHits,
   copyTemplate, setCopyTemplate,
+  nameTemplate, setNameTemplate,
+  DEFAULT_NAME_TEMPLATE,
   pollIntervalMs, setPollIntervalMs,
   combatExitSec, setCombatExitSec,
   historyLimit, setHistoryLimit,
@@ -34,6 +36,8 @@ const SAMPLE_ROW: PlayerRow = {
   className: "ストームブレイド",
   classSpecName: "炎",
   abilityScore: 12345,
+  seasonLevel: 38,
+  seasonStrength: 8200,
   totalValue: 1234567,
   valuePerSec: 45678,
   valuePct: 35.5,
@@ -128,6 +132,63 @@ export function SettingsPanel() {
             </div>
           </div>
 
+          {/* Name column template */}
+          <div style={{ display: "flex", "align-items": "flex-start", gap: "8px" }}>
+            <span style={{ color: "#aaa", width: "60px", "padding-top": "2px" }}>{t("name_template")}</span>
+            <div style={{ flex: "1", display: "flex", "flex-direction": "column", gap: "3px" }}>
+              <div style={{ display: "flex", gap: "4px" }}>
+                <textarea
+                  rows="2"
+                  value={nameTemplate()}
+                  onInput={(e) => setNameTemplate(e.currentTarget.value)}
+                  style={{
+                    flex: "1",
+                    background: "rgba(255,255,255,0.1)",
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    color: "#ddd",
+                    "border-radius": "3px",
+                    padding: "3px 5px",
+                    "font-size": "11px",
+                    "font-family": "monospace",
+                    resize: "vertical",
+                  }}
+                />
+                <button
+                  onClick={() => setNameTemplate(DEFAULT_NAME_TEMPLATE)}
+                  title={t("name_template_reset")}
+                  style={{
+                    padding: "2px 8px",
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    "border-radius": "3px",
+                    background: "transparent",
+                    color: "#ccc",
+                    cursor: "pointer",
+                    "font-size": "11px",
+                    "white-space": "nowrap",
+                    "align-self": "flex-start",
+                  }}
+                >
+                  {t("name_template_reset")}
+                </button>
+              </div>
+              <div style={{ color: "#666", "font-size": "10px", "font-family": "monospace" }}>
+                {"{name} {class} {spec} {score} {seasonLv} {seasonStr}"}
+              </div>
+              <pre style={{
+                margin: "0",
+                padding: "3px 5px",
+                background: "rgba(0,0,0,0.3)",
+                "border-radius": "3px",
+                color: "#ddd",
+                "font-size": "11px",
+                "white-space": "pre-wrap",
+                "word-break": "break-all",
+              }}>
+                {formatRowAsText(SAMPLE_ROW, 1, nameTemplate())}
+              </pre>
+            </div>
+          </div>
+
           {/* Header total sparkline */}
           <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
             <span style={{ color: "#aaa", width: "60px" }}>{t("header_sparkline")}</span>
@@ -193,7 +254,7 @@ export function SettingsPanel() {
 
           {/* Placeholder reference */}
           <div style={{ color: "#666", "font-size": "10px", "padding-left": "68px", "font-family": "monospace" }}>
-            {"{rank} {name} {class} {spec} {dmg} {dps} {pct} {crit} {critV} {lucky} {luckyV} {hits} {hpm} {score}"}
+            {"{rank} {name} {class} {spec} {dmg} {dps} {pct} {crit} {critV} {lucky} {luckyV} {hits} {hpm} {score} {seasonLv} {seasonStr}"}
           </div>
 
           {/* Live preview */}

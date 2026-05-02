@@ -4,7 +4,7 @@ import { dpsPlayers, healPlayers, bossPlayers } from "../stores/encounter";
 import {
   showCrit, showLucky, showHpm, showScore,
   showCritValue, showLuckyValue, showHits,
-  copyTemplate, privacyMaskNames, highlightLocalPlayer,
+  copyTemplate, nameTemplate, privacyMaskNames, highlightLocalPlayer,
   graphPlayerCount, graphForLocalPlayer,
 } from "../stores/settings";
 import { formatNumber, formatDps, formatPct, getClassColor, formatRowAsText, maskPlayerName } from "../utils";
@@ -182,10 +182,13 @@ function PlayerRowItem(props: PlayerRowItemProps) {
           "text-overflow": "ellipsis",
           "white-space": "nowrap",
         }}>
-          {privacyMaskNames() ? maskPlayerName(props.row.name, props.row.uid) : props.row.name}
-        </span>
-        <span style={{ color: "#666", "font-size": "10px", "flex-shrink": "0" }}>
-          {props.row.classSpecName !== "不明" ? props.row.classSpecName : ""}
+          {formatRowAsText(
+            privacyMaskNames()
+              ? { ...props.row, name: maskPlayerName(props.row.name, props.row.uid) }
+              : props.row,
+            props.rank,
+            nameTemplate(),
+          )}
         </span>
       </div>
 

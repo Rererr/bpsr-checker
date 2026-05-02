@@ -15,6 +15,8 @@ export interface PlayerRow {
   className: string;
   classSpecName: string;
   abilityScore: number;
+  seasonLevel: number;
+  seasonStrength: number;
   totalValue: number;
   valuePerSec: number;
   valuePct: number;

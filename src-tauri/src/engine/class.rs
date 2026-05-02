@@ -117,8 +117,8 @@ impl ClassSpec {
 
     pub fn name_ja(self) -> &'static str {
         match self {
-            ClassSpec::Iaido => "月影型",
-            ClassSpec::Moonstrike => "雷刃型",
+            ClassSpec::Iaido => "雷刃型",
+            ClassSpec::Moonstrike => "月影型",
             ClassSpec::Icicle => "氷牙型",
             ClassSpec::Frostbeam => "霜天型",
             ClassSpec::Vanguard => "烈風型",
@@ -129,8 +129,8 @@ impl ClassSpec {
             ClassSpec::Block => "剛守型",
             ClassSpec::Wildpack => "狼弓型",
             ClassSpec::Falconry => "鷹弓型",
-            ClassSpec::Recovery => "光盾型",
-            ClassSpec::Shield => "光砕型",
+            ClassSpec::Recovery => "光砕型",
+            ClassSpec::Shield => "光盾型",
             ClassSpec::Dissonance => "狂音型",
             ClassSpec::Concerto => "響奏型",
             ClassSpec::Unknown => "不明",

@@ -333,12 +333,24 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
         let attacker_uid = entity::get_player_uid(attacker_uuid);
         let attacker_entity_type = EEntityType::from(attacker_uuid);
 
-        let attacker_entity = get_or_create_entity(encounter, attacker_uid, attacker_entity_type);
-
         let skill_uid = sync_damage_info.owner_id;
         if skill_uid == 0 {
             continue;
         }
+
+        let is_heal = sync_damage_info.r#type == pb::EDamageType::Heal as i32;
+
+        // Encounter-level totals first (avoids holding attacker_entity borrow across encounter.* mutations)
+        if is_heal {
+            process_stats(&sync_damage_info, &mut encounter.heal_stats);
+        } else {
+            process_stats(&sync_damage_info, &mut encounter.dmg_stats);
+            if is_boss {
+                process_stats(&sync_damage_info, &mut encounter.dmg_stats_boss_only);
+            }
+        }
+
+        let attacker_entity = get_or_create_entity(encounter, attacker_uid, attacker_entity_type);
 
         // Infer class spec from skill id
         if attacker_entity
@@ -356,7 +368,6 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
             }
         }
 
-        let is_heal = sync_damage_info.r#type == pb::EDamageType::Heal as i32;
         if is_heal {
             let heal_skill = attacker_entity
                 .skill_uid_to_heal_stats
@@ -364,7 +375,6 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
                 .or_default();
             process_stats(&sync_damage_info, heal_skill);
             process_stats(&sync_damage_info, &mut attacker_entity.heal_stats);
-            process_stats(&sync_damage_info, &mut encounter.heal_stats);
         } else {
             let dps_skill = attacker_entity
                 .skill_uid_to_dps_stats
@@ -372,7 +382,6 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
                 .or_default();
             process_stats(&sync_damage_info, dps_skill);
             process_stats(&sync_damage_info, &mut attacker_entity.dmg_stats);
-            process_stats(&sync_damage_info, &mut encounter.dmg_stats);
             if is_boss {
                 let skill_boss = attacker_entity
                     .skill_uid_to_dps_stats_boss_only
@@ -380,7 +389,6 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
                     .or_default();
                 process_stats(&sync_damage_info, skill_boss);
                 process_stats(&sync_damage_info, &mut attacker_entity.dmg_stats_boss_only);
-                process_stats(&sync_damage_info, &mut encounter.dmg_stats_boss_only);
             }
         }
     }

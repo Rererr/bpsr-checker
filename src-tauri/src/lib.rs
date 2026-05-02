@@ -8,7 +8,6 @@ use bridge::commands;
 use engine::encounter::EncounterMutex;
 use engine::name_cache;
 use log::{info, warn};
-use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::menu::MenuBuilder;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -50,6 +49,7 @@ pub fn run() {
     #[cfg(debug_assertions)]
     {
         use specta_typescript::Typescript;
+        use std::fs;
         builder
             .export(Typescript::default(), "../src/lib/bindings.ts")
             .expect("Failed to export typescript bindings");

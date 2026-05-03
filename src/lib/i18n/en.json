@@ -69,5 +69,12 @@
   "startup_tab": "Startup tab",
   "header_sparkline": "Header total graph",
   "graph_player_count": "Graph player count",
-  "graph_for_local": "Graph for self"
+  "graph_for_local": "Graph for self",
+  "selected_char_name_unknown": "(unknown)",
+  "selected_uid_badge_unknown": "unknown",
+  "selected_uid_change_warning": "Changing this resets the current encounter",
+  "selected_uid_clear": "Clear",
+  "selected_uid_input_hint": "Enter numeric UID. Empty or cleared = auto-detect",
+  "selected_uid_label": "Your Character UID",
+  "settings_character": "Character Selection"
 }

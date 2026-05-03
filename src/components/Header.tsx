@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onCleanup, Show } from "solid-js";
+import { createEffect, createResource, createSignal, onCleanup, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { t } from "../lib/i18n";
@@ -23,8 +23,15 @@ import {
   alwaysOnTop,
   setAlwaysOnTop,
   opacity,
+  selectedUid,
 } from "../stores/settings";
 import type { Tab } from "../App";
+
+interface NameCacheEntry {
+  name: string;
+  classId: number | null;
+  abilityScore: number | null;
+}
 
 const PIN_LABEL_BREAKPOINT = 560;
 
@@ -45,6 +52,27 @@ export function Header(props: HeaderProps) {
       if (tab === "dps") fetchBossData(); // prefetch for boss tab
     }, ms);
     onCleanup(() => clearInterval(interval));
+  });
+
+  // selectedUid バッジ用の name_cache lookup
+  const [badgeNameSource, setBadgeNameSource] = createSignal(selectedUid());
+  const [badgeNameCache] = createResource<NameCacheEntry | null, number | null>(
+    badgeNameSource,
+    (uid) => {
+      if (uid == null || uid === 0) return Promise.resolve(null);
+      return invoke<NameCacheEntry | null>("lookup_name_cache", { uid }).catch(() => null);
+    }
+  );
+
+  // selectedUid 変更時にソース更新、name_cache が空なら 3 秒後に再試行
+  createEffect(() => {
+    const uid = selectedUid();
+    setBadgeNameSource(uid);
+    if (uid != null && uid !== 0) {
+      const retry = setTimeout(() => { setBadgeNameSource(null); }, 50);
+      const retry2 = setTimeout(() => { setBadgeNameSource(uid); }, 3000);
+      onCleanup(() => { clearTimeout(retry); clearTimeout(retry2); });
+    }
   });
 
   const [windowWidth, setWindowWidth] = createSignal(window.innerWidth);
@@ -114,6 +142,22 @@ export function Header(props: HeaderProps) {
         <Show when={showHeaderSparkline()}>
           <span data-tauri-drag-region style={{ "margin-left": "4px", display: "flex", "align-items": "center" }}>
             <Sparkline points={timeSeries()} width={100} height={18} />
+          </span>
+        </Show>
+        <Show when={selectedUid() != null && selectedUid() !== 0}>
+          <span
+            data-tauri-drag-region
+            style={{
+              color: "#4fc3f7",
+              border: "1px solid rgba(79, 195, 247, 0.4)",
+              "border-radius": "3px",
+              padding: "1px 5px",
+              "font-size": "10px",
+              background: "rgba(79, 195, 247, 0.08)",
+              "white-space": "nowrap",
+            }}
+          >
+            {badgeNameCache()?.name ?? t("selected_uid_badge_unknown")} #{String(selectedUid()).slice(-4)}
           </span>
         </Show>
       </div>

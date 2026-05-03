@@ -2,11 +2,21 @@ use crate::bridge::models::{EncounterSnapshot, HeaderInfo, PlayerRow, PlayersWin
 use crate::engine::class::{Class, ClassSpec};
 use crate::engine::combat_stats::CombatStats;
 use crate::engine::encounter::{Encounter, EncounterMutex};
+use crate::engine::name_cache;
+use crate::engine::selected_uid;
 use crate::engine::skill_names::get_skill_name;
 use crate::protocol::pb::EEntityType;
 use std::collections::VecDeque;
 use log::info;
 use tauri::AppHandle;
+
+#[derive(serde::Serialize, specta::Type, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct CachedPlayerDto {
+    pub name: String,
+    pub class_id: Option<i32>,
+    pub ability_score: Option<i32>,
+}
 
 fn nan_is_zero(value: f64) -> f64 {
     if value.is_nan() || value.is_infinite() {
@@ -35,6 +45,11 @@ pub fn get_header_info(state: tauri::State<'_, EncounterMutex>) -> HeaderInfo {
             return HeaderInfo::default();
         }
     };
+
+    let selected = selected_uid::get();
+    if selected.is_some() && !encounter.has_selected_participant {
+        return HeaderInfo::default();
+    }
 
     let elapsed_ms = encounter
         .time_last_combat_packet_ms
@@ -94,6 +109,11 @@ fn build_players_window(
     encounter: &Encounter,
     stat_type: StatType,
 ) -> PlayersWindow {
+    let selected = selected_uid::get();
+    if selected.is_some() && !encounter.has_selected_participant {
+        return PlayersWindow::default();
+    }
+
     let elapsed_ms = encounter
         .time_last_combat_packet_ms
         .saturating_sub(encounter.time_fight_start_ms);
@@ -107,7 +127,7 @@ fn build_players_window(
 
     let mut window = PlayersWindow {
         player_rows: Vec::new(),
-        local_player_uid: encounter.local_player_uid as f64,
+        local_player_uid: selected.unwrap_or(encounter.local_player_uid) as f64,
         top_value: 0.0,
     };
 
@@ -338,6 +358,11 @@ pub fn build_encounter_snapshot(encounter: &Encounter) -> EncounterSnapshot {
         total_dps,
         player_rows: window.player_rows,
         time_series: encounter.time_series.iter().cloned().collect(),
+        participant_player_uids: encounter
+            .participant_player_uids
+            .iter()
+            .map(|&v| v as f64)
+            .collect(),
     }
 }
 
@@ -361,7 +386,17 @@ pub fn set_history_limit(limit: f64) {
 #[tauri::command]
 #[specta::specta]
 pub fn get_history() -> Vec<crate::bridge::models::EncounterSnapshot> {
-    crate::engine::history::snapshot_list()
+    let all = crate::engine::history::snapshot_list();
+    let Some(sel) = selected_uid::get() else {
+        return all;
+    };
+    let sel_f64 = sel as f64;
+    all.into_iter()
+        .filter(|snap| {
+            snap.participant_player_uids.is_empty()
+                || snap.participant_player_uids.contains(&sel_f64)
+        })
+        .collect()
 }
 
 #[tauri::command]
@@ -400,4 +435,37 @@ pub fn set_always_on_top(window: tauri::WebviewWindow, enabled: bool) -> Result<
 #[specta::specta]
 pub fn set_click_through(window: tauri::WebviewWindow, enabled: bool) -> Result<(), String> {
     window.set_ignore_cursor_events(enabled).map_err(|e| e.to_string())
+}
+
+// ─── selected_uid コマンド ────────────────────────────────────────────────────
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_selected_uid() -> Option<f64> {
+    selected_uid::get().map(|v| v as f64)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn set_selected_uid(state: tauri::State<'_, EncounterMutex>, uid: Option<f64>) {
+    let uid_i64 = uid.map(|v| v as i64);
+    selected_uid::set(uid_i64);
+    match state.lock() {
+        Ok(mut encounter) => {
+            encounter.clear_combat_stats();
+            encounter.local_player_uid = uid_i64.unwrap_or(0);
+        }
+        Err(e) => log::error!("Lock poisoned in set_selected_uid: {e}"),
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn lookup_name_cache(uid: f64) -> Option<CachedPlayerDto> {
+    let cached = name_cache::lookup(uid as i64)?;
+    Some(CachedPlayerDto {
+        name: cached.name,
+        class_id: cached.class_id,
+        ability_score: cached.ability_score,
+    })
 }

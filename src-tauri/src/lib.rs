@@ -7,6 +7,7 @@ mod protocol;
 use bridge::commands;
 use engine::encounter::EncounterMutex;
 use engine::name_cache;
+use engine::selected_uid;
 use log::{info, warn};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::menu::MenuBuilder;
@@ -44,6 +45,9 @@ pub fn run() {
         commands::get_time_series,
         commands::set_always_on_top,
         commands::set_click_through,
+        commands::get_selected_uid,
+        commands::set_selected_uid,
+        commands::lookup_name_cache,
     ]);
 
     #[cfg(debug_assertions)]
@@ -79,6 +83,7 @@ pub fn run() {
 
             if let Ok(dir) = app_handle.path().app_local_data_dir() {
                 name_cache::init(dir.join("name_cache.json"));
+                selected_uid::init(dir.join("selected_uid.json"));
             } else {
                 warn!("Name cache: could not resolve app local data dir; cache disabled");
             }
@@ -119,6 +124,7 @@ pub fn run() {
             if let tauri::RunEvent::ExitRequested { .. } = event {
                 begin_exit();
                 name_cache::flush();
+                selected_uid::flush();
                 #[cfg(target_os = "windows")]
                 {
                     info!("App closing, releasing WinDivert handle...");

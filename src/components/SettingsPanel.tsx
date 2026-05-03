@@ -1,3 +1,5 @@
+import { createResource, createSignal } from "solid-js";
+import { invoke } from "@tauri-apps/api/core";
 import { t, locale, setLocale } from "../lib/i18n";
 import type { Locale } from "../lib/i18n";
 import {
@@ -25,10 +27,17 @@ import {
   showHeaderSparkline, setShowHeaderSparkline,
   graphPlayerCount, setGraphPlayerCount,
   graphForLocalPlayer, setGraphForLocalPlayer,
+  selectedUid, setSelectedUid,
 } from "../stores/settings";
 import { clearHistory } from "../stores/encounter";
 import { formatRowAsText } from "../utils";
 import type { PlayerRow } from "../stores/encounter";
+
+interface NameCacheEntry {
+  name: string;
+  classId: number | null;
+  abilityScore: number | null;
+}
 
 const SAMPLE_ROW: PlayerRow = {
   uid: 0,
@@ -66,6 +75,33 @@ const sectionStyle = {
 };
 
 export function SettingsPanel() {
+  const [uidInputValue, setUidInputValue] = createSignal(selectedUid()?.toString() ?? "");
+
+  const [nameCache] = createResource<NameCacheEntry | null, number | null>(
+    selectedUid,
+    (uid) => {
+      if (uid == null || uid === 0) return Promise.resolve(null);
+      return invoke<NameCacheEntry | null>("lookup_name_cache", { uid }).catch(() => null);
+    }
+  );
+
+  const commitUidInput = (raw: string) => {
+    const trimmed = raw.trim();
+    if (trimmed === "") {
+      setSelectedUid(null);
+      setUidInputValue("");
+      return;
+    }
+    const parsed = Number(trimmed);
+    if (!isFinite(parsed) || isNaN(parsed) || parsed <= 0) {
+      setSelectedUid(null);
+      setUidInputValue("");
+    } else {
+      setSelectedUid(parsed);
+      setUidInputValue(String(parsed));
+    }
+  };
+
   return (
     <div
       style={{
@@ -78,6 +114,69 @@ export function SettingsPanel() {
         "font-size": "11px",
       }}
     >
+      <details open>
+        <summary style={sectionHeaderStyle}>{t("settings_character")}</summary>
+        <div style={{ ...sectionStyle, "margin-top": "6px" }}>
+          {/* UID input */}
+          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+            <span style={{ color: "#aaa", width: "80px" }}>{t("selected_uid_label")}</span>
+            <input
+              type="text"
+              inputmode="numeric"
+              value={uidInputValue()}
+              onInput={(e) => setUidInputValue(e.currentTarget.value)}
+              onBlur={(e) => commitUidInput(e.currentTarget.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.currentTarget.blur(); } }}
+              placeholder="—"
+              style={{
+                width: "100px",
+                background: "rgba(255,255,255,0.1)",
+                border: "1px solid rgba(255,255,255,0.2)",
+                color: "#ddd",
+                "border-radius": "3px",
+                padding: "2px 4px",
+                "font-size": "11px",
+              }}
+            />
+            <button
+              onClick={() => {
+                setSelectedUid(null);
+                setUidInputValue("");
+              }}
+              style={{
+                padding: "2px 8px",
+                border: "1px solid rgba(255,255,255,0.2)",
+                "border-radius": "3px",
+                background: "transparent",
+                color: "#ccc",
+                cursor: "pointer",
+                "font-size": "11px",
+              }}
+            >
+              {t("selected_uid_clear")}
+            </button>
+          </div>
+
+          {/* Resolved name */}
+          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+            <span style={{ color: "#aaa", width: "80px" }} />
+            <span style={{ color: nameCache()?.name ? "#ddd" : "#555", "font-size": "11px" }}>
+              {nameCache()?.name ?? t("selected_char_name_unknown")}
+            </span>
+          </div>
+
+          {/* Hint */}
+          <div style={{ color: "#555", "font-size": "10px" }}>
+            {t("selected_uid_input_hint")}
+          </div>
+
+          {/* Warning */}
+          <div style={{ color: "#b07040", "font-size": "10px" }}>
+            {t("selected_uid_change_warning")}
+          </div>
+        </div>
+      </details>
+
       <details open>
         <summary style={sectionHeaderStyle}>{t("settings_display")}</summary>
         <div style={{ ...sectionStyle, "margin-top": "6px" }}>

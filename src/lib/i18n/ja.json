@@ -69,5 +69,12 @@
   "startup_tab": "起動時タブ",
   "header_sparkline": "ヘッダー合計グラフ",
   "graph_player_count": "グラフ表示人数",
-  "graph_for_local": "自分キャラのグラフ"
+  "graph_for_local": "自分キャラのグラフ",
+  "selected_char_name_unknown": "（未取得）",
+  "selected_uid_badge_unknown": "未取得",
+  "selected_uid_change_warning": "変更すると進行中のエンカウンターはリセットされます",
+  "selected_uid_clear": "クリア",
+  "selected_uid_input_hint": "数値で入力。空欄またはクリアで自動検出に戻ります",
+  "selected_uid_label": "自分のキャラ UID",
+  "settings_character": "キャラクター指定"
 }

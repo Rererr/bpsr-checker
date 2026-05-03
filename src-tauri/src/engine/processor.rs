@@ -6,6 +6,7 @@ use crate::engine::encounter::{Encounter, EncounterMutex};
 use crate::engine::entity::Entity;
 use crate::engine::monster_names::MONSTER_NAMES_BOSS;
 use crate::engine::name_cache;
+use crate::engine::selected_uid;
 use crate::error::{AppError, AppResult};
 use crate::protocol::constants::{attr_type, entity};
 use crate::protocol::opcodes::Pkt;
@@ -223,7 +224,9 @@ fn process_sync_container_data(encounter: &mut Encounter, msg: pb::SyncContainer
         return;
     }
 
-    encounter.local_player_uid = player_uid;
+    if selected_uid::get().is_none() {
+        encounter.local_player_uid = player_uid;
+    }
 
     let target_entity = get_or_create_entity(encounter, player_uid, EEntityType::EntChar);
     target_entity.entity_type = EEntityType::EntChar;
@@ -308,7 +311,10 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
             && ts.saturating_sub(encounter.time_last_combat_packet_ms) > timeout_ms
         {
             let snapshot = crate::bridge::commands::build_encounter_snapshot(encounter);
-            if !snapshot.player_rows.is_empty() {
+            let selected = selected_uid::get();
+            let should_push = !snapshot.player_rows.is_empty()
+                && selected.map_or(true, |_| encounter.has_selected_participant);
+            if should_push {
                 crate::engine::history::push(snapshot);
             }
             encounter.clear_combat_stats();
@@ -336,6 +342,19 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
         let skill_uid = sync_damage_info.owner_id;
         if skill_uid == 0 {
             continue;
+        }
+
+        // selected_uid 参加判定
+        if let Some(sel) = selected_uid::get() {
+            if attacker_uid == sel || target_uid == sel {
+                encounter.has_selected_participant = true;
+            }
+        }
+        if attacker_entity_type == EEntityType::EntChar {
+            encounter.participant_player_uids.insert(attacker_uid);
+        }
+        if target_entity_type == EEntityType::EntChar {
+            encounter.participant_player_uids.insert(target_uid);
         }
 
         let is_heal = sync_damage_info.r#type == pb::EDamageType::Heal as i32;

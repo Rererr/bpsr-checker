@@ -31,6 +31,7 @@ const [rememberWindowPos, setRememberWindowPos] = persisted<boolean>("rememberWi
 const [showHeaderSparkline, setShowHeaderSparkline] = persisted<boolean>("showHeaderSparkline", false);
 const [graphPlayerCount, setGraphPlayerCount] = persisted<number>("graphPlayerCount", 3);
 const [graphForLocalPlayer, setGraphForLocalPlayer] = persisted<boolean>("graphForLocalPlayer", true);
+const [selectedUid, setSelectedUid] = persisted<number | null>("selectedUid", null);
 
 export {
   opacity, setOpacity,
@@ -59,9 +60,22 @@ export {
   showHeaderSparkline, setShowHeaderSparkline,
   graphPlayerCount, setGraphPlayerCount,
   graphForLocalPlayer, setGraphForLocalPlayer,
+  selectedUid, setSelectedUid,
 };
 
 export function wireBackendSettings() {
+  const [selectedUidReady, setSelectedUidReady] = createSignal(false);
+  invoke<number | null>("get_selected_uid")
+    .then((v) => {
+      if (v !== selectedUid()) setSelectedUid(v);
+      setSelectedUidReady(true);
+    })
+    .catch(() => setSelectedUidReady(true));
+  createEffect(() => {
+    const uid = selectedUid();
+    if (!selectedUidReady()) return;
+    invoke("set_selected_uid", { uid }).catch(() => {});
+  });
   createEffect(() => { invoke("set_combat_exit_timeout", { secs: combatExitSec() }).catch(() => {}); });
   createEffect(() => { invoke("set_history_limit", { limit: historyLimit() }).catch(() => {}); });
   createEffect(() => {

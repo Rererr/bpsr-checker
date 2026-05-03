@@ -1,7 +1,7 @@
 use crate::bridge::models::TimeSeriesPoint;
 use crate::engine::combat_stats::CombatStats;
 use crate::engine::entity::Entity;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 pub type EncounterMutex = std::sync::Mutex<Encounter>;
 
@@ -18,6 +18,8 @@ pub struct Encounter {
     pub last_sample_ms: u128,
     pub last_sample_total_dmg: i64,
     pub local_player_uid: i64,
+    pub has_selected_participant: bool,
+    pub participant_player_uids: HashSet<i64>,
 }
 
 impl Encounter {
@@ -35,6 +37,8 @@ impl Encounter {
         self.time_series.clear();
         self.last_sample_ms = 0;
         self.last_sample_total_dmg = 0;
+        self.has_selected_participant = false;
+        self.participant_player_uids.clear();
         for entity in self.entities.values_mut() {
             entity.dmg_stats = CombatStats::default();
             entity.dmg_stats_boss_only = CombatStats::default();

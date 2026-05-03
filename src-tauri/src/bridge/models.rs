@@ -64,6 +64,8 @@ pub struct EncounterSnapshot {
     pub total_dps: f64,
     pub player_rows: Vec<PlayerRow>,
     pub time_series: Vec<TimeSeriesPoint>,
+    #[serde(default)]
+    pub participant_player_uids: Vec<f64>,
 }
 
 pub type SkillRows = Vec<SkillRow>;

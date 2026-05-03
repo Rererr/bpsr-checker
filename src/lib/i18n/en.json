@@ -70,6 +70,7 @@
   "header_sparkline": "Header total graph",
   "graph_player_count": "Graph player count",
   "graph_for_local": "Graph for self",
+  "graph_column_hint": "Disabling both hides the column entirely",
   "selected_char_name_unknown": "(unknown)",
   "selected_uid_badge_unknown": "unknown",
   "selected_uid_change_warning": "Changing this resets the current encounter",

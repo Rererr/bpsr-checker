@@ -41,7 +41,9 @@ export function PlayerTable(props: PlayerTableProps) {
         }}
       >
         <span>{t("player")}</span>
-        <span />
+        <Show when={hasSparklineColumn()}>
+          <span />
+        </Show>
         <span style={{ "text-align": "right" }}>{t("damage")}</span>
         <span style={{ "text-align": "right" }}>{t("dps")}</span>
         <span style={{ "text-align": "right" }}>{t("pct")}</span>
@@ -198,16 +200,18 @@ function PlayerRowItem(props: PlayerRowItemProps) {
         </span>
       </div>
 
-      <span style={{ "z-index": "1", display: "flex", "align-items": "center", "justify-content": "center" }}>
-        <Show when={props.showSparkline}>
-          <Sparkline
-            points={props.row.timeSeries}
-            width={60}
-            height={14}
-            color={classColor()}
-          />
-        </Show>
-      </span>
+      <Show when={hasSparklineColumn()}>
+        <span style={{ "z-index": "1", display: "flex", "align-items": "center", "justify-content": "center" }}>
+          <Show when={props.showSparkline}>
+            <Sparkline
+              points={props.row.timeSeries}
+              width={60}
+              height={14}
+              color={classColor()}
+            />
+          </Show>
+        </span>
+      </Show>
       <span style={{ "text-align": "right", "z-index": "1" }}>
         {formatNumber(props.row.totalValue)}
       </span>
@@ -282,8 +286,12 @@ function PlayerRowItem(props: PlayerRowItemProps) {
   );
 }
 
+const hasSparklineColumn = () => graphPlayerCount() > 0 || graphForLocalPlayer();
+
 function gridCols(): string {
-  let cols = "minmax(80px, 1.2fr) 64px 70px 65px 45px";
+  let cols = "minmax(80px, 1.2fr)";
+  if (hasSparklineColumn()) cols += " 64px";
+  cols += " 70px 65px 45px";
   if (showCrit()) cols += " 50px";
   if (showCritValue()) cols += " 50px";
   if (showLucky()) cols += " 50px";

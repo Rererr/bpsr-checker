@@ -70,6 +70,7 @@
   "header_sparkline": "ヘッダー合計グラフ",
   "graph_player_count": "グラフ表示人数",
   "graph_for_local": "自分キャラのグラフ",
+  "graph_column_hint": "両方を無効にすると列ごと非表示になります",
   "selected_char_name_unknown": "（未取得）",
   "selected_uid_badge_unknown": "未取得",
   "selected_uid_change_warning": "変更すると進行中のエンカウンターはリセットされます",

@@ -76,5 +76,8 @@
   "selected_uid_clear": "クリア",
   "selected_uid_input_hint": "数値で入力。空欄またはクリアで自動検出に戻ります",
   "selected_uid_label": "自分のキャラ UID",
-  "settings_character": "キャラクター指定"
+  "settings_character": "キャラクター指定",
+  "selected_uid_candidates_label": "検出された候補",
+  "selected_uid_change_confirm": "進行中のエンカウンターがリセットされます。続行しますか？",
+  "selected_uid_filter_waiting": "のエンカウンターを待機中（フィルタ ON）"
 }

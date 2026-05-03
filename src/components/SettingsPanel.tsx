@@ -374,6 +374,9 @@ export function SettingsPanel() {
             <span style={{ color: "#aaa", width: "60px" }}>{t("graph_for_local")}</span>
             <Toggle label="" value={graphForLocalPlayer()} onChange={setGraphForLocalPlayer} />
           </div>
+          <div style={{ color: "#555", "font-size": "10px", "padding-left": "68px" }}>
+            {t("graph_column_hint")}
+          </div>
         </div>
       </details>
 

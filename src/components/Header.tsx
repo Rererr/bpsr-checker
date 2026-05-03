@@ -45,13 +45,18 @@ export function Header(props: HeaderProps) {
   createEffect(() => {
     const tab = props.tab;
     const ms = pollIntervalMs();
+    const showSparkline = showHeaderSparkline();
     const interval = setInterval(() => {
       fetchDpsData();
-      fetchTimeSeries();
+      if (showSparkline) fetchTimeSeries();
       if (tab === "heal") fetchHealData();
       if (tab === "dps") fetchBossData(); // prefetch for boss tab
     }, ms);
     onCleanup(() => clearInterval(interval));
+  });
+
+  createEffect(() => {
+    if (showHeaderSparkline()) fetchTimeSeries();
   });
 
   // selectedUid バッジ用の name_cache lookup

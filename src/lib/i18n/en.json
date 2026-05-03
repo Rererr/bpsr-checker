@@ -76,5 +76,8 @@
   "selected_uid_clear": "Clear",
   "selected_uid_input_hint": "Enter numeric UID. Empty or cleared = auto-detect",
   "selected_uid_label": "Your Character UID",
-  "settings_character": "Character Selection"
+  "settings_character": "Character Selection",
+  "selected_uid_candidates_label": "Detected",
+  "selected_uid_change_confirm": "This will reset the current encounter. Continue?",
+  "selected_uid_filter_waiting": "Waiting for encounter with this UID (filter active)"
 }

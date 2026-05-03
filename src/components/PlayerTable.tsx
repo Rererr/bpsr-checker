@@ -6,6 +6,7 @@ import {
   showCritValue, showLuckyValue, showHits,
   copyTemplate, nameTemplate, privacyMaskNames, highlightLocalPlayer,
   graphPlayerCount, graphForLocalPlayer,
+  selectedUid,
 } from "../stores/settings";
 import { formatNumber, formatDps, formatPct, getClassColor, formatRowAsText, maskPlayerName } from "../utils";
 import { Sparkline } from "./Sparkline";
@@ -72,7 +73,12 @@ export function PlayerTable(props: PlayerTableProps) {
         when={data().playerRows.length > 0}
         fallback={
           <div style={{ padding: "20px", "text-align": "center", color: "#666" }}>
-            {t("no_data")}
+            <Show
+              when={selectedUid() != null}
+              fallback={t("no_data")}
+            >
+              {`UID #${String(selectedUid()).slice(-4)} ${t("selected_uid_filter_waiting")}`}
+            </Show>
           </div>
         }
       >

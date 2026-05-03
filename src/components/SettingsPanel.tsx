@@ -1,4 +1,4 @@
-import { createResource, createSignal } from "solid-js";
+import { Show, createResource, createSignal } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { t, locale, setLocale } from "../lib/i18n";
 import type { Locale } from "../lib/i18n";
@@ -29,7 +29,7 @@ import {
   graphForLocalPlayer, setGraphForLocalPlayer,
   selectedUid, setSelectedUid,
 } from "../stores/settings";
-import { clearHistory } from "../stores/encounter";
+import { clearHistory, dpsPlayers, header } from "../stores/encounter";
 import { formatRowAsText } from "../utils";
 import type { PlayerRow } from "../stores/encounter";
 
@@ -85,21 +85,41 @@ export function SettingsPanel() {
     }
   );
 
+  const isInCombat = () => header().elapsedMs > 0 && header().totalDmg > 0;
+
   const commitUidInput = (raw: string) => {
     const trimmed = raw.trim();
-    if (trimmed === "") {
-      setSelectedUid(null);
-      setUidInputValue("");
+    let next: number | null = null;
+    if (trimmed !== "") {
+      const parsed = Number(trimmed);
+      if (isFinite(parsed) && !isNaN(parsed) && parsed > 0) {
+        next = parsed;
+      }
+    }
+    if (next === selectedUid()) {
+      setUidInputValue(next == null ? "" : String(next));
       return;
     }
-    const parsed = Number(trimmed);
-    if (!isFinite(parsed) || isNaN(parsed) || parsed <= 0) {
-      setSelectedUid(null);
-      setUidInputValue("");
-    } else {
-      setSelectedUid(parsed);
-      setUidInputValue(String(parsed));
+    if (isInCombat() && !window.confirm(t("selected_uid_change_confirm"))) {
+      setUidInputValue(selectedUid() == null ? "" : String(selectedUid()));
+      return;
     }
+    setSelectedUid(next);
+    setUidInputValue(next == null ? "" : String(next));
+  };
+
+  const handleClear = () => {
+    if (selectedUid() == null) return;
+    if (isInCombat() && !window.confirm(t("selected_uid_change_confirm"))) return;
+    setSelectedUid(null);
+    setUidInputValue("");
+  };
+
+  const handleCandidateClick = (uid: number) => {
+    if (uid === selectedUid()) return;
+    if (isInCombat() && !window.confirm(t("selected_uid_change_confirm"))) return;
+    setSelectedUid(uid);
+    setUidInputValue(String(uid));
   };
 
   return (
@@ -139,10 +159,7 @@ export function SettingsPanel() {
               }}
             />
             <button
-              onClick={() => {
-                setSelectedUid(null);
-                setUidInputValue("");
-              }}
+              onClick={handleClear}
               style={{
                 padding: "2px 8px",
                 border: "1px solid rgba(255,255,255,0.2)",
@@ -164,6 +181,39 @@ export function SettingsPanel() {
               {nameCache()?.name ?? t("selected_char_name_unknown")}
             </span>
           </div>
+
+          {/* Candidates */}
+          <Show when={dpsPlayers().playerRows.length > 0}>
+            <div style={{ display: "flex", "align-items": "flex-start", gap: "6px" }}>
+              <span style={{ color: "#777", "font-size": "10px", "white-space": "nowrap", "padding-top": "2px" }}>
+                {t("selected_uid_candidates_label")}
+              </span>
+              <div style={{ display: "flex", "flex-wrap": "wrap", gap: "4px" }}>
+                {dpsPlayers().playerRows.map((row) => {
+                  const isSelected = () => row.uid === selectedUid();
+                  const uid4 = String(row.uid).slice(-4);
+                  return (
+                    <button
+                      onClick={() => handleCandidateClick(row.uid)}
+                      style={{
+                        padding: "1px 6px",
+                        border: isSelected() ? "1px solid #4fc3f7" : "1px solid rgba(255,255,255,0.2)",
+                        "border-radius": "3px",
+                        background: isSelected() ? "rgba(79,195,247,0.15)" : "transparent",
+                        color: isSelected() ? "#4fc3f7" : "#bbb",
+                        cursor: "pointer",
+                        "font-size": "10px",
+                        "font-weight": isSelected() ? "bold" : "normal",
+                        "white-space": "nowrap",
+                      }}
+                    >
+                      {row.name} #{uid4}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </Show>
 
           {/* Hint */}
           <div style={{ color: "#555", "font-size": "10px" }}>

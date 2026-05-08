@@ -6,9 +6,9 @@ import {
   showCritValue, showLuckyValue, showHits,
   copyTemplate, nameTemplate, privacyMaskNames, highlightLocalPlayer,
   graphPlayerCount, graphForLocalPlayer,
-  selectedUid,
+  selectedUid, abbreviateScores,
 } from "../stores/settings";
-import { formatNumber, formatDps, formatPct, getClassColor, formatRowAsText, maskPlayerName } from "../utils";
+import { formatNumber, formatDps, formatPct, formatScore, getClassColor, formatRowAsText, maskPlayerName } from "../utils";
 import { Sparkline } from "./Sparkline";
 import type { Tab } from "../App";
 import type { PlayerRow, PlayersWindow } from "../stores/encounter";
@@ -129,7 +129,7 @@ function PlayerRowItem(props: PlayerRowItemProps) {
 
   const handleCopy = async (e: MouseEvent) => {
     e.stopPropagation();
-    const text = formatRowAsText(props.row, props.rank, copyTemplate());
+    const text = formatRowAsText(props.row, props.rank, copyTemplate(), abbreviateScores());
     await navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 800);
@@ -196,6 +196,7 @@ function PlayerRowItem(props: PlayerRowItemProps) {
               : props.row,
             props.rank,
             nameTemplate(),
+            abbreviateScores(),
           )}
         </span>
       </div>
@@ -253,7 +254,7 @@ function PlayerRowItem(props: PlayerRowItemProps) {
       </Show>
       <Show when={showScore()}>
         <span style={{ "text-align": "right", "z-index": "1", color: "#888" }}>
-          {props.row.abilityScore > 0 ? formatNumber(props.row.abilityScore) : "-"}
+          {props.row.abilityScore > 0 ? formatScore(props.row.abilityScore, abbreviateScores()) : "-"}
         </span>
       </Show>
 

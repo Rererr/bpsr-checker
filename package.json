@@ -1,6 +1,6 @@
 {
   "name": "bpsr-checker",
-  "version": "0.4.9",
+  "version": "0.5.0",
   "description": "軽量DPSチェッカー",
   "type": "module",
   "scripts": {

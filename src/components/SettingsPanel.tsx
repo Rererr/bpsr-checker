@@ -30,6 +30,7 @@ import {
   selectedUid, setSelectedUid,
   threeMinDurationSec, setThreeMinDurationSec,
   threeMinAutoOpen, setThreeMinAutoOpen,
+  abbreviateScores, setAbbreviateScores,
 } from "../stores/settings";
 import { clearHistory, dpsPlayers, header } from "../stores/encounter";
 import { formatRowAsText } from "../utils";
@@ -280,6 +281,7 @@ export function SettingsPanel() {
               <Toggle label={t("hits")} value={showHits()} onChange={setShowHits} />
               <Toggle label={t("hpm")} value={showHpm()} onChange={setShowHpm} />
               <Toggle label={t("score")} value={showScore()} onChange={setShowScore} />
+              <Toggle label={t("abbreviate_scores")} value={abbreviateScores()} onChange={setAbbreviateScores} />
             </div>
           </div>
 
@@ -335,7 +337,7 @@ export function SettingsPanel() {
                 "white-space": "pre-wrap",
                 "word-break": "break-all",
               }}>
-                {formatRowAsText(SAMPLE_ROW, 1, nameTemplate())}
+                {formatRowAsText(SAMPLE_ROW, 1, nameTemplate(), abbreviateScores())}
               </pre>
             </div>
           </div>
@@ -425,7 +427,7 @@ export function SettingsPanel() {
               "white-space": "pre-wrap",
               "word-break": "break-all",
             }}>
-              {formatRowAsText(SAMPLE_ROW, 1, copyTemplate())}
+              {formatRowAsText(SAMPLE_ROW, 1, copyTemplate(), abbreviateScores())}
             </pre>
           </div>
         </div>

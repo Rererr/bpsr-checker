@@ -10,6 +10,11 @@ export function formatDps(n: number): string {
   return Math.round(n).toString();
 }
 
+export function formatScore(n: number, abbreviate: boolean): string {
+  if (abbreviate) return formatNumber(n);
+  return Math.round(n).toString();
+}
+
 export function formatPct(n: number): string {
   return n.toFixed(1) + "%";
 }
@@ -46,7 +51,7 @@ import type { PlayerRow } from "./stores/encounter";
 
 const MISSING = "—";
 
-export function formatRowAsText(row: PlayerRow, rank: number, template: string): string {
+export function formatRowAsText(row: PlayerRow, rank: number, template: string, abbreviateScores = false): string {
   const spec = row.classSpecName && row.classSpecName !== "不明" ? row.classSpecName : "";
   const map: Record<string, string> = {
     rank: rank.toString(),
@@ -62,9 +67,9 @@ export function formatRowAsText(row: PlayerRow, rank: number, template: string):
     luckyV: formatPct(row.luckyValueRate),
     hits: row.hits.toString(),
     hpm: row.hitsPerMinute.toFixed(1),
-    score: row.abilityScore > 0 ? formatNumber(row.abilityScore) : MISSING,
+    score: row.abilityScore > 0 ? formatScore(row.abilityScore, abbreviateScores) : MISSING,
     seasonLv: row.seasonLevel > 0 ? row.seasonLevel.toString() : MISSING,
-    seasonStr: row.seasonStrength > 0 ? formatNumber(row.seasonStrength) : MISSING,
+    seasonStr: row.seasonStrength > 0 ? formatScore(row.seasonStrength, abbreviateScores) : MISSING,
   };
   return template.replace(/\{(\w+)\}/g, (_m, k) => map[k] ?? `{${k}}`);
 }

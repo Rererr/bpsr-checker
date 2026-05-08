@@ -34,6 +34,7 @@ const [graphForLocalPlayer, setGraphForLocalPlayer] = persisted<boolean>("graphF
 const [selectedUid, setSelectedUid] = persisted<number | null>("selectedUid", null);
 const [threeMinDurationSec, setThreeMinDurationSec] = persisted<number>("threeMinDurationSec", 180);
 const [threeMinAutoOpen, setThreeMinAutoOpen] = persisted<boolean>("threeMinAutoOpen", true);
+const [abbreviateScores, setAbbreviateScores] = persisted<boolean>("abbreviateScores", false);
 
 export {
   opacity, setOpacity,
@@ -65,6 +66,7 @@ export {
   selectedUid, setSelectedUid,
   threeMinDurationSec, setThreeMinDurationSec,
   threeMinAutoOpen, setThreeMinAutoOpen,
+  abbreviateScores, setAbbreviateScores,
 };
 
 export function wireBackendSettings() {

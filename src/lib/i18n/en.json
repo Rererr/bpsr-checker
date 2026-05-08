@@ -94,5 +94,6 @@
   "mode_3min_cancel_confirm": "Cancel the measurement?",
   "mode_3min_no_damage": "No damage recorded",
   "settings_3min_duration": "Measure duration (sec)",
-  "settings_3min_auto_open": "Auto-open result modal"
+  "settings_3min_auto_open": "Auto-open result modal",
+  "abbreviate_scores": "Abbrev. scores (K/M)"
 }

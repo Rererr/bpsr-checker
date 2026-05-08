@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "bpsr-checker",
-  "version": "0.4.9",
-  "identifier": "com.bpsr-checker",
+  "version": "0.5.0",
+  "identifier": "com.rererr.bpsr-checker",
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",

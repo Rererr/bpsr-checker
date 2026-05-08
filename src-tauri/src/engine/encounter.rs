@@ -1,9 +1,18 @@
 use crate::bridge::models::TimeSeriesPoint;
 use crate::engine::combat_stats::CombatStats;
 use crate::engine::entity::Entity;
+use crate::protocol::pb::EEntityType;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 pub type EncounterMutex = std::sync::Mutex<Encounter>;
+
+#[derive(Debug, Clone, Default)]
+pub enum MeasureMode {
+    #[default]
+    Normal,
+    Pending3Min { duration_ms: u128 },
+    Active3Min { armed_at_ms: u128, duration_ms: u128 },
+}
 
 #[derive(Debug, Default, Clone)]
 pub struct Encounter {
@@ -20,13 +29,13 @@ pub struct Encounter {
     pub local_player_uid: i64,
     pub has_selected_participant: bool,
     pub participant_player_uids: HashSet<i64>,
+    pub measure_mode: MeasureMode,
 }
 
 impl Encounter {
-    /// Reset combat statistics while keeping each entity's identity (name,
-    /// class, ability score, monster id, etc.) intact. Used for both manual
-    /// reset and automatic encounter rollover so player names don't get
-    /// replaced by `プレイヤー#XXXX` fallbacks after a reset.
+    /// Player entities are removed so their identity is re-populated fresh
+    /// from disk cache on next appearance. Monster entities are kept with stats
+    /// reset so HP/monster_id tracking survives the rollover.
     pub fn clear_combat_stats(&mut self) {
         self.is_paused = false;
         self.time_fight_start_ms = 0;
@@ -39,6 +48,8 @@ impl Encounter {
         self.last_sample_total_dmg = 0;
         self.has_selected_participant = false;
         self.participant_player_uids.clear();
+        self.entities
+            .retain(|_, entity| entity.entity_type != EEntityType::EntChar);
         for entity in self.entities.values_mut() {
             entity.dmg_stats = CombatStats::default();
             entity.dmg_stats_boss_only = CombatStats::default();

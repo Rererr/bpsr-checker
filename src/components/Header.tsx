@@ -24,7 +24,14 @@ import {
   setAlwaysOnTop,
   opacity,
   selectedUid,
+  threeMinDurationSec,
 } from "../stores/settings";
+import {
+  measureModeStatus,
+  fetchMeasureModeStatus,
+  start3Min,
+  cancel3Min,
+} from "../stores/measureMode";
 import type { Tab } from "../App";
 
 interface NameCacheEntry {
@@ -51,6 +58,7 @@ export function Header(props: HeaderProps) {
       if (showSparkline) fetchTimeSeries();
       if (tab === "heal") fetchHealData();
       if (tab === "dps") fetchBossData(); // prefetch for boss tab
+      fetchMeasureModeStatus();
     }, ms);
     onCleanup(() => clearInterval(interval));
   });
@@ -87,6 +95,19 @@ export function Header(props: HeaderProps) {
 
   const h = () => header();
 
+  const mode = () => measureModeStatus();
+
+  const handleThreeMinClick = async () => {
+    const m = mode();
+    if (m.kind === "normal") {
+      await start3Min(threeMinDurationSec());
+    } else if (m.kind === "pending" || m.kind === "active") {
+      if (window.confirm(t("mode_3min_cancel_confirm"))) {
+        await cancel3Min();
+      }
+    }
+  };
+
   const [copiedAll, setCopiedAll] = createSignal(false);
   const handleCopyAll = async () => {
     const rows = props.tab === "heal" ? healPlayers().playerRows : dpsPlayers().playerRows;
@@ -101,6 +122,7 @@ export function Header(props: HeaderProps) {
   return (
     <div
       style={{
+        position: "relative",
         display: "flex",
         "align-items": "center",
         gap: "8px",
@@ -141,8 +163,31 @@ export function Header(props: HeaderProps) {
         <span data-tauri-drag-region style={{ color: "#aaa" }}>
           {formatNumber(h().totalDmg)}
         </span>
-        <span data-tauri-drag-region style={{ color: "#888" }}>
-          {formatElapsed(h().elapsedMs)}
+        <span
+          data-tauri-drag-region
+          style={{
+            color: (() => {
+              const m = mode();
+              if (m.kind !== "active") return "#888";
+              return (m.remainingMs ?? 1) <= 10000 ? "#ff6b6b" : "#4fc3f7";
+            })(),
+            animation: (() => {
+              const m = mode();
+              return m.kind === "active" && (m.remainingMs ?? 1) <= 10000 ? "blink 1s step-start infinite" : "none";
+            })(),
+          }}
+        >
+          {(() => {
+            const m = mode();
+            if (m.kind === "active") {
+              const rem = m.remainingMs ?? 0;
+              const totalSec = Math.ceil(rem / 1000);
+              const mm = String(Math.floor(totalSec / 60)).padStart(2, "0");
+              const ss = String(totalSec % 60).padStart(2, "0");
+              return t("mode_3min_remaining").replace("{time}", `${mm}:${ss}`);
+            }
+            return formatElapsed(h().elapsedMs);
+          })()}
         </span>
         <Show when={showHeaderSparkline()}>
           <span data-tauri-drag-region style={{ "margin-left": "4px", display: "flex", "align-items": "center" }}>
@@ -216,6 +261,40 @@ export function Header(props: HeaderProps) {
             <span>{t("always_on_top")}</span>
           </label>
         </Show>
+        {/* 3min measure mode button */}
+        <button
+          onClick={handleThreeMinClick}
+          style={(() => {
+            const m = mode();
+            const base = controlBtnStyle();
+            if (m.kind === "pending") {
+              return { ...base, color: "#f0c040", "border-color": "rgba(240,192,64,0.6)", background: "rgba(240,192,64,0.08)" };
+            }
+            if (m.kind === "active") {
+              return { ...base, color: "#4fc3f7", "border-color": "rgba(79,195,247,0.6)", background: "rgba(79,195,247,0.12)" };
+            }
+            return base;
+          })()}
+          title={(() => {
+            const m = mode();
+            if (m.kind === "pending") return t("mode_3min_pending_hint");
+            if (m.kind === "active") return t("mode_3min_cancel");
+            return t("mode_3min_button");
+          })()}
+        >
+          {(() => {
+            const m = mode();
+            if (m.kind === "pending") return t("mode_3min_pending");
+            if (m.kind === "active") {
+              const rem = m.remainingMs ?? 0;
+              const totalSec = Math.ceil(rem / 1000);
+              const mm = String(Math.floor(totalSec / 60)).padStart(2, "0");
+              const ss = String(totalSec % 60).padStart(2, "0");
+              return `${mm}:${ss}`;
+            }
+            return t("mode_3min_button");
+          })()}
+        </button>
         <button
           onClick={togglePause}
           style={controlBtnStyle()}
@@ -224,7 +303,16 @@ export function Header(props: HeaderProps) {
           ||
         </button>
         <button
-          onClick={resetEncounter}
+          onClick={async () => {
+            const m = mode();
+            if ((m.kind === "pending" || m.kind === "active") && !window.confirm(t("mode_3min_cancel_confirm"))) {
+              return;
+            }
+            if (m.kind === "pending" || m.kind === "active") {
+              await cancel3Min();
+            }
+            resetEncounter();
+          }}
           style={controlBtnStyle()}
           title={t("reset")}
         >
@@ -259,6 +347,21 @@ export function Header(props: HeaderProps) {
           ×
         </button>
       </div>
+
+      {/* 進捗バー */}
+      <Show when={mode().kind === "active"}>
+        <div
+          style={{
+            position: "absolute",
+            bottom: "0",
+            left: "0",
+            height: "2px",
+            width: `${Math.min(100, Math.max(0, ((mode().remainingMs ?? 0) / (mode().durationMs ?? 1)) * 100))}%`,
+            background: ((mode().remainingMs ?? 0) / (mode().durationMs ?? 1)) * 100 <= 16 ? "#ff6b6b" : "#4fc3f7",
+            transition: "width 0.2s linear",
+          }}
+        />
+      </Show>
     </div>
   );
 }

@@ -80,5 +80,19 @@
   "settings_character": "Character Selection",
   "selected_uid_candidates_label": "Detected",
   "selected_uid_change_confirm": "This will reset the current encounter. Continue?",
-  "selected_uid_filter_waiting": "Waiting for encounter with this UID (filter active)"
+  "selected_uid_filter_waiting": "Waiting for encounter with this UID (filter active)",
+  "mode_3min_button": "3-min",
+  "mode_3min_pending": "Waiting",
+  "mode_3min_pending_hint": "Starts on first damage",
+  "mode_3min_active": "Measuring",
+  "mode_3min_remaining": "Rem. {time}",
+  "mode_3min_result_title": "3-min Measurement Result",
+  "mode_3min_close": "Close",
+  "mode_3min_restart": "Measure again",
+  "mode_3min_copy_result": "Copy result",
+  "mode_3min_cancel": "Cancel measurement",
+  "mode_3min_cancel_confirm": "Cancel the measurement?",
+  "mode_3min_no_damage": "No damage recorded",
+  "settings_3min_duration": "Measure duration (sec)",
+  "settings_3min_auto_open": "Auto-open result modal"
 }

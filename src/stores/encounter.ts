@@ -119,8 +119,16 @@ export async function fetchSkills(playerUid: number): Promise<SkillsWindow | nul
   }
 }
 
+export function resetPlayerWindows(): void {
+  setHeader({ totalDps: 0, totalDmg: 0, elapsedMs: 0, timeLastCombatPacketMs: 0 });
+  setDpsPlayers({ playerRows: [], localPlayerUid: 0, topValue: 0 });
+  setHealPlayers({ playerRows: [], localPlayerUid: 0, topValue: 0 });
+  setBossPlayers({ playerRows: [], localPlayerUid: 0, topValue: 0 });
+}
+
 export async function resetEncounter() {
   await invoke("reset_encounter");
+  resetPlayerWindows();
 }
 
 export async function togglePause() {

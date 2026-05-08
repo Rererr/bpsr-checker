@@ -32,6 +32,8 @@ const [showHeaderSparkline, setShowHeaderSparkline] = persisted<boolean>("showHe
 const [graphPlayerCount, setGraphPlayerCount] = persisted<number>("graphPlayerCount", 3);
 const [graphForLocalPlayer, setGraphForLocalPlayer] = persisted<boolean>("graphForLocalPlayer", true);
 const [selectedUid, setSelectedUid] = persisted<number | null>("selectedUid", null);
+const [threeMinDurationSec, setThreeMinDurationSec] = persisted<number>("threeMinDurationSec", 180);
+const [threeMinAutoOpen, setThreeMinAutoOpen] = persisted<boolean>("threeMinAutoOpen", true);
 
 export {
   opacity, setOpacity,
@@ -61,6 +63,8 @@ export {
   graphPlayerCount, setGraphPlayerCount,
   graphForLocalPlayer, setGraphForLocalPlayer,
   selectedUid, setSelectedUid,
+  threeMinDurationSec, setThreeMinDurationSec,
+  threeMinAutoOpen, setThreeMinAutoOpen,
 };
 
 export function wireBackendSettings() {

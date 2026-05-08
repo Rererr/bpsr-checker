@@ -28,6 +28,8 @@ import {
   graphPlayerCount, setGraphPlayerCount,
   graphForLocalPlayer, setGraphForLocalPlayer,
   selectedUid, setSelectedUid,
+  threeMinDurationSec, setThreeMinDurationSec,
+  threeMinAutoOpen, setThreeMinAutoOpen,
 } from "../stores/settings";
 import { clearHistory, dpsPlayers, header } from "../stores/encounter";
 import { formatRowAsText } from "../utils";
@@ -480,6 +482,37 @@ export function SettingsPanel() {
                 "font-size": "11px",
               }}
             />
+          </div>
+
+          {/* 3分計測 duration */}
+          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+            <span style={{ color: "#aaa", width: "80px" }}>{t("settings_3min_duration")}</span>
+            <input
+              type="number"
+              min="30"
+              max="1800"
+              step="30"
+              value={threeMinDurationSec()}
+              onInput={(e) => {
+                const v = parseInt(e.currentTarget.value, 10);
+                if (!isNaN(v) && v >= 30 && v <= 1800) setThreeMinDurationSec(v);
+              }}
+              style={{
+                width: "70px",
+                background: "rgba(255,255,255,0.1)",
+                border: "1px solid rgba(255,255,255,0.2)",
+                color: "#ddd",
+                "border-radius": "3px",
+                padding: "2px 4px",
+                "font-size": "11px",
+              }}
+            />
+          </div>
+
+          {/* 3分計測 auto-open modal */}
+          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+            <span style={{ color: "#aaa", width: "80px" }}>{t("settings_3min_auto_open")}</span>
+            <Toggle label="" value={threeMinAutoOpen()} onChange={setThreeMinAutoOpen} />
           </div>
         </div>
       </details>

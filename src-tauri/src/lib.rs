@@ -48,6 +48,10 @@ pub fn run() {
         commands::get_selected_uid,
         commands::set_selected_uid,
         commands::lookup_name_cache,
+        commands::start_3min_measure_mode,
+        commands::cancel_3min_measure_mode,
+        commands::finalize_3min_measure_mode,
+        commands::get_measure_mode_status,
     ]);
 
     #[cfg(debug_assertions)]

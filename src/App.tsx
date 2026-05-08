@@ -1,10 +1,12 @@
-import { createSignal } from "solid-js";
+import { createSignal, Show } from "solid-js";
 import { Header } from "./components/Header";
 import { PlayerTable } from "./components/PlayerTable";
 import { SkillTable } from "./components/SkillTable";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { HistoryView } from "./components/HistoryView";
+import { ThreeMinResultModal } from "./components/ThreeMinResultModal";
 import { wireBackendSettings, fontSize, startupTab, opacity } from "./stores/settings";
+import { wireMeasureMode, threeMinResult } from "./stores/measureMode";
 
 export type Tab = "dps" | "heal" | "history" | "skills";
 
@@ -12,6 +14,7 @@ const VALID_STARTUP_TABS: Tab[] = ["dps", "heal", "history"];
 
 export default function App() {
   wireBackendSettings();
+  wireMeasureMode();
 
   const initialTab = VALID_STARTUP_TABS.includes(startupTab() as Tab)
     ? (startupTab() as Tab)
@@ -51,6 +54,9 @@ export default function App() {
       ) : (
         <PlayerTable tab={tab()} onSelectPlayer={openSkills} />
       )}
+      <Show when={threeMinResult() !== null}>
+        <ThreeMinResultModal />
+      </Show>
     </div>
   );
 }

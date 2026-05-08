@@ -1,4 +1,4 @@
-use crate::bridge::models::{EncounterSnapshot, HeaderInfo, PlayerRow, PlayersWindow, SkillRow, SkillsWindow, TimeSeriesPoint};
+use crate::bridge::models::{EncounterSnapshot, HeaderInfo, MeasureModeStatus, PlayerRow, PlayersWindow, SkillRow, SkillsWindow, TimeSeriesPoint};
 use crate::engine::class::{Class, ClassSpec};
 use crate::engine::combat_stats::CombatStats;
 use crate::engine::encounter::{Encounter, EncounterMutex};
@@ -454,6 +454,7 @@ pub fn set_selected_uid(state: tauri::State<'_, EncounterMutex>, uid: Option<f64
         Ok(mut encounter) => {
             encounter.clear_combat_stats();
             encounter.local_player_uid = uid_i64.unwrap_or(0);
+            encounter.measure_mode = crate::engine::encounter::MeasureMode::Normal;
         }
         Err(e) => log::error!("Lock poisoned in set_selected_uid: {e}"),
     }
@@ -468,4 +469,100 @@ pub fn lookup_name_cache(uid: f64) -> Option<CachedPlayerDto> {
         class_id: cached.class_id,
         ability_score: cached.ability_score,
     })
+}
+
+// ─── 3min measure mode ───────────────────────────────────────────────────────
+
+pub fn finalize_3min_internal(encounter: &mut Encounter, app: &AppHandle) {
+    let snapshot = build_encounter_snapshot(encounter);
+    if !snapshot.player_rows.is_empty() {
+        crate::engine::history::push(snapshot.clone());
+    }
+    if let Err(e) = app.emit("3min-measure-finalized", snapshot) {
+        log::error!("Failed to emit 3min-measure-finalized: {e}");
+    }
+    encounter.clear_combat_stats();
+    encounter.measure_mode = crate::engine::encounter::MeasureMode::Normal;
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn start_3min_measure_mode(state: tauri::State<'_, EncounterMutex>, duration_secs: f64) {
+    let duration_ms = (duration_secs * 1000.0).max(1000.0) as u128;
+    match state.lock() {
+        Ok(mut enc) => {
+            enc.clear_combat_stats();
+            enc.measure_mode = crate::engine::encounter::MeasureMode::Pending3Min { duration_ms };
+            info!("3min measure mode: pending (duration={duration_ms}ms)");
+        }
+        Err(e) => log::error!("Lock poisoned in start_3min_measure_mode: {e}"),
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn cancel_3min_measure_mode(state: tauri::State<'_, EncounterMutex>) {
+    match state.lock() {
+        Ok(mut enc) => {
+            enc.clear_combat_stats();
+            enc.measure_mode = crate::engine::encounter::MeasureMode::Normal;
+            info!("3min measure mode: cancelled");
+        }
+        Err(e) => log::error!("Lock poisoned in cancel_3min_measure_mode: {e}"),
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn finalize_3min_measure_mode(app: AppHandle, state: tauri::State<'_, EncounterMutex>) {
+    match state.lock() {
+        Ok(mut enc) => {
+            finalize_3min_internal(&mut enc, &app);
+            info!("3min measure mode: finalized (UI-driven)");
+        }
+        Err(e) => log::error!("Lock poisoned in finalize_3min_measure_mode: {e}"),
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_measure_mode_status(state: tauri::State<'_, EncounterMutex>) -> MeasureModeStatus {
+    use crate::engine::encounter::MeasureMode;
+    use crate::engine::processor::now_ms;
+
+    match state.lock() {
+        Ok(enc) => match enc.measure_mode {
+            MeasureMode::Normal => MeasureModeStatus {
+                kind: "normal".to_string(),
+                remaining_ms: None,
+                duration_ms: None,
+                armed_at_ms: None,
+            },
+            MeasureMode::Pending3Min { duration_ms } => MeasureModeStatus {
+                kind: "pending".to_string(),
+                remaining_ms: None,
+                duration_ms: Some(duration_ms as f64),
+                armed_at_ms: None,
+            },
+            MeasureMode::Active3Min { armed_at_ms, duration_ms } => {
+                let elapsed = now_ms().saturating_sub(armed_at_ms);
+                let remaining = (duration_ms as i128) - (elapsed as i128);
+                MeasureModeStatus {
+                    kind: "active".to_string(),
+                    remaining_ms: Some(remaining.max(0) as f64),
+                    duration_ms: Some(duration_ms as f64),
+                    armed_at_ms: Some(armed_at_ms as f64),
+                }
+            }
+        },
+        Err(e) => {
+            log::error!("Lock poisoned in get_measure_mode_status: {e}");
+            MeasureModeStatus {
+                kind: "normal".to_string(),
+                remaining_ms: None,
+                duration_ms: None,
+                armed_at_ms: None,
+            }
+        }
+    }
 }

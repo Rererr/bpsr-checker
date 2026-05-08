@@ -80,5 +80,19 @@
   "settings_character": "キャラクター指定",
   "selected_uid_candidates_label": "検出された候補",
   "selected_uid_change_confirm": "進行中のエンカウンターがリセットされます。続行しますか？",
-  "selected_uid_filter_waiting": "のエンカウンターを待機中（フィルタ ON）"
+  "selected_uid_filter_waiting": "のエンカウンターを待機中（フィルタ ON）",
+  "mode_3min_button": "3分計測",
+  "mode_3min_pending": "待機中",
+  "mode_3min_pending_hint": "最初のダメージで開始",
+  "mode_3min_active": "計測中",
+  "mode_3min_remaining": "残り {time}",
+  "mode_3min_result_title": "3分計測 結果",
+  "mode_3min_close": "閉じる",
+  "mode_3min_restart": "もう一度計測",
+  "mode_3min_copy_result": "結果コピー",
+  "mode_3min_cancel": "計測をキャンセル",
+  "mode_3min_cancel_confirm": "計測をキャンセルしますか？",
+  "mode_3min_no_damage": "ダメージが記録されませんでした",
+  "settings_3min_duration": "計測時間（秒）",
+  "settings_3min_auto_open": "結果モーダル自動表示"
 }

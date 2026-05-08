@@ -95,7 +95,7 @@ fn decode_protobuf_int64(data: &[u8]) -> AppResult<i64> {
         .map_err(|e| AppError::Parse(format!("decode_varint i64: {e}")))
 }
 
-fn now_ms() -> u128 {
+pub(crate) fn now_ms() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
@@ -307,6 +307,7 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
         let ts = now_ms();
         let timeout_ms = u128::from(crate::engine::runtime_settings::COMBAT_EXIT_TIMEOUT_MS.load(std::sync::atomic::Ordering::Relaxed));
         if timeout_ms > 0
+            && matches!(encounter.measure_mode, crate::engine::encounter::MeasureMode::Normal)
             && encounter.time_last_combat_packet_ms != 0
             && ts.saturating_sub(encounter.time_last_combat_packet_ms) > timeout_ms
         {
@@ -416,6 +417,13 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
     let ts = now_ms();
     if encounter.time_fight_start_ms == 0 {
         encounter.time_fight_start_ms = ts;
+        if let crate::engine::encounter::MeasureMode::Pending3Min { duration_ms } = encounter.measure_mode {
+            encounter.measure_mode = crate::engine::encounter::MeasureMode::Active3Min {
+                armed_at_ms: ts,
+                duration_ms,
+            };
+            info!("3min measure mode: active (armed_at={ts}ms)");
+        }
     }
     encounter.time_last_combat_packet_ms = ts;
 

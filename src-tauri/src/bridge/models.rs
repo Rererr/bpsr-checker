@@ -68,6 +68,15 @@ pub struct EncounterSnapshot {
     pub participant_player_uids: Vec<f64>,
 }
 
+#[derive(serde::Serialize, specta::Type, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct MeasureModeStatus {
+    pub kind: String,
+    pub remaining_ms: Option<f64>,
+    pub duration_ms: Option<f64>,
+    pub armed_at_ms: Option<f64>,
+}
+
 pub type SkillRows = Vec<SkillRow>;
 
 #[derive(specta::Type, serde::Serialize, serde::Deserialize, Debug, Default, Clone)]

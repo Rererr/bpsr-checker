@@ -8,7 +8,7 @@ use crate::engine::skill_names::get_skill_name;
 use crate::protocol::pb::EEntityType;
 use std::collections::VecDeque;
 use log::info;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 
 #[derive(serde::Serialize, specta::Type, Clone, Debug)]
 #[serde(rename_all = "camelCase")]

@@ -1,11 +1,13 @@
 use crate::capture::binary_reader::BinaryReader;
-use crate::protocol::opcodes::{FragmentType, Pkt};
+use crate::capture::server::Server;
+use crate::protocol::opcodes::{FragmentType, Pkt, PktEnvelope};
 use log::debug;
 use tokio::sync::mpsc;
 
 pub async fn process_packet(
     mut packets_reader: BinaryReader,
-    packet_sender: mpsc::Sender<(Pkt, Vec<u8>)>,
+    packet_sender: mpsc::Sender<PktEnvelope>,
+    conn: Server,
 ) {
     while packets_reader.remaining() > 0 {
         let packet_size = match packets_reader.peek_u32() {
@@ -38,8 +40,7 @@ pub async fn process_packet(
                 continue;
             }
         };
-        let is_zstd_compressed =
-            packet_type & crate::protocol::constants::packet::COMPRESSION_FLAG;
+        let is_zstd_compressed = packet_type & crate::protocol::constants::packet::COMPRESSION_FLAG;
         let msg_type_id = crate::protocol::constants::packet::extract_type(packet_type);
 
         match FragmentType::from(msg_type_id) {
@@ -80,11 +81,14 @@ pub async fn process_packet(
 
                 // SocialNtf scene data
                 if service_uuid == crate::protocol::constants::SOCIAL_NTF_SERVICE_ID
-                    && method_id_raw
-                        == crate::protocol::constants::SOCIAL_NTF_NOTIFY_METHOD_ID
+                    && method_id_raw == crate::protocol::constants::SOCIAL_NTF_NOTIFY_METHOD_ID
                 {
                     if let Err(err) = packet_sender
-                        .send((Pkt::NotifySocialData, tcp_fragment_vec))
+                        .send(PktEnvelope {
+                            op: Pkt::NotifySocialData,
+                            data: tcp_fragment_vec,
+                            conn: Some(conn),
+                        })
                         .await
                     {
                         debug!("Failed to send SocialNtf packet: {err}");
@@ -104,7 +108,14 @@ pub async fn process_packet(
                     }
                 };
 
-                if let Err(err) = packet_sender.send((method_id, tcp_fragment_vec)).await {
+                if let Err(err) = packet_sender
+                    .send(PktEnvelope {
+                        op: method_id,
+                        data: tcp_fragment_vec,
+                        conn: Some(conn),
+                    })
+                    .await
+                {
                     debug!("Failed to send packet: {err}");
                 }
             }
@@ -148,11 +159,13 @@ pub async fn process_packet(
 mod tests {
     use super::*;
     use crate::capture::binary_reader::BinaryReader;
+    use crate::capture::server::Server;
 
     #[tokio::test]
     async fn test_process_empty_packet() {
-        let (packet_sender, _rx) = mpsc::channel::<(Pkt, Vec<u8>)>(1);
+        let (packet_sender, _rx) = mpsc::channel::<PktEnvelope>(1);
         let reader = BinaryReader::from(vec![]);
-        process_packet(reader, packet_sender).await;
+        let dummy_conn = Server::new([0, 0, 0, 0], 0, [0, 0, 0, 0], 0);
+        process_packet(reader, packet_sender, dummy_conn).await;
     }
 }

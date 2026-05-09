@@ -27,9 +27,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?;
     }
 
-    let attributes = tauri_build::Attributes::new().windows_attributes(
-        tauri_build::WindowsAttributes::new_without_app_manifest(),
-    );
+    let attributes = tauri_build::Attributes::new()
+        .windows_attributes(tauri_build::WindowsAttributes::new_without_app_manifest());
     tauri_build::try_build(attributes)?;
 
     Ok(())

@@ -1,4 +1,7 @@
-use crate::bridge::models::{EncounterSnapshot, HeaderInfo, MeasureModeStatus, PlayerRow, PlayersWindow, SkillRow, SkillsWindow, TimeSeriesPoint};
+use crate::bridge::models::{
+    EncounterSnapshot, HeaderInfo, MeasureModeStatus, PlayerRow, PlayersWindow, SkillRow,
+    SkillsWindow, TimeSeriesPoint,
+};
 use crate::engine::class::{Class, ClassSpec};
 use crate::engine::combat_stats::CombatStats;
 use crate::engine::encounter::{Encounter, EncounterMutex};
@@ -6,8 +9,8 @@ use crate::engine::name_cache;
 use crate::engine::selected_uid;
 use crate::engine::skill_names::get_skill_name;
 use crate::protocol::pb::EEntityType;
-use std::collections::VecDeque;
 use log::info;
+use std::collections::VecDeque;
 use tauri::{AppHandle, Emitter};
 
 #[derive(serde::Serialize, specta::Type, Clone, Debug)]
@@ -105,10 +108,7 @@ pub fn get_heal_players(state: tauri::State<'_, EncounterMutex>) -> PlayersWindo
     build_players_window(&*encounter, StatType::Heal)
 }
 
-fn build_players_window(
-    encounter: &Encounter,
-    stat_type: StatType,
-) -> PlayersWindow {
+fn build_players_window(encounter: &Encounter, stat_type: StatType) -> PlayersWindow {
     let selected = selected_uid::get();
     if selected.is_some() && !encounter.has_selected_participant {
         return PlayersWindow::default();
@@ -192,15 +192,16 @@ fn make_player_row(
         uid: uid as f64,
         name: display_name,
         class_name: class.unwrap_or(Class::Unknown).name_ja().to_string(),
-        class_spec_name: class_spec.unwrap_or(ClassSpec::Unknown).name_ja().to_string(),
+        class_spec_name: class_spec
+            .unwrap_or(ClassSpec::Unknown)
+            .name_ja()
+            .to_string(),
         ability_score: f64::from(ability_score.unwrap_or(-1)),
         season_level: f64::from(season_level.unwrap_or(-1)),
         season_strength: f64::from(season_strength.unwrap_or(-1)),
         total_value: entity_stats.total as f64,
         value_per_sec: nan_is_zero(entity_stats.total as f64 / elapsed_secs),
-        value_pct: nan_is_zero(
-            entity_stats.total as f64 / encounter_stats.total as f64 * 100.0,
-        ),
+        value_pct: nan_is_zero(entity_stats.total as f64 / encounter_stats.total as f64 * 100.0),
         crit_rate: nan_is_zero(
             entity_stats.crit_count as f64 / entity_stats.hit_count as f64 * 100.0,
         ),
@@ -227,9 +228,7 @@ pub fn get_skills(
     state: tauri::State<'_, EncounterMutex>,
     player_uid: i64,
 ) -> Result<SkillsWindow, String> {
-    let encounter = state
-        .lock()
-        .map_err(|e| format!("Lock poisoned: {e}"))?;
+    let encounter = state.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
 
     let Some(player) = encounter.entities.get(&player_uid) else {
         return Err(format!("Could not find player with uid {player_uid}"));
@@ -271,9 +270,7 @@ pub fn get_skills(
             name: get_skill_name(skill_uid),
             total_value: skill_stat.total as f64,
             value_per_sec: nan_is_zero(skill_stat.total as f64 / elapsed_secs),
-            value_pct: nan_is_zero(
-                skill_stat.total as f64 / player_stats.total as f64 * 100.0,
-            ),
+            value_pct: nan_is_zero(skill_stat.total as f64 / player_stats.total as f64 * 100.0),
             crit_rate: nan_is_zero(
                 skill_stat.crit_count as f64 / skill_stat.hit_count as f64 * 100.0,
             ),
@@ -287,9 +284,7 @@ pub fn get_skills(
                 skill_stat.lucky_value as f64 / skill_stat.total as f64 * 100.0,
             ),
             hits: skill_stat.hit_count as f64,
-            hits_per_minute: nan_is_zero(
-                skill_stat.hit_count as f64 / elapsed_secs * 60.0,
-            ),
+            hits_per_minute: nan_is_zero(skill_stat.hit_count as f64 / elapsed_secs * 60.0),
         };
         skill_window.skill_rows.push(row);
     }
@@ -345,7 +340,11 @@ pub fn build_encounter_snapshot(encounter: &Encounter) -> EncounterSnapshot {
         .saturating_sub(encounter.time_fight_start_ms);
     let elapsed_secs = elapsed_ms as f64 / 1000.0;
     let total_dmg = encounter.dmg_stats.total as f64;
-    let total_dps = if elapsed_secs > 0.0 { total_dmg / elapsed_secs } else { 0.0 };
+    let total_dps = if elapsed_secs > 0.0 {
+        total_dmg / elapsed_secs
+    } else {
+        0.0
+    };
 
     let window = build_players_window(encounter, StatType::Dmg);
 
@@ -372,7 +371,8 @@ pub fn build_encounter_snapshot(encounter: &Encounter) -> EncounterSnapshot {
 #[specta::specta]
 pub fn set_combat_exit_timeout(secs: f64) {
     let ms = (secs * 1000.0).max(0.0) as u64;
-    crate::engine::runtime_settings::COMBAT_EXIT_TIMEOUT_MS.store(ms, std::sync::atomic::Ordering::Relaxed);
+    crate::engine::runtime_settings::COMBAT_EXIT_TIMEOUT_MS
+        .store(ms, std::sync::atomic::Ordering::Relaxed);
 }
 
 #[tauri::command]
@@ -410,7 +410,9 @@ pub fn set_time_series_config(samples: f64, interval_ms: f64) {
 
 #[tauri::command]
 #[specta::specta]
-pub fn get_time_series(state: tauri::State<'_, EncounterMutex>) -> Vec<crate::bridge::models::TimeSeriesPoint> {
+pub fn get_time_series(
+    state: tauri::State<'_, EncounterMutex>,
+) -> Vec<crate::bridge::models::TimeSeriesPoint> {
     match state.lock() {
         Ok(e) => e.time_series.iter().cloned().collect(),
         Err(_) => Vec::new(),
@@ -434,7 +436,9 @@ pub fn set_always_on_top(window: tauri::WebviewWindow, enabled: bool) -> Result<
 #[tauri::command]
 #[specta::specta]
 pub fn set_click_through(window: tauri::WebviewWindow, enabled: bool) -> Result<(), String> {
-    window.set_ignore_cursor_events(enabled).map_err(|e| e.to_string())
+    window
+        .set_ignore_cursor_events(enabled)
+        .map_err(|e| e.to_string())
 }
 
 // ─── selected_uid コマンド ────────────────────────────────────────────────────
@@ -453,6 +457,7 @@ pub fn set_selected_uid(state: tauri::State<'_, EncounterMutex>, uid: Option<f64
     match state.lock() {
         Ok(mut encounter) => {
             encounter.clear_combat_stats();
+            encounter.active_connection = None;
             encounter.local_player_uid = uid_i64.unwrap_or(0);
             encounter.measure_mode = crate::engine::encounter::MeasureMode::Normal;
         }
@@ -544,7 +549,10 @@ pub fn get_measure_mode_status(state: tauri::State<'_, EncounterMutex>) -> Measu
                 duration_ms: Some(duration_ms as f64),
                 armed_at_ms: None,
             },
-            MeasureMode::Active3Min { armed_at_ms, duration_ms } => {
+            MeasureMode::Active3Min {
+                armed_at_ms,
+                duration_ms,
+            } => {
                 let elapsed = now_ms().saturating_sub(armed_at_ms);
                 let remaining = (duration_ms as i128) - (elapsed as i128);
                 MeasureModeStatus {

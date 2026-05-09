@@ -45,7 +45,9 @@ fn now_ms() -> u64 {
 /// Initialize the cache with a backing file path. Reads existing entries
 /// from disk if the file exists. Skips entries older than MAX_AGE_DAYS.
 pub fn init(path: PathBuf) {
-    let Ok(mut guard) = cache().lock() else { return };
+    let Ok(mut guard) = cache().lock() else {
+        return;
+    };
     guard.path = Some(path.clone());
 
     let Ok(data) = std::fs::read_to_string(&path) else {
@@ -53,7 +55,10 @@ pub fn init(path: PathBuf) {
         return;
     };
     let Ok(map) = serde_json::from_str::<HashMap<String, CachedPlayer>>(&data) else {
-        warn!("Name cache: failed to parse {}, starting fresh", path.display());
+        warn!(
+            "Name cache: failed to parse {}, starting fresh",
+            path.display()
+        );
         return;
     };
 
@@ -88,7 +93,9 @@ pub fn update(
     if uid == 0 {
         return;
     }
-    let Ok(mut guard) = cache().lock() else { return };
+    let Ok(mut guard) = cache().lock() else {
+        return;
+    };
     let entry = guard.entries.entry(uid).or_default();
 
     let mut changed = false;

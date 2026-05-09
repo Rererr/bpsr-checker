@@ -10,8 +10,13 @@ pub type EncounterMutex = std::sync::Mutex<Encounter>;
 pub enum MeasureMode {
     #[default]
     Normal,
-    Pending3Min { duration_ms: u128 },
-    Active3Min { armed_at_ms: u128, duration_ms: u128 },
+    Pending3Min {
+        duration_ms: u128,
+    },
+    Active3Min {
+        armed_at_ms: u128,
+        duration_ms: u128,
+    },
 }
 
 #[derive(Debug, Default, Clone)]
@@ -30,6 +35,8 @@ pub struct Encounter {
     pub has_selected_participant: bool,
     pub participant_player_uids: HashSet<i64>,
     pub measure_mode: MeasureMode,
+    pub active_connection: Option<crate::capture::server::Server>,
+    pub conn_to_uid: std::collections::HashMap<crate::capture::server::Server, i64>,
 }
 
 impl Encounter {
@@ -37,6 +44,9 @@ impl Encounter {
     /// from disk cache on next appearance. Monster entities are kept with stats
     /// reset so HP/monster_id tracking survives the rollover.
     pub fn clear_combat_stats(&mut self) {
+        // active_connection と conn_to_uid は保持する。
+        // これらはセッション間でコネクション識別に再利用するため、
+        // ServerChangeInfo 受信時と set_selected_uid 変更時のみクリアする。
         self.is_paused = false;
         self.time_fight_start_ms = 0;
         self.time_last_combat_packet_ms = 0;

@@ -1,6 +1,5 @@
-use crate::engine::class::{
-    Class, ClassSpec, get_class_from_spec, get_class_spec_from_skill_id,
-};
+use crate::capture::server::Server;
+use crate::engine::class::{Class, ClassSpec, get_class_from_spec, get_class_spec_from_skill_id};
 use crate::engine::combat_stats::process_stats;
 use crate::engine::encounter::{Encounter, EncounterMutex};
 use crate::engine::entity::Entity;
@@ -9,7 +8,7 @@ use crate::engine::name_cache;
 use crate::engine::selected_uid;
 use crate::error::{AppError, AppResult};
 use crate::protocol::constants::{attr_type, entity};
-use crate::protocol::opcodes::Pkt;
+use crate::protocol::opcodes::{Pkt, PktEnvelope};
 use crate::protocol::pb::{self, EEntityType};
 use bytes::Bytes;
 use log::{debug, info, warn};
@@ -28,13 +27,10 @@ fn get_or_create_entity(
     entity_type: EEntityType,
 ) -> &mut Entity {
     let was_new = !encounter.entities.contains_key(&uid);
-    let entity = encounter
-        .entities
-        .entry(uid)
-        .or_insert_with(|| Entity {
-            entity_type,
-            ..Default::default()
-        });
+    let entity = encounter.entities.entry(uid).or_insert_with(|| Entity {
+        entity_type,
+        ..Default::default()
+    });
     if was_new && entity_type == EEntityType::EntChar {
         if let Some(cached) = name_cache::lookup(uid) {
             if !cached.name.is_empty() {
@@ -102,9 +98,54 @@ pub(crate) fn now_ms() -> u128 {
         .unwrap_or(0)
 }
 
-pub fn process_opcode(app_handle: &AppHandle, op: Pkt, data: Vec<u8>) -> AppResult<()> {
+fn should_accept(encounter: &mut Encounter, conn: Option<Server>, op: &Pkt) -> bool {
+    // ServerChangeInfo と NotifySocialData は connection フィルタ不問で常に accept
+    if matches!(op, Pkt::ServerChangeInfo | Pkt::NotifySocialData) {
+        return true;
+    }
+    let Some(conn) = conn else {
+        return true; // fallback
+    };
+    let sel = selected_uid::get();
+    match sel {
+        Some(sel_uid) => {
+            // conn の char_id が学習済みで selected_uid と一致 → accept
+            if let Some(&uid_for_conn) = encounter.conn_to_uid.get(&conn) {
+                if uid_for_conn == sel_uid {
+                    encounter.active_connection = Some(conn);
+                    return true;
+                } else {
+                    return false;
+                }
+            }
+            // 未学習 → SyncContainerData のみ識別のために accept
+            matches!(op, Pkt::SyncContainerData)
+        }
+        None => {
+            // 自動検出モード
+            if let Some(active) = encounter.active_connection {
+                // active connection 由来のみ accept
+                conn == active
+            } else {
+                // まだ固定していない → SyncContainerData のみ先着候補として accept
+                matches!(op, Pkt::SyncContainerData)
+            }
+        }
+    }
+}
+
+pub fn process_opcode(app_handle: &AppHandle, env: PktEnvelope) -> AppResult<()> {
+    let PktEnvelope { op, data, conn } = env;
+
     match op {
         Pkt::ServerChangeInfo => {
+            let state = app_handle.state::<EncounterMutex>();
+            let mut encounter = state
+                .lock()
+                .map_err(|e| AppError::LockPoisoned(e.to_string()))?;
+            // ServerChangeInfo でコネクション状態をリセット（新しいサーバ接続 or ログアウト後）
+            encounter.active_connection = None;
+            encounter.conn_to_uid.clear();
             info!("[ServerChangeInfo] received (encounter retained; use reset to clear)");
         }
 
@@ -130,57 +171,59 @@ pub fn process_opcode(app_handle: &AppHandle, op: Pkt, data: Vec<u8>) -> AppResu
             }
         }
 
-        Pkt::SyncNearEntities => {
-            let Some(msg) =
-                decode_packet::<pb::SyncNearEntities>(data, "SyncNearEntities")
-            else {
-                return Ok(());
-            };
+        _ => {
             let state = app_handle.state::<EncounterMutex>();
             let mut encounter = state
                 .lock()
                 .map_err(|e| AppError::LockPoisoned(e.to_string()))?;
-            process_sync_near_entities(&mut encounter, msg);
-        }
 
-        Pkt::SyncContainerData => {
-            let Some(msg) =
-                decode_packet::<pb::SyncContainerData>(data, "SyncContainerData")
-            else {
+            if !should_accept(&mut encounter, conn, &op) {
                 return Ok(());
-            };
-            let state = app_handle.state::<EncounterMutex>();
-            let mut encounter = state
-                .lock()
-                .map_err(|e| AppError::LockPoisoned(e.to_string()))?;
-            process_sync_container_data(&mut encounter, msg);
-        }
+            }
 
-        Pkt::SyncToMeDeltaInfo => {
-            let Some(msg) =
-                decode_packet::<pb::SyncToMeDeltaInfo>(data, "SyncToMeDeltaInfo")
-            else {
-                return Ok(());
-            };
-            let state = app_handle.state::<EncounterMutex>();
-            let mut encounter = state
-                .lock()
-                .map_err(|e| AppError::LockPoisoned(e.to_string()))?;
-            process_sync_to_me_delta_info(&mut encounter, msg);
-        }
+            match op {
+                Pkt::SyncNearEntities => {
+                    let Some(msg) = decode_packet::<pb::SyncNearEntities>(data, "SyncNearEntities")
+                    else {
+                        return Ok(());
+                    };
+                    process_sync_near_entities(&mut encounter, msg);
+                }
 
-        Pkt::SyncNearDeltaInfo => {
-            let Some(msg) =
-                decode_packet::<pb::SyncNearDeltaInfo>(data, "SyncNearDeltaInfo")
-            else {
-                return Ok(());
-            };
-            let state = app_handle.state::<EncounterMutex>();
-            let mut encounter = state
-                .lock()
-                .map_err(|e| AppError::LockPoisoned(e.to_string()))?;
-            for aoi_sync_delta in msg.delta_infos {
-                process_aoi_sync_delta(&mut encounter, aoi_sync_delta);
+                Pkt::SyncContainerData => {
+                    let Some(msg) =
+                        decode_packet::<pb::SyncContainerData>(data, "SyncContainerData")
+                    else {
+                        return Ok(());
+                    };
+                    if let Some(c) = conn {
+                        process_sync_container_data(&mut encounter, msg, c);
+                    } else {
+                        warn!("[SyncContainerData] conn is None, skipping connection learning");
+                    }
+                }
+
+                Pkt::SyncToMeDeltaInfo => {
+                    let Some(msg) =
+                        decode_packet::<pb::SyncToMeDeltaInfo>(data, "SyncToMeDeltaInfo")
+                    else {
+                        return Ok(());
+                    };
+                    process_sync_to_me_delta_info(&mut encounter, msg);
+                }
+
+                Pkt::SyncNearDeltaInfo => {
+                    let Some(msg) =
+                        decode_packet::<pb::SyncNearDeltaInfo>(data, "SyncNearDeltaInfo")
+                    else {
+                        return Ok(());
+                    };
+                    for aoi_sync_delta in msg.delta_infos {
+                        process_aoi_sync_delta(&mut encounter, aoi_sync_delta);
+                    }
+                }
+
+                _ => {}
             }
         }
     }
@@ -214,7 +257,11 @@ fn process_sync_near_entities(encounter: &mut Encounter, msg: pb::SyncNearEntiti
     }
 }
 
-fn process_sync_container_data(encounter: &mut Encounter, msg: pb::SyncContainerData) {
+fn process_sync_container_data(
+    encounter: &mut Encounter,
+    msg: pb::SyncContainerData,
+    conn: Server,
+) {
     let Some(v_data) = &msg.v_data else {
         return;
     };
@@ -224,8 +271,26 @@ fn process_sync_container_data(encounter: &mut Encounter, msg: pb::SyncContainer
         return;
     }
 
-    if selected_uid::get().is_none() {
-        encounter.local_player_uid = player_uid;
+    // connection ↔ char_id を学習
+    encounter.conn_to_uid.insert(conn, player_uid);
+
+    // active_connection の確定
+    let sel = selected_uid::get();
+    match sel {
+        None if encounter.active_connection.is_none() => {
+            // 自動検出: 先着固定
+            encounter.active_connection = Some(conn);
+            encounter.local_player_uid = player_uid;
+        }
+        Some(sel_uid) if sel_uid == player_uid => {
+            // UID 一致: この connection を active に
+            encounter.active_connection = Some(conn);
+            encounter.local_player_uid = player_uid;
+        }
+        _ => {
+            // 他クライアント由来: エンティティ作成・name_cache 更新をスキップ
+            return;
+        }
     }
 
     let target_entity = get_or_create_entity(encounter, player_uid, EEntityType::EntChar);
@@ -305,9 +370,15 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
 
     if !skill_effect.damages.is_empty() {
         let ts = now_ms();
-        let timeout_ms = u128::from(crate::engine::runtime_settings::COMBAT_EXIT_TIMEOUT_MS.load(std::sync::atomic::Ordering::Relaxed));
+        let timeout_ms = u128::from(
+            crate::engine::runtime_settings::COMBAT_EXIT_TIMEOUT_MS
+                .load(std::sync::atomic::Ordering::Relaxed),
+        );
         if timeout_ms > 0
-            && matches!(encounter.measure_mode, crate::engine::encounter::MeasureMode::Normal)
+            && matches!(
+                encounter.measure_mode,
+                crate::engine::encounter::MeasureMode::Normal
+            )
             && encounter.time_last_combat_packet_ms != 0
             && ts.saturating_sub(encounter.time_last_combat_packet_ms) > timeout_ms
         {
@@ -417,7 +488,9 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
     let ts = now_ms();
     if encounter.time_fight_start_ms == 0 {
         encounter.time_fight_start_ms = ts;
-        if let crate::engine::encounter::MeasureMode::Pending3Min { duration_ms } = encounter.measure_mode {
+        if let crate::engine::encounter::MeasureMode::Pending3Min { duration_ms } =
+            encounter.measure_mode
+        {
             encounter.measure_mode = crate::engine::encounter::MeasureMode::Active3Min {
                 armed_at_ms: ts,
                 duration_ms,
@@ -428,7 +501,9 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
     encounter.time_last_combat_packet_ms = ts;
 
     // Time-series sampling
-    let interval_ms = u128::from(crate::engine::runtime_settings::TS_INTERVAL_MS.load(std::sync::atomic::Ordering::Relaxed));
+    let interval_ms = u128::from(
+        crate::engine::runtime_settings::TS_INTERVAL_MS.load(std::sync::atomic::Ordering::Relaxed),
+    );
     if interval_ms > 0 {
         let due = encounter.last_sample_ms == 0
             || ts.saturating_sub(encounter.last_sample_ms) >= interval_ms;
@@ -440,7 +515,8 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
                 ts.saturating_sub(encounter.last_sample_ms)
             };
             let elapsed_since_start = ts.saturating_sub(encounter.time_fight_start_ms);
-            let cap = crate::engine::runtime_settings::TS_SAMPLES.load(std::sync::atomic::Ordering::Relaxed);
+            let cap = crate::engine::runtime_settings::TS_SAMPLES
+                .load(std::sync::atomic::Ordering::Relaxed);
 
             let dmg_delta = encounter.dmg_stats.total - encounter.last_sample_total_dmg;
             let dps_window = if interval_actual > 0 {
@@ -448,11 +524,13 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
             } else {
                 0.0
             };
-            encounter.time_series.push_back(crate::bridge::models::TimeSeriesPoint {
-                t_ms: elapsed_since_start as f64,
-                total_dmg: encounter.dmg_stats.total as f64,
-                total_dps: dps_window.max(0.0),
-            });
+            encounter
+                .time_series
+                .push_back(crate::bridge::models::TimeSeriesPoint {
+                    t_ms: elapsed_since_start as f64,
+                    total_dmg: encounter.dmg_stats.total as f64,
+                    total_dps: dps_window.max(0.0),
+                });
             while encounter.time_series.len() > cap {
                 encounter.time_series.pop_front();
             }
@@ -471,11 +549,13 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
                 } else {
                     0.0
                 };
-                entity.time_series.push_back(crate::bridge::models::TimeSeriesPoint {
-                    t_ms: elapsed_since_start as f64,
-                    total_dmg: entity.dmg_stats.total as f64,
-                    total_dps: entity_dps.max(0.0),
-                });
+                entity
+                    .time_series
+                    .push_back(crate::bridge::models::TimeSeriesPoint {
+                        t_ms: elapsed_since_start as f64,
+                        total_dmg: entity.dmg_stats.total as f64,
+                        total_dps: entity_dps.max(0.0),
+                    });
                 while entity.time_series.len() > cap {
                     entity.time_series.pop_front();
                 }

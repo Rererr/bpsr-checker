@@ -1,15 +1,23 @@
-; WinDivert カーネルドライバーをインストール前に停止し、
-; ファイルロックによる「無視」ダイアログを防ぐ。
-; preInit は .onInit (管理者権限昇格済み) の最初に呼ばれる。
-!macro preInit
+; bpsr-checker.exe を強制終了し WinDivert ドライバを停止・削除する共通マクロ。
+; 失敗してもインストールは続行する (ベストエフォート)。
+!macro killAppAndDriver
+  ; 1. アプリ本体を強制終了してハンドルを解放させる
+  nsExec::ExecToLog 'taskkill /F /IM bpsr-checker.exe /T'
+  Sleep 500
+
+  ; 2. WinDivert ドライバを停止・削除 (2回試行)
   nsExec::ExecToLog 'sc stop WinDivert'
+  Sleep 1000
+  nsExec::ExecToLog 'sc stop WinDivert'
+  Sleep 1000
   nsExec::ExecToLog 'sc delete WinDivert'
-  Sleep 2000
+  Sleep 500
 !macroend
 
-; アンインストール時も同様にドライバーを停止してからファイルを削除する
+!macro preInit
+  !insertmacro killAppAndDriver
+!macroend
+
 !macro customUnInstall
-  nsExec::ExecToLog 'sc stop WinDivert'
-  nsExec::ExecToLog 'sc delete WinDivert'
-  Sleep 2000
+  !insertmacro killAppAndDriver
 !macroend

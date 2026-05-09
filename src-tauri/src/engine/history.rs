@@ -1,8 +1,8 @@
 use crate::bridge::models::EncounterSnapshot;
 use crate::engine::runtime_settings::HISTORY_LIMIT;
 use std::collections::VecDeque;
-use std::sync::{Mutex, OnceLock};
 use std::sync::atomic::Ordering;
+use std::sync::{Mutex, OnceLock};
 
 static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 

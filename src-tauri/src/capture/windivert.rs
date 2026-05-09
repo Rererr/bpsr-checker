@@ -1,7 +1,7 @@
 use crate::capture::binary_reader::BinaryReader;
 use crate::capture::server::Server;
 use crate::capture::tcp_reassembler::TcpReassembler;
-use crate::protocol::opcodes::Pkt;
+use crate::protocol::opcodes::{Pkt, PktEnvelope};
 use crate::protocol::packet_parser::process_packet;
 use etherparse::NetSlice::Ipv4;
 use etherparse::SlicedPacket;
@@ -33,12 +33,17 @@ unsafe impl Sync for SharedDivert {}
 
 impl SharedDivert {
     fn new(divert: WinDivert<NetworkLayer>) -> Self {
-        Self { inner: UnsafeCell::new(divert) }
+        Self {
+            inner: UnsafeCell::new(divert),
+        }
     }
     fn recv<'a>(
         &self,
         buffer: Option<&'a mut [u8]>,
-    ) -> Result<windivert::packet::WinDivertPacket<'a, NetworkLayer>, windivert::error::WinDivertError> {
+    ) -> Result<
+        windivert::packet::WinDivertPacket<'a, NetworkLayer>,
+        windivert::error::WinDivertError,
+    > {
         // SAFETY: WinDivert::recv only reads &self in the underlying impl.
         unsafe { (*self.inner.get()).recv(buffer) }
     }
@@ -72,17 +77,27 @@ pub fn request_shutdown() {
     }
 }
 
-fn send_server_change_info(packet_sender: &tokio::sync::mpsc::Sender<(Pkt, Vec<u8>)>) {
-    let _ = packet_sender.try_send((Pkt::ServerChangeInfo, Vec::new()));
+/// ACTIVE_DIVERT スロットが None になったか確認する。
+/// ExitRequested ハンドラーでポーリングに使う。
+pub fn is_handle_closed() -> bool {
+    active_divert_slot().lock().map_or(true, |g| g.is_none())
+}
+
+fn send_server_change_info(packet_sender: &tokio::sync::mpsc::Sender<PktEnvelope>) {
+    let _ = packet_sender.try_send(PktEnvelope {
+        op: Pkt::ServerChangeInfo,
+        data: vec![],
+        conn: None,
+    });
 }
 
 const HANDLE_CLEANUP_DELAY_MS: u64 = 500;
 const MAX_SUBNET_CONNECTIONS: usize = 16;
 
-pub fn start_capture() -> tokio::sync::mpsc::Receiver<(Pkt, Vec<u8>)> {
+pub fn start_capture() -> tokio::sync::mpsc::Receiver<PktEnvelope> {
     const PACKET_CHANNEL_CAPACITY: usize = 256;
     let (packet_sender, packet_receiver) =
-        tokio::sync::mpsc::channel::<(Pkt, Vec<u8>)>(PACKET_CHANNEL_CAPACITY);
+        tokio::sync::mpsc::channel::<PktEnvelope>(PACKET_CHANNEL_CAPACITY);
     let (restart_sender, mut restart_receiver) = watch::channel(false);
     RESTART_SENDER.set(restart_sender.clone()).ok();
     tauri::async_runtime::spawn(async move {
@@ -102,9 +117,13 @@ pub fn start_capture() -> tokio::sync::mpsc::Receiver<(Pkt, Vec<u8>)> {
 }
 
 async fn read_packets(
-    packet_sender: &tokio::sync::mpsc::Sender<(Pkt, Vec<u8>)>,
+    packet_sender: &tokio::sync::mpsc::Sender<PktEnvelope>,
     restart_receiver: &mut watch::Receiver<bool>,
 ) {
+    // 過去のクラッシュ等でサービスが残っている場合の自動回復
+    if let Err(e) = WinDivert::uninstall() {
+        warn!("WinDivert pre-open cleanup (best-effort): {e}");
+    }
     let windivert = match WinDivert::network(
         "!loopback && ip && tcp",
         0,
@@ -162,20 +181,17 @@ async fn read_packets(
                             while tcp_payload_reader.remaining() >= FRAG_LENGTH_SIZE {
                                 i += 1;
                                 if i > 1000 {
-                                    info!("Potential infinite loop in server detection, iteration={i}");
+                                    info!(
+                                        "Potential infinite loop in server detection, iteration={i}"
+                                    );
                                 }
-                                let tcp_frag_payload_len =
-                                    match tcp_payload_reader.read_u32() {
-                                        Ok(len) => {
-                                            len.saturating_sub(FRAG_LENGTH_SIZE as u32) as usize
-                                        }
-                                        Err(e) => {
-                                            debug!(
-                                                "Malformed TCP fragment: failed to read_u32: {e}"
-                                            );
-                                            break;
-                                        }
-                                    };
+                                let tcp_frag_payload_len = match tcp_payload_reader.read_u32() {
+                                    Ok(len) => len.saturating_sub(FRAG_LENGTH_SIZE as u32) as usize,
+                                    Err(e) => {
+                                        debug!("Malformed TCP fragment: failed to read_u32: {e}");
+                                        break;
+                                    }
+                                };
                                 if tcp_payload_reader.remaining() >= tcp_frag_payload_len {
                                     match tcp_payload_reader.read_bytes(tcp_frag_payload_len) {
                                         Ok(tcp_frag) => {
@@ -227,17 +243,13 @@ async fn read_packets(
                 && tcp_payload.len()
                     == crate::protocol::constants::server_detection::LOGIN_RETURN_SIGNATURE_SIZE
             {
-                let sig1 =
-                    crate::protocol::constants::server_detection::LOGIN_RETURN_SIGNATURE_1;
-                let sig2 =
-                    crate::protocol::constants::server_detection::LOGIN_RETURN_SIGNATURE_2;
+                let sig1 = crate::protocol::constants::server_detection::LOGIN_RETURN_SIGNATURE_1;
+                let sig2 = crate::protocol::constants::server_detection::LOGIN_RETURN_SIGNATURE_2;
                 if tcp_payload.len() >= 20
                     && tcp_payload[0..10] == sig1[..]
                     && tcp_payload[14..20] == sig2[..]
                 {
-                    info!(
-                        "Got Scene Server Address by Login Return Packet: {curr_server}"
-                    );
+                    info!("Got Scene Server Address by Login Return Packet: {curr_server}");
                     update_known_server(
                         &curr_server,
                         &mut known_server,
@@ -257,8 +269,7 @@ async fn read_packets(
                     if curr_server.src_matches_subnet(prefix) {
                         if !subnet_reassemblers.contains_key(&curr_server) {
                             if subnet_reassemblers.len() < MAX_SUBNET_CONNECTIONS {
-                                subnet_reassemblers
-                                    .insert(curr_server, TcpReassembler::new());
+                                subnet_reassemblers.insert(curr_server, TcpReassembler::new());
                             }
                         }
                         if let Some(reassembler) = subnet_reassemblers.get_mut(&curr_server) {
@@ -267,6 +278,7 @@ async fn read_packets(
                                 &tcp_packet,
                                 packet_sender,
                                 true,
+                                curr_server,
                             );
                         }
                     }
@@ -276,7 +288,13 @@ async fn read_packets(
         }
 
         // Primary server reassembly
-        reassemble_and_process(&mut tcp_reassembler, &tcp_packet, packet_sender, false);
+        reassemble_and_process(
+            &mut tcp_reassembler,
+            &tcp_packet,
+            packet_sender,
+            false,
+            curr_server,
+        );
 
         if *restart_receiver.borrow() {
             info!("WinDivert restart requested during packet processing, closing handle");
@@ -316,8 +334,9 @@ fn update_known_server(
 fn reassemble_and_process(
     reassembler: &mut TcpReassembler,
     tcp_packet: &etherparse::TcpSlice<'_>,
-    packet_sender: &tokio::sync::mpsc::Sender<(Pkt, Vec<u8>)>,
+    packet_sender: &tokio::sync::mpsc::Sender<PktEnvelope>,
     clear_on_malformed: bool,
+    conn: Server,
 ) {
     if tcp_packet.payload().is_empty() {
         return;
@@ -388,7 +407,7 @@ fn reassemble_and_process(
         reassembler.data = right.to_vec();
         let sender = packet_sender.clone();
         tauri::async_runtime::spawn(async move {
-            process_packet(BinaryReader::from(packet), sender).await;
+            process_packet(BinaryReader::from(packet), sender, conn).await;
         });
     }
 }

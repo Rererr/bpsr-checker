@@ -28,11 +28,17 @@ pub fn init(path: PathBuf) {
     guard.path = Some(path.clone());
 
     let Ok(data) = std::fs::read_to_string(&path) else {
-        info!("selected_uid: ファイルなし ({})、未設定で起動", path.display());
+        info!(
+            "selected_uid: ファイルなし ({})、未設定で起動",
+            path.display()
+        );
         return;
     };
     let Ok(file) = serde_json::from_str::<SelectedUidFile>(&data) else {
-        warn!("selected_uid: パース失敗 ({})、未設定で起動", path.display());
+        warn!(
+            "selected_uid: パース失敗 ({})、未設定で起動",
+            path.display()
+        );
         return;
     };
     guard.uid = file.uid;

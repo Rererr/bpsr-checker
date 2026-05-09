@@ -11,7 +11,5 @@ pub fn is_boss(monster_id: u32) -> bool {
 }
 
 pub fn get_boss_name(monster_id: u32) -> Option<&'static str> {
-    MONSTER_NAMES_BOSS
-        .get(&monster_id)
-        .map(|s| s.as_str())
+    MONSTER_NAMES_BOSS.get(&monster_id).map(|s| s.as_str())
 }

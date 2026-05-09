@@ -1,5 +1,5 @@
-use crate::protocol::pb::SyncDamageInfo;
 use crate::protocol::constants::damage;
+use crate::protocol::pb::SyncDamageInfo;
 
 #[derive(Debug, Default, Clone)]
 pub struct CombatStats {

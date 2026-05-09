@@ -93,23 +93,29 @@ pub fn run() {
             }
 
             let app_handle_for_shortcut = app_handle.clone();
-            app.global_shortcut().on_shortcut("Ctrl+Shift+Z", move |_, _, event| {
-                if event.state == ShortcutState::Pressed {
-                    if let Some(w) = app_handle_for_shortcut.get_webview_window(WINDOW_MAIN_LABEL) {
-                        let _ = w.set_ignore_cursor_events(false);
-                        let _ = w.emit("click-through-disabled", ());
+            app.global_shortcut()
+                .on_shortcut("Ctrl+Shift+Z", move |_, _, event| {
+                    if event.state == ShortcutState::Pressed {
+                        if let Some(w) =
+                            app_handle_for_shortcut.get_webview_window(WINDOW_MAIN_LABEL)
+                        {
+                            let _ = w.set_ignore_cursor_events(false);
+                            let _ = w.emit("click-through-disabled", ());
+                        }
                     }
-                }
-            })?;
+                })?;
 
             let app_handle_for_minimize = app_handle.clone();
-            app.global_shortcut().on_shortcut("Ctrl+Shift+H", move |_, _, event| {
-                if event.state == ShortcutState::Pressed {
-                    if let Some(w) = app_handle_for_minimize.get_webview_window(WINDOW_MAIN_LABEL) {
-                        let _ = w.minimize();
+            app.global_shortcut()
+                .on_shortcut("Ctrl+Shift+H", move |_, _, event| {
+                    if event.state == ShortcutState::Pressed {
+                        if let Some(w) =
+                            app_handle_for_minimize.get_webview_window(WINDOW_MAIN_LABEL)
+                        {
+                            let _ = w.minimize();
+                        }
                     }
-                }
-            })?;
+                })?;
 
             // Start packet capture pipeline
             let handle = app_handle.clone();
@@ -135,13 +141,15 @@ pub fn run() {
                     // Step 1: abort the blocking recv so the capture task
                     // can return and drop its WinDivert handle.
                     capture::windivert::request_shutdown();
-                    // Step 2: give the capture task a moment to actually
-                    // drop the handle. Without this, uninstall() races the
-                    // task and ControlService(STOP) fails because the
-                    // handle is still open, which leaves WinDivert64.sys
-                    // locked and prevents version updates from overwriting
-                    // it.
-                    std::thread::sleep(std::time::Duration::from_millis(800));
+                    // Step 2: ハンドルが実際に閉じられるまでポーリングで待機する。
+                    // 固定スリープより確実にハンドルを解放してから uninstall() を呼べる。
+                    let deadline =
+                        std::time::Instant::now() + std::time::Duration::from_millis(1500);
+                    while !capture::windivert::is_handle_closed()
+                        && std::time::Instant::now() < deadline
+                    {
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
                     if let Err(e) = windivert::WinDivert::uninstall() {
                         warn!("WinDivert uninstall failed (best-effort): {e}");
                     }
@@ -213,10 +221,8 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
                         width: 520.0,
                         height: 350.0,
                     }));
-                    let _ = w.set_position(Position::Logical(LogicalPosition {
-                        x: 100.0,
-                        y: 100.0,
-                    }));
+                    let _ =
+                        w.set_position(Position::Logical(LogicalPosition { x: 100.0, y: 100.0 }));
                     let _ = show_window(&w);
                 }
             }
@@ -244,14 +250,10 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
 
 fn on_window_event(window: &Window, event: &WindowEvent) {
     match event {
-        WindowEvent::CloseRequested { api, .. } => {
-            if IS_EXITING.load(Ordering::Relaxed) {
-                // Quit was requested explicitly — let the close proceed so the
-                // process actually terminates and file handles are released.
-                return;
+        WindowEvent::Resized(_) => {
+            if let Ok(minimized) = window.is_minimized() {
+                let _ = window.set_skip_taskbar(!minimized);
             }
-            api.prevent_close();
-            let _ = window.hide();
         }
         WindowEvent::Focused(false) => {
             let _ = window.app_handle().save_window_state(StateFlags::all());

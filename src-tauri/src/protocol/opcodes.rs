@@ -11,6 +11,12 @@ pub enum Pkt {
     SyncNearDeltaInfo,
 }
 
+pub struct PktEnvelope {
+    pub op: Pkt,
+    pub data: Vec<u8>,
+    pub conn: Option<crate::capture::server::Server>,
+}
+
 impl TryFrom<u32> for Pkt {
     type Error = AppError;
 

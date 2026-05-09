@@ -99,39 +99,39 @@ pub(crate) fn now_ms() -> u128 {
 }
 
 fn should_accept(encounter: &mut Encounter, conn: Option<Server>, op: &Pkt) -> bool {
-    // ServerChangeInfo と NotifySocialData は connection フィルタ不問で常に accept
     if matches!(op, Pkt::ServerChangeInfo | Pkt::NotifySocialData) {
         return true;
     }
     let Some(conn) = conn else {
-        return true; // fallback
+        return true;
     };
     let sel = selected_uid::get();
-    match sel {
-        Some(sel_uid) => {
-            // conn の char_id が学習済みで selected_uid と一致 → accept
-            if let Some(&uid_for_conn) = encounter.conn_to_uid.get(&conn) {
+
+    // conn の char_id が学習済みなら厳密判定
+    if let Some(&uid_for_conn) = encounter.conn_to_uid.get(&conn) {
+        return match sel {
+            Some(sel_uid) => {
                 if uid_for_conn == sel_uid {
                     encounter.active_connection = Some(conn);
-                    return true;
+                    true
                 } else {
-                    return false;
+                    false
                 }
             }
-            // 未学習 → SyncContainerData のみ識別のために accept
-            matches!(op, Pkt::SyncContainerData)
-        }
-        None => {
-            // 自動検出モード
-            if let Some(active) = encounter.active_connection {
-                // active connection 由来のみ accept
-                conn == active
-            } else {
-                // まだ固定していない → SyncContainerData のみ先着候補として accept
-                matches!(op, Pkt::SyncContainerData)
-            }
-        }
+            None => match encounter.active_connection {
+                Some(active) => conn == active,
+                None => true,
+            },
+        };
     }
+
+    // 未学習 conn: active_connection が確定しているなら一致のみ通す
+    if let Some(active) = encounter.active_connection {
+        return conn == active;
+    }
+
+    // 完全未確定 (起動直後): 全 accept。SyncContainerData 受信後に active_connection が確定する
+    true
 }
 
 pub fn process_opcode(app_handle: &AppHandle, env: PktEnvelope) -> AppResult<()> {

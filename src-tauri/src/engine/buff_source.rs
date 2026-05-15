@@ -36,14 +36,14 @@ impl BuffSourceKind {
 /// バジリスクの buff_id は実機ログ収集後に追加予定。
 pub fn classify(base_id: i32) -> BuffSourceKind {
     match base_id {
-        // ティナ (蒂娜): buff_id / effect_id=392101
+        // ティナ (蒂娜/Tina): Skill 3921, effect_id=392101 (150s recast)
         30001..=31101 | 140001..=141000 | 5001921 | 392101 => BuffSourceKind::Tina,
-        // アルーナ (艾露娜): buff_id / effect_id=392201
-        15001..=16000 | 392201 => BuffSourceKind::Aluna,
-        // タータ (塔塔): buff_id / effect_id=392301
-        4801 | 8801..=8901 | 35101..=36101 | 392301 => BuffSourceKind::Tarta,
-        // バジリスク: effect_id=392601
-        392601 => BuffSourceKind::Basilisk,
+        // アルーナ (艾露娜/Airona): Skill 3920, effect_id=392001 (60s immunity)
+        15001..=16000 | 392001 => BuffSourceKind::Aluna,
+        // タータ (塔塔/Tatta): Skill 3911, effect_id=391101 (60s immunity, 盾)
+        4801 | 8801..=8901 | 35101..=36101 | 391101 => BuffSourceKind::Tarta,
+        // バジリスク: effect_id 実機ログで確定予定（候補: 390301, 392601）
+        390301 | 392601 => BuffSourceKind::Basilisk,
         _ => BuffSourceKind::Other,
     }
 }

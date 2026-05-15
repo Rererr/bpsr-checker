@@ -1,6 +1,6 @@
 import { createSignal, onCleanup, onMount, For } from "solid-js";
 import type { JSX } from "solid-js";
-import { selfBuffs, startBuffPolling, stopBuffPolling } from "../stores/buffs";
+import { selfBuffs, pollReceivedAt, startBuffPolling, stopBuffPolling } from "../stores/buffs";
 import type { SelfBuffSnapshot } from "../stores/buffs";
 import { TinaIcon, AlunaIcon, TartaIcon, BasiliskIcon } from "./icons";
 
@@ -51,14 +51,13 @@ export function BuffOverlay(): JSX.Element {
     >
       <For each={CHARS}>
         {(char) => {
-          const snap = () => {
-            void tick();
-            return findSnap(char.kind);
-          };
+          const snap = () => findSnap(char.kind);
           const remainingMs = (): number => {
+            void tick();
             const s = snap();
             if (!s) return 0;
-            const elapsed = performance.now() - s.receivedAtMs;
+            // pollReceivedAt は performance.now() 基準なので s.remainingMs と同じ時間軸で補間できる
+            const elapsed = performance.now() - pollReceivedAt();
             return Math.max(0, s.remainingMs - elapsed);
           };
           const ratio = (): number => {

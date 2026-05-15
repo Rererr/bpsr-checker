@@ -285,6 +285,17 @@ pub fn process_opcode(app_handle: &AppHandle, env: PktEnvelope) -> AppResult<()>
                     }
                 }
 
+                Pkt::SyncEntityState => {
+                    // 0x2b: 正体不明の頻出パケット。バフ情報を含む可能性を調査中
+                    let hex: String = data
+                        .iter()
+                        .take(96)
+                        .map(|b| format!("{b:02x}"))
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    info!("[0x2b/Raw] len={} local_uid={} bytes=[{hex}]", data.len(), encounter.local_player_uid);
+                }
+
                 _ => {}
             }
         }

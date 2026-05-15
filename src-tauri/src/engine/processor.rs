@@ -204,15 +204,6 @@ pub fn process_opcode(app_handle: &AppHandle, env: PktEnvelope) -> AppResult<()>
                 }
 
                 Pkt::SyncToMeDeltaInfo => {
-                    // バフ/デバフが含まれる可能性を調査中: 全 raw bytes をログ出力
-                    {
-                        let hex: String = data
-                            .iter()
-                            .map(|b| format!("{b:02x}"))
-                            .collect::<Vec<_>>()
-                            .join(" ");
-                        info!("[0x2e/Raw] len={} local_uid={} bytes=[{hex}]", data.len(), encounter.local_player_uid);
-                    }
                     let Some(msg) =
                         decode_packet::<pb::SyncToMeDeltaInfo>(data, "SyncToMeDeltaInfo")
                     else {
@@ -292,17 +283,6 @@ pub fn process_opcode(app_handle: &AppHandle, env: PktEnvelope) -> AppResult<()>
                             info!("[SyncBuff/DecodeErr] {e}");
                         }
                     }
-                }
-
-                Pkt::SyncEntityState => {
-                    // 0x2b: 正体不明の頻出パケット。バフ情報を含む可能性を調査中
-                    let hex: String = data
-                        .iter()
-                        .take(96)
-                        .map(|b| format!("{b:02x}"))
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    info!("[0x2b/Raw] len={} local_uid={} bytes=[{hex}]", data.len(), encounter.local_player_uid);
                 }
 
                 _ => {}
@@ -415,6 +395,20 @@ fn process_sync_to_me_delta_info(encounter: &mut Encounter, msg: pb::SyncToMeDel
     let Some(delta_info) = msg.delta_info else {
         return;
     };
+
+    // AoiSyncToMeDelta.effects(field 3): 自プレイヤーへのバフ/デバフ効果リスト
+    if !delta_info.effects.is_empty() {
+        let ts = now_ms();
+        for effect in &delta_info.effects {
+            let kind = crate::engine::buff_source::classify(effect.id as i32);
+            info!(
+                "[Effect] id={} dur={}ms kind={:?}",
+                effect.id, effect.duration_ms, kind
+            );
+            encounter.buff_tracker.apply_effect(effect, ts);
+        }
+    }
+
     let Some(base_delta) = delta_info.base_delta else {
         return;
     };

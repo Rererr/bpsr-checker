@@ -1,7 +1,7 @@
 use crate::capture::binary_reader::BinaryReader;
 use crate::capture::server::Server;
 use crate::protocol::opcodes::{FragmentType, Pkt, PktEnvelope};
-use log::debug;
+use log::{debug, info};
 use tokio::sync::mpsc;
 
 pub async fn process_packet(
@@ -103,7 +103,7 @@ pub async fn process_packet(
                 let method_id = match Pkt::try_from(method_id_raw) {
                     Ok(mid) => mid,
                     Err(_) => {
-                        debug!("Notify: Skipping unknown methodId: {method_id_raw}");
+                        info!("[PacketSpy] unknown methodId={method_id_raw:#010x} ({method_id_raw}) service={service_uuid:#018x}");
                         continue;
                     }
                 };

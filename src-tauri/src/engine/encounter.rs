@@ -1,4 +1,5 @@
 use crate::bridge::models::TimeSeriesPoint;
+use crate::engine::buff_tracker::BuffTracker;
 use crate::engine::combat_stats::CombatStats;
 use crate::engine::entity::Entity;
 use crate::protocol::pb::EEntityType;
@@ -37,6 +38,7 @@ pub struct Encounter {
     pub measure_mode: MeasureMode,
     pub active_connection: Option<crate::capture::server::Server>,
     pub conn_to_uid: std::collections::HashMap<crate::capture::server::Server, i64>,
+    pub buff_tracker: BuffTracker,
 }
 
 impl Encounter {
@@ -58,6 +60,7 @@ impl Encounter {
         self.last_sample_total_dmg = 0;
         self.has_selected_participant = false;
         self.participant_player_uids.clear();
+        self.buff_tracker.clear();
         self.entities
             .retain(|_, entity| entity.entity_type != EEntityType::EntChar);
         for entity in self.entities.values_mut() {

@@ -68,6 +68,25 @@ pub struct EncounterSnapshot {
     pub participant_player_uids: Vec<f64>,
 }
 
+#[derive(specta::Type, serde::Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SelfBuffSnapshot {
+    pub kind: String,
+    pub base_id: i32,
+    pub buff_uuid: i32,
+    pub layer: i32,
+    pub remaining_ms: i64,
+    pub duration_ms: i64,
+    pub received_at_ms: f64,
+}
+
+#[derive(specta::Type, serde::Serialize, Default, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SelfBuffsData {
+    pub buffs: Vec<SelfBuffSnapshot>,
+    pub now_ms: f64,
+}
+
 #[derive(serde::Serialize, specta::Type, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct MeasureModeStatus {

@@ -1,5 +1,6 @@
 import { Show, createResource, createSignal } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { t, locale, setLocale } from "../lib/i18n";
 import type { Locale } from "../lib/i18n";
 import {
@@ -31,6 +32,7 @@ import {
   threeMinDurationSec, setThreeMinDurationSec,
   threeMinAutoOpen, setThreeMinAutoOpen,
   abbreviateScores, setAbbreviateScores,
+  showBuffOverlay, setShowBuffOverlay,
 } from "../stores/settings";
 import { clearHistory, dpsPlayers, header } from "../stores/encounter";
 import { formatRowAsText } from "../utils";
@@ -620,6 +622,26 @@ export function SettingsPanel() {
       <details>
         <summary style={sectionHeaderStyle}>{t("settings_overlay")}</summary>
         <div style={{ ...sectionStyle, "margin-top": "6px" }}>
+          {/* Buff overlay */}
+          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+            <span style={{ color: "#aaa", width: "80px" }}>Buff overlay</span>
+            <Toggle
+              label=""
+              value={showBuffOverlay()}
+              onChange={(v) => {
+                setShowBuffOverlay(v);
+                const win = WebviewWindow.getByLabel("buffs");
+                if (win) {
+                  if (v) {
+                    win.show().catch(() => {});
+                  } else {
+                    win.hide().catch(() => {});
+                  }
+                }
+              }}
+            />
+          </div>
+
           {/* Click-through */}
           <div style={{ display: "flex", "flex-direction": "column", gap: "2px" }}>
             <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>

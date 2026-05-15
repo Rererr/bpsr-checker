@@ -1,3 +1,4 @@
+use crate::protocol::constants::entity;
 use crate::protocol::pb;
 use std::collections::HashMap;
 
@@ -42,7 +43,8 @@ impl BuffTracker {
     /// host_uuid が local_uid と一致するバフのみ保存。
     /// 保存した場合は true を返す。
     pub fn apply_full_info(&mut self, info: &pb::BuffInfo, now_ms: u128, local_uid: i64) -> bool {
-        if info.host_uuid != local_uid {
+        // host_uuid は entity UUID (packed)、local_uid は char_id (>> 16 済み)
+        if entity::get_player_uid(info.host_uuid) != local_uid {
             return false;
         }
 
@@ -71,7 +73,7 @@ impl BuffTracker {
 
     /// 差分更新。host_uuid が local_uid と異なる場合は無視する。
     pub fn apply_change(&mut self, change: &pb::BuffChangeNotify, now_ms: u128, local_uid: i64) {
-        if change.host_uuid != local_uid {
+        if entity::get_player_uid(change.host_uuid) != local_uid {
             return;
         }
 

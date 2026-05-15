@@ -224,14 +224,37 @@ pub fn process_opcode(app_handle: &AppHandle, env: PktEnvelope) -> AppResult<()>
                 }
 
                 Pkt::NotifyBuffChange => {
-                    let Some(msg) =
-                        decode_packet::<pb::BuffChangeNotify>(data, "BuffChangeNotify")
-                    else {
-                        return Ok(());
-                    };
                     let ts = now_ms();
                     let local_uid = encounter.local_player_uid;
-                    encounter.buff_tracker.apply_change(&msg, ts, local_uid);
+
+                    // 実際のフィールドレイアウト確認用: 受信バイト列の先頭64バイトをログ出力
+                    let hex: String = data
+                        .iter()
+                        .take(64)
+                        .map(|b| format!("{b:02x}"))
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    info!("[Buff/Raw] len={} bytes=[{hex}]", data.len());
+
+                    // BuffInfo (フルバフ情報) としてデコード試行
+                    if let Ok(msg) = pb::BuffInfo::decode(data.as_slice()) {
+                        let host_uid = entity::get_player_uid(msg.host_uuid);
+                        info!(
+                            "[Buff/Full] base_id={} buff_uuid={} host_uuid={} host_uid={} local_uid={} dur={} layer={} fire_uuid={}",
+                            msg.base_id, msg.buff_uuid, msg.host_uuid, host_uid, local_uid, msg.duration, msg.layer, msg.fire_uuid
+                        );
+                        encounter.buff_tracker.apply_full_info(&msg, ts, local_uid);
+                    }
+
+                    // BuffChangeNotify (差分更新) としてもデコードしてログ出力
+                    if let Ok(msg) = pb::BuffChangeNotify::decode(data.as_slice()) {
+                        let host_uid = entity::get_player_uid(msg.host_uuid);
+                        info!(
+                            "[Buff/Change] base_id={} buff_uuid={} host_uuid={} host_uid={} local_uid={} dur={} layer={}",
+                            msg.base_id, msg.buff_uuid, msg.host_uuid, host_uid, local_uid, msg.duration, msg.layer
+                        );
+                        encounter.buff_tracker.apply_change(&msg, ts, local_uid);
+                    }
                 }
 
                 _ => {}

@@ -10,6 +10,7 @@ pub enum Pkt {
     SyncToMeDeltaInfo,
     SyncNearDeltaInfo,
     NotifyBuffChange,
+    SyncBuffInfo,
 }
 
 pub struct PktEnvelope {
@@ -28,6 +29,7 @@ impl TryFrom<u32> for Pkt {
             0x0000002e => Ok(Pkt::SyncToMeDeltaInfo),
             0x0000002d => Ok(Pkt::SyncNearDeltaInfo),
             0x00003003 => Ok(Pkt::NotifyBuffChange),
+            0x00003005 => Ok(Pkt::SyncBuffInfo),
             _ => Err(AppError::Parse(format!("Unknown opcode: 0x{pkt:08x}"))),
         }
     }

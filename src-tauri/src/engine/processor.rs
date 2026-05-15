@@ -204,6 +204,15 @@ pub fn process_opcode(app_handle: &AppHandle, env: PktEnvelope) -> AppResult<()>
                 }
 
                 Pkt::SyncToMeDeltaInfo => {
+                    // バフ/デバフが含まれる可能性を調査中: 全 raw bytes をログ出力
+                    {
+                        let hex: String = data
+                            .iter()
+                            .map(|b| format!("{b:02x}"))
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        info!("[0x2e/Raw] len={} local_uid={} bytes=[{hex}]", data.len(), encounter.local_player_uid);
+                    }
                     let Some(msg) =
                         decode_packet::<pb::SyncToMeDeltaInfo>(data, "SyncToMeDeltaInfo")
                     else {

@@ -212,6 +212,66 @@ pub struct Vector3 {
     pub z: f32,
 }
 #[derive(specta::Type)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct FightSourceInfo {
+    #[prost(int32, tag = "1")]
+    pub fight_source_type: i32,
+    #[prost(int32, tag = "2")]
+    pub source_config_id: i32,
+}
+#[derive(specta::Type)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct BuffInfo {
+    #[prost(int32, tag = "1")]
+    pub buff_uuid: i32,
+    #[prost(int32, tag = "2")]
+    pub base_id: i32,
+    #[prost(int32, tag = "3")]
+    pub level: i32,
+    #[prost(int64, tag = "4")]
+    pub host_uuid: i64,
+    #[prost(int32, tag = "5")]
+    pub table_uuid: i32,
+    #[prost(int64, tag = "6")]
+    pub create_time: i64,
+    #[prost(int64, tag = "7")]
+    pub fire_uuid: i64,
+    #[prost(int32, tag = "8")]
+    pub layer: i32,
+    #[prost(int32, tag = "9")]
+    pub part_id: i32,
+    #[prost(int32, tag = "10")]
+    pub count: i32,
+    #[prost(int32, tag = "11")]
+    pub duration: i32,
+    #[prost(message, optional, tag = "12")]
+    pub fight_source_info: ::core::option::Option<FightSourceInfo>,
+}
+#[derive(specta::Type)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct BuffInfoSync {
+    #[prost(int64, tag = "1")]
+    pub uuid: i64,
+    #[prost(message, repeated, tag = "2")]
+    pub buff_infos: ::prost::alloc::vec::Vec<BuffInfo>,
+}
+#[derive(specta::Type)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct BuffChangeNotify {
+    #[prost(int64, tag = "1")]
+    pub host_uuid: i64,
+    #[prost(int32, tag = "2")]
+    pub buff_uuid: i32,
+    #[prost(int32, tag = "3")]
+    pub base_id: i32,
+    #[prost(int64, tag = "4")]
+    pub duration: i64,
+    #[prost(int64, tag = "5")]
+    pub create_time: i64,
+    #[prost(int32, tag = "6")]
+    pub layer: i32,
+}
+#[derive(specta::Type)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum EDamageType {

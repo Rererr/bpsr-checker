@@ -1,7 +1,8 @@
 use crate::bridge::models::{
-    EncounterSnapshot, HeaderInfo, MeasureModeStatus, PlayerRow, PlayersWindow, SkillRow,
-    SkillsWindow, TimeSeriesPoint,
+    EncounterSnapshot, HeaderInfo, MeasureModeStatus, PlayerRow, PlayersWindow, SelfBuffSnapshot,
+    SelfBuffsData, SkillRow, SkillsWindow, TimeSeriesPoint,
 };
+use crate::engine::buff_source::{classify, BuffSourceKind};
 use crate::engine::class::{Class, ClassSpec};
 use crate::engine::combat_stats::CombatStats;
 use crate::engine::encounter::{Encounter, EncounterMutex};
@@ -514,6 +515,59 @@ pub fn cancel_3min_measure_mode(state: tauri::State<'_, EncounterMutex>) {
             info!("3min measure mode: cancelled");
         }
         Err(e) => log::error!("Lock poisoned in cancel_3min_measure_mode: {e}"),
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_self_buffs(state: tauri::State<'_, EncounterMutex>) -> SelfBuffsData {
+    use crate::engine::processor::now_ms;
+    use std::collections::HashMap;
+
+    let mut enc = match state.lock() {
+        Ok(e) => e,
+        Err(e) => {
+            log::error!("Lock poisoned in get_self_buffs: {e}");
+            return SelfBuffsData::default();
+        }
+    };
+
+    let now_ms = now_ms();
+    enc.buff_tracker.gc(now_ms);
+    let snapshots = enc.buff_tracker.snapshot(now_ms);
+
+    let mut by_kind: HashMap<String, SelfBuffSnapshot> = HashMap::new();
+    for snap in &snapshots {
+        let kind = classify(snap.base_id);
+        if kind == BuffSourceKind::Other {
+            continue;
+        }
+        let kind_str = kind.as_str().to_string();
+        let entry = by_kind.entry(kind_str.clone()).or_insert_with(|| SelfBuffSnapshot {
+            kind: kind_str.clone(),
+            base_id: snap.base_id,
+            buff_uuid: snap.buff_uuid,
+            layer: snap.layer,
+            remaining_ms: snap.remaining_ms,
+            duration_ms: snap.duration_ms,
+            received_at_ms: snap.received_at_local_ms as f64,
+        });
+        if snap.remaining_ms > entry.remaining_ms {
+            *entry = SelfBuffSnapshot {
+                kind: kind_str,
+                base_id: snap.base_id,
+                buff_uuid: snap.buff_uuid,
+                layer: snap.layer,
+                remaining_ms: snap.remaining_ms,
+                duration_ms: snap.duration_ms,
+                received_at_ms: snap.received_at_local_ms as f64,
+            };
+        }
+    }
+
+    SelfBuffsData {
+        buffs: by_kind.into_values().collect(),
+        now_ms: now_ms as f64,
     }
 }
 

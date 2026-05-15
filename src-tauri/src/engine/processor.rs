@@ -223,6 +223,17 @@ pub fn process_opcode(app_handle: &AppHandle, env: PktEnvelope) -> AppResult<()>
                     }
                 }
 
+                Pkt::NotifyBuffChange => {
+                    let Some(msg) =
+                        decode_packet::<pb::BuffChangeNotify>(data, "BuffChangeNotify")
+                    else {
+                        return Ok(());
+                    };
+                    let ts = now_ms();
+                    let local_uid = encounter.local_player_uid;
+                    encounter.buff_tracker.apply_change(&msg, ts, local_uid);
+                }
+
                 _ => {}
             }
         }

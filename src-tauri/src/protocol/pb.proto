@@ -115,3 +115,37 @@ message Vector3 {
   float y = 2;
   float z = 3;
 }
+
+message FightSourceInfo {
+  int32 fight_source_type = 1;
+  int32 source_config_id = 2;
+}
+
+message BuffInfo {
+  int32 buff_uuid = 1;
+  int32 base_id = 2;
+  int32 level = 3;
+  int64 host_uuid = 4;
+  int32 table_uuid = 5;
+  int64 create_time = 6;
+  int64 fire_uuid = 7;
+  int32 layer = 8;
+  int32 part_id = 9;
+  int32 count = 10;
+  int32 duration = 11;
+  FightSourceInfo fight_source_info = 12;
+}
+
+message BuffInfoSync {
+  int64 uuid = 1;
+  repeated BuffInfo buff_infos = 2;
+}
+
+message BuffChangeNotify {
+  int64 host_uuid = 1;
+  int32 buff_uuid = 2;
+  int32 base_id = 3;
+  int64 duration = 4;
+  int64 create_time = 5;
+  int32 layer = 6;
+}

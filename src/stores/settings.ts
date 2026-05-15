@@ -35,6 +35,7 @@ const [selectedUid, setSelectedUid] = persisted<number | null>("selectedUid", nu
 const [threeMinDurationSec, setThreeMinDurationSec] = persisted<number>("threeMinDurationSec", 180);
 const [threeMinAutoOpen, setThreeMinAutoOpen] = persisted<boolean>("threeMinAutoOpen", true);
 const [abbreviateScores, setAbbreviateScores] = persisted<boolean>("abbreviateScores", false);
+const [showBuffOverlay, setShowBuffOverlay] = persisted<boolean>("showBuffOverlay", false);
 
 export {
   opacity, setOpacity,
@@ -67,6 +68,7 @@ export {
   threeMinDurationSec, setThreeMinDurationSec,
   threeMinAutoOpen, setThreeMinAutoOpen,
   abbreviateScores, setAbbreviateScores,
+  showBuffOverlay, setShowBuffOverlay,
 };
 
 export function wireBackendSettings() {

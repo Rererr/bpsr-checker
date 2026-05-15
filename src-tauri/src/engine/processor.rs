@@ -260,14 +260,27 @@ pub fn process_opcode(app_handle: &AppHandle, env: PktEnvelope) -> AppResult<()>
                 Pkt::SyncBuffInfo => {
                     let ts = now_ms();
                     let local_uid = encounter.local_player_uid;
-                    if let Ok(msg) = pb::BuffInfoSync::decode(data.as_slice()) {
-                        for buff in &msg.buff_infos {
-                            let host_uid = entity::get_player_uid(buff.host_uuid);
-                            info!(
-                                "[SyncBuff] base_id={} buff_uuid={} host_uuid={} host_uid={} local_uid={} dur={} layer={} fire={}",
-                                buff.base_id, buff.buff_uuid, buff.host_uuid, host_uid, local_uid, buff.duration, buff.layer, buff.fire_uuid
-                            );
-                            encounter.buff_tracker.apply_full_info(buff, ts, local_uid);
+                    let hex: String = data
+                        .iter()
+                        .take(64)
+                        .map(|b| format!("{b:02x}"))
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    info!("[SyncBuff/Raw] len={} local_uid={} bytes=[{hex}]", data.len(), local_uid);
+                    match pb::BuffInfoSync::decode(data.as_slice()) {
+                        Ok(msg) => {
+                            info!("[SyncBuff/Decoded] entity_uuid={} buff_count={}", msg.uuid, msg.buff_infos.len());
+                            for buff in &msg.buff_infos {
+                                let host_uid = entity::get_player_uid(buff.host_uuid);
+                                info!(
+                                    "[SyncBuff] base_id={} buff_uuid={} host_uuid={} host_uid={} local_uid={} dur={} layer={} fire={}",
+                                    buff.base_id, buff.buff_uuid, buff.host_uuid, host_uid, local_uid, buff.duration, buff.layer, buff.fire_uuid
+                                );
+                                encounter.buff_tracker.apply_full_info(buff, ts, local_uid);
+                            }
+                        }
+                        Err(e) => {
+                            info!("[SyncBuff/DecodeErr] {e}");
                         }
                     }
                 }

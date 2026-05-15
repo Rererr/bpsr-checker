@@ -18,6 +18,8 @@ export interface SelfBuffsData {
 const EMPTY: SelfBuffsData = { buffs: [], nowMs: 0 };
 
 export const [selfBuffs, setSelfBuffs] = createSignal<SelfBuffsData>(EMPTY);
+// ポーリングデータを受信した performance.now() の時刻（補間計算用）
+export const [pollReceivedAt, setPollReceivedAt] = createSignal<number>(performance.now());
 
 let timerId: ReturnType<typeof setInterval> | null = null;
 
@@ -26,10 +28,12 @@ const isTauri = (): boolean => "__TAURI_INTERNALS__" in window;
 async function fetchBuffs(): Promise<void> {
   if (!isTauri()) {
     setSelfBuffs(MOCK_DATA);
+    setPollReceivedAt(performance.now());
     return;
   }
   const { invoke } = await import("@tauri-apps/api/core");
   const data = await invoke<SelfBuffsData>("get_self_buffs");
+  setPollReceivedAt(performance.now());
   setSelfBuffs(data);
 }
 

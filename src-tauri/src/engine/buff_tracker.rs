@@ -98,6 +98,28 @@ impl BuffTracker {
         entry.create_time_server = change.create_time;
     }
 
+    /// AoiSyncDelta.effects から取得した EffectInfo を追跡。
+    /// duration_ms <= 0 は無期限扱いでスキップ（デバフ表示対象外）。
+    pub fn apply_effect(&mut self, effect: &pb::EffectInfo, now_ms: u128) {
+        if effect.duration_ms <= 0 {
+            return;
+        }
+        let id = effect.id as i32;
+        let state = BuffState {
+            buff_uuid: id,
+            base_id: id,
+            host_uuid: 0,
+            fire_uuid: 0,
+            create_time_server: effect.activated_at,
+            received_at_local_ms: now_ms,
+            duration_ms: effect.duration_ms,
+            layer: 1,
+            count: 1,
+            source_config_id: 0,
+        };
+        self.buffs.insert(id, state);
+    }
+
     pub fn remove(&mut self, buff_uuid: i32) {
         self.buffs.remove(&buff_uuid);
     }

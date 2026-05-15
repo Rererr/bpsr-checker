@@ -36,7 +36,8 @@ impl BuffSourceKind {
 /// バジリスクの buff_id は実機ログ収集後に追加予定。
 pub fn classify(base_id: i32) -> BuffSourceKind {
     match base_id {
-        30001..=31101 | 140001..=141000 | 5001921 => BuffSourceKind::Tina,
+        // ティナ: バフ buff_id / 再使用不可デバフ effect_id(392101=150s)
+        30001..=31101 | 140001..=141000 | 5001921 | 392101 => BuffSourceKind::Tina,
         4801 | 8801..=8901 | 35101..=36101 => BuffSourceKind::Tarta,
         15001..=16000 => BuffSourceKind::Aluna,
         _ => BuffSourceKind::Other,

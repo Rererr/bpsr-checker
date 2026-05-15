@@ -24,6 +24,16 @@ message AttrCollection {
   repeated Attr attrs = 2;
 }
 
+// AoiSyncDelta.effects(field 3) の各要素
+// field 3 = duration_ms: 0/未設定=無期限、-1=永続、>0=ms単位の持続時間
+message EffectInfo {
+  int64 id = 1;
+  int64 activated_at = 2;
+  int64 duration_ms = 3;
+  int64 flag = 4;
+  int64 extra = 5;
+}
+
 message AoiSyncDelta {
   int64 uuid = 1;
   AttrCollection attrs = 2;
@@ -32,6 +42,7 @@ message AoiSyncDelta {
 
 message AoiSyncToMeDelta {
   AoiSyncDelta base_delta = 1;
+  repeated EffectInfo effects = 3;
   int64 uuid = 5;
 }
 

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { createEffect, createSignal } from "solid-js";
 import { persisted } from "../lib/persisted";
 
@@ -95,4 +96,10 @@ export function wireBackendSettings() {
   createEffect(() => { invoke("set_always_on_top", { enabled: alwaysOnTop() }).catch(() => {}); });
   createEffect(() => { invoke("set_click_through", { enabled: clickThrough() }).catch(() => {}); });
   listen("click-through-disabled", () => setClickThrough(false));
+
+  if (showBuffOverlay()) {
+    WebviewWindow.getByLabel("buffs").then((win) => {
+      if (win) win.show().catch(() => {});
+    }).catch(() => {});
+  }
 }

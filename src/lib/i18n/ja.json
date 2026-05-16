@@ -60,6 +60,7 @@
   "time_series_samples": "グラフサンプル数",
   "time_series_interval": "グラフ間隔(ms)",
   "settings_overlay": "オーバーレイ",
+  "imagine_debuff_timer": "イマジンデバフタイマー",
   "always_on_top": "常に最前面",
   "click_through": "クリックスルー",
   "click_through_hint": "解除: Ctrl+Shift+Z",

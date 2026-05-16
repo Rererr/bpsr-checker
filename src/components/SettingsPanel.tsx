@@ -622,22 +622,22 @@ export function SettingsPanel() {
       <details>
         <summary style={sectionHeaderStyle}>{t("settings_overlay")}</summary>
         <div style={{ ...sectionStyle, "margin-top": "6px" }}>
-          {/* Buff overlay */}
+          {/* Imagine debuff timer */}
           <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-            <span style={{ color: "#aaa", width: "80px" }}>Buff overlay</span>
+            <span style={{ color: "#aaa", width: "80px" }}>{t("imagine_debuff_timer")}</span>
             <Toggle
               label=""
               value={showBuffOverlay()}
               onChange={(v) => {
                 setShowBuffOverlay(v);
-                const win = WebviewWindow.getByLabel("buffs");
-                if (win) {
+                WebviewWindow.getByLabel("buffs").then((win) => {
+                  if (!win) return;
                   if (v) {
                     win.show().catch(() => {});
                   } else {
                     win.hide().catch(() => {});
                   }
-                }
+                }).catch(() => {});
               }}
             />
           </div>

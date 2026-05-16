@@ -34,9 +34,40 @@ message EffectInfo {
   int64 extra = 5;
 }
 
+// AoiSyncDelta.field_10 に入るバフイベントリスト
+// buff_config_id=BuffTable ID, duration_ms=免疫デバフ実測値(e.g. 60000/600000)
+message AoiBuffDetail {
+  int32 slot_id = 1;
+  int64 buff_config_id = 2;
+  int32 level = 3;
+  int64 base_buff_id = 5;
+  int64 apply_time = 6;
+  int64 target_uuid = 7;
+  int32 is_active = 8;
+  int64 permanent_flag = 10;
+  int64 duration_ms = 11;
+}
+
+message AoiBuffBody {
+  int32 buff_type = 1;
+  AoiBuffDetail detail = 2;
+}
+
+message AoiBuff {
+  int32 event_type = 1;
+  int32 skill_slot = 2;
+  int64 actor_uuid = 3;
+  AoiBuffBody body = 5;
+}
+
+message AoiBuffList {
+  repeated AoiBuff buffs = 2;
+}
+
 message AoiSyncDelta {
   int64 uuid = 1;
   AttrCollection attrs = 2;
+  AoiBuffList buff_list = 10;
   SkillEffect skill_effects = 7;
 }
 

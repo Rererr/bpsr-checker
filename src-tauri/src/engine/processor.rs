@@ -440,6 +440,26 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
         }
     }
 
+    // AoiSyncDelta.field_10: 免疫デバフを含むバフイベントリスト
+    if target_uid == encounter.local_player_uid {
+        if let Some(buff_list) = &aoi_sync_delta.buff_list {
+            let ts = now_ms();
+            for buff in &buff_list.buffs {
+                let detail = buff.body.as_ref().and_then(|b| b.detail.as_ref());
+                if let Some(d) = detail {
+                    let kind = crate::engine::buff_source::classify_buff(d.buff_config_id);
+                    info!(
+                        "[Buff10] config_id={} dur={}ms kind={:?} slot={} target_uid={}",
+                        d.buff_config_id, d.duration_ms, kind,
+                        buff.skill_slot,
+                        entity::get_player_uid(d.target_uuid)
+                    );
+                    encounter.buff_tracker.apply_buff_detail(d, ts);
+                }
+            }
+        }
+    }
+
     let Some(skill_effect) = aoi_sync_delta.skill_effects else {
         return; // no damage in this delta, that's fine
     };

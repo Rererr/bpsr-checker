@@ -138,12 +138,7 @@ pub fn run() {
                 selected_uid::flush();
                 #[cfg(target_os = "windows")]
                 {
-                    info!("App closing, releasing WinDivert handle...");
-                    // Step 1: abort the blocking recv so the capture task
-                    // can return and drop its WinDivert handle.
                     capture::windivert::request_shutdown();
-                    // Step 2: ハンドルが実際に閉じられるまでポーリングで待機する。
-                    // 固定スリープより確実にハンドルを解放してから uninstall() を呼べる。
                     let deadline =
                         std::time::Instant::now() + std::time::Duration::from_millis(1500);
                     while !capture::windivert::is_handle_closed()
@@ -151,8 +146,8 @@ pub fn run() {
                     {
                         std::thread::sleep(std::time::Duration::from_millis(50));
                     }
-                    if let Err(e) = windivert::WinDivert::uninstall() {
-                        warn!("WinDivert uninstall failed (best-effort): {e}");
+                    if let Err(e) = capture::windivert::force_uninstall_service() {
+                        warn!("WinDivert uninstall failed: {e}");
                     }
                 }
             }

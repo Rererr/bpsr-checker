@@ -364,7 +364,7 @@ dependencies = [
 
 [[package]]
 name = "bpsr-checker"
-version = "0.6.0"
+version = "0.7.6"
 dependencies = [
  "byteorder",
  "bytes",
@@ -388,6 +388,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "windivert",
+ "windows 0.48.0",
  "zstd",
 ]
 

@@ -227,32 +227,11 @@ pub fn process_opcode(app_handle: &AppHandle, env: PktEnvelope) -> AppResult<()>
                     let ts = now_ms();
                     let local_uid = encounter.local_player_uid;
 
-                    // 実際のフィールドレイアウト確認用: 受信バイト列の先頭64バイトをログ出力
-                    let hex: String = data
-                        .iter()
-                        .take(64)
-                        .map(|b| format!("{b:02x}"))
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    info!("[Buff/Raw] len={} bytes=[{hex}]", data.len());
-
-                    // BuffInfo (フルバフ情報) としてデコード試行
                     if let Ok(msg) = pb::BuffInfo::decode(data.as_slice()) {
-                        let host_uid = entity::get_player_uid(msg.host_uuid);
-                        info!(
-                            "[Buff/Full] base_id={} buff_uuid={} host_uuid={} host_uid={} local_uid={} dur={} layer={} fire_uuid={}",
-                            msg.base_id, msg.buff_uuid, msg.host_uuid, host_uid, local_uid, msg.duration, msg.layer, msg.fire_uuid
-                        );
                         encounter.buff_tracker.apply_full_info(&msg, ts, local_uid);
                     }
 
-                    // BuffChangeNotify (差分更新) としてもデコードしてログ出力
                     if let Ok(msg) = pb::BuffChangeNotify::decode(data.as_slice()) {
-                        let host_uid = entity::get_player_uid(msg.host_uuid);
-                        info!(
-                            "[Buff/Change] base_id={} buff_uuid={} host_uuid={} host_uid={} local_uid={} dur={} layer={}",
-                            msg.base_id, msg.buff_uuid, msg.host_uuid, host_uid, local_uid, msg.duration, msg.layer
-                        );
                         encounter.buff_tracker.apply_change(&msg, ts, local_uid);
                     }
                 }
@@ -260,27 +239,9 @@ pub fn process_opcode(app_handle: &AppHandle, env: PktEnvelope) -> AppResult<()>
                 Pkt::SyncBuffInfo => {
                     let ts = now_ms();
                     let local_uid = encounter.local_player_uid;
-                    let hex: String = data
-                        .iter()
-                        .take(64)
-                        .map(|b| format!("{b:02x}"))
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    info!("[SyncBuff/Raw] len={} local_uid={} bytes=[{hex}]", data.len(), local_uid);
-                    match pb::BuffInfoSync::decode(data.as_slice()) {
-                        Ok(msg) => {
-                            info!("[SyncBuff/Decoded] entity_uuid={} buff_count={}", msg.uuid, msg.buff_infos.len());
-                            for buff in &msg.buff_infos {
-                                let host_uid = entity::get_player_uid(buff.host_uuid);
-                                info!(
-                                    "[SyncBuff] base_id={} buff_uuid={} host_uuid={} host_uid={} local_uid={} dur={} layer={} fire={}",
-                                    buff.base_id, buff.buff_uuid, buff.host_uuid, host_uid, local_uid, buff.duration, buff.layer, buff.fire_uuid
-                                );
-                                encounter.buff_tracker.apply_full_info(buff, ts, local_uid);
-                            }
-                        }
-                        Err(e) => {
-                            info!("[SyncBuff/DecodeErr] {e}");
+                    if let Ok(msg) = pb::BuffInfoSync::decode(data.as_slice()) {
+                        for buff in &msg.buff_infos {
+                            encounter.buff_tracker.apply_full_info(buff, ts, local_uid);
                         }
                     }
                 }
@@ -400,11 +361,6 @@ fn process_sync_to_me_delta_info(encounter: &mut Encounter, msg: pb::SyncToMeDel
     if !delta_info.effects.is_empty() {
         let ts = now_ms();
         for effect in &delta_info.effects {
-            let kind = crate::engine::buff_source::classify(effect.id as i32);
-            info!(
-                "[Effect] id={} dur={}ms kind={:?}",
-                effect.id, effect.duration_ms, kind
-            );
             encounter.buff_tracker.apply_effect(effect, ts);
         }
     }
@@ -464,11 +420,6 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
                 if detail.duration_ms <= 0 {
                     continue;
                 }
-                let kind = crate::engine::buff_source::classify_buff(detail.buff_config_id);
-                info!(
-                    "[Buff10] config_id={} dur={}ms kind={:?}",
-                    detail.buff_config_id, detail.duration_ms, kind
-                );
                 encounter.buff_tracker.apply_buff_detail(&detail, ts);
             }
         }

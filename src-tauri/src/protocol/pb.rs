@@ -15,6 +15,74 @@ pub struct AttrCollection {
     #[prost(message, repeated, tag = "2")]
     pub attrs: ::prost::alloc::vec::Vec<Attr>,
 }
+/// AoiSyncDelta.effects(field 3) の各要素
+/// field 3 = duration_ms: 0/未設定=無期限、-1=永続、>0=ms単位の持続時間
+#[derive(specta::Type)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct EffectInfo {
+    #[prost(int64, tag = "1")]
+    pub id: i64,
+    #[prost(int64, tag = "2")]
+    pub activated_at: i64,
+    #[prost(int64, tag = "3")]
+    pub duration_ms: i64,
+    #[prost(int64, tag = "4")]
+    pub flag: i64,
+    #[prost(int64, tag = "5")]
+    pub extra: i64,
+}
+/// AoiSyncDelta.field_10 に入るバフイベントリスト
+/// buff_type ごとに detail 構造が異なるため、body/detail は bytes でラップして
+/// 必要な型のみ手動デコードする方針。
+#[derive(specta::Type)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AoiBuffDetail {
+    /// buff_type == 18 用の構造 (免疫デバフ等)
+    #[prost(int32, tag = "1")]
+    pub slot_id: i32,
+    #[prost(int64, tag = "2")]
+    pub buff_config_id: i64,
+    #[prost(int32, tag = "3")]
+    pub level: i32,
+    #[prost(int64, tag = "5")]
+    pub base_buff_id: i64,
+    #[prost(int64, tag = "6")]
+    pub apply_time: i64,
+    #[prost(int64, tag = "7")]
+    pub target_uuid: i64,
+    #[prost(int32, tag = "8")]
+    pub is_active: i32,
+    #[prost(int64, tag = "10")]
+    pub permanent_flag: i64,
+    #[prost(int64, tag = "11")]
+    pub duration_ms: i64,
+}
+#[derive(specta::Type)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AoiBuffBody {
+    #[prost(int32, tag = "1")]
+    pub buff_type: i32,
+    #[prost(bytes = "vec", tag = "2")]
+    pub detail_raw: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(specta::Type)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AoiBuff {
+    #[prost(int32, tag = "1")]
+    pub event_type: i32,
+    #[prost(int32, tag = "2")]
+    pub skill_slot: i32,
+    #[prost(int64, tag = "3")]
+    pub actor_uuid: i64,
+    #[prost(bytes = "vec", tag = "5")]
+    pub body_raw: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(specta::Type)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AoiBuffList {
+    #[prost(message, repeated, tag = "2")]
+    pub buffs: ::prost::alloc::vec::Vec<AoiBuff>,
+}
 #[derive(specta::Type)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AoiSyncDelta {
@@ -22,6 +90,8 @@ pub struct AoiSyncDelta {
     pub uuid: i64,
     #[prost(message, optional, tag = "2")]
     pub attrs: ::core::option::Option<AttrCollection>,
+    #[prost(message, optional, tag = "10")]
+    pub buff_list: ::core::option::Option<AoiBuffList>,
     #[prost(message, optional, tag = "7")]
     pub skill_effects: ::core::option::Option<SkillEffect>,
 }
@@ -30,6 +100,8 @@ pub struct AoiSyncDelta {
 pub struct AoiSyncToMeDelta {
     #[prost(message, optional, tag = "1")]
     pub base_delta: ::core::option::Option<AoiSyncDelta>,
+    #[prost(message, repeated, tag = "3")]
+    pub effects: ::prost::alloc::vec::Vec<EffectInfo>,
     #[prost(int64, tag = "5")]
     pub uuid: i64,
 }

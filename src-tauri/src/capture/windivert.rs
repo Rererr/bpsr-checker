@@ -121,8 +121,8 @@ async fn read_packets(
     restart_receiver: &mut watch::Receiver<bool>,
 ) {
     // 過去のクラッシュ等でサービスが残っている場合の自動回復
-    if let Err(e) = WinDivert::uninstall() {
-        warn!("WinDivert pre-open cleanup (best-effort): {e}");
+    if let Err(e) = force_uninstall_service() {
+        warn!("WinDivert pre-open cleanup: {e}");
     }
     let windivert = match WinDivert::network(
         "!loopback && ip && tcp",
@@ -306,7 +306,6 @@ async fn read_packets(
         *slot = None;
     }
     drop(windivert);
-    info!("WinDivert handle closed and dropped");
 }
 
 fn update_known_server(
@@ -416,4 +415,58 @@ pub fn request_restart() {
     if let Some(sender) = RESTART_SENDER.get() {
         let _ = sender.send(true);
     }
+}
+
+#[cfg(target_os = "windows")]
+pub fn force_uninstall_service() -> Result<(), String> {
+    use windows::Win32::Foundation::{ERROR_SERVICE_DOES_NOT_EXIST, ERROR_SERVICE_NOT_ACTIVE};
+    use windows::Win32::System::Services::{
+        CloseServiceHandle, ControlService, DeleteService, OpenSCManagerW, OpenServiceW,
+        SC_MANAGER_CONNECT, SERVICE_CONTROL_STOP, SERVICE_STATUS, SERVICE_STOP,
+    };
+    use windows::core::PCWSTR;
+
+    // DELETE (汎用アクセス権 0x00010000) は windows::Win32::Storage::FileSystem の型付き定数だが
+    // OpenServiceW の引数は u32 なので直接値を使う
+    const DELETE: u32 = 0x0001_0000;
+
+    let service_name: Vec<u16> = "WinDivert\0".encode_utf16().collect();
+
+    unsafe {
+        let scm = OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), SC_MANAGER_CONNECT)
+            .map_err(|e| format!("OpenSCManagerW failed: {e}"))?;
+
+        let svc = match OpenServiceW(
+            scm,
+            PCWSTR::from_raw(service_name.as_ptr()),
+            SERVICE_STOP | DELETE,
+        ) {
+            Ok(h) => h,
+            Err(e) => {
+                let _ = CloseServiceHandle(scm);
+                if e.code() == ERROR_SERVICE_DOES_NOT_EXIST.to_hresult() {
+                    return Ok(());
+                }
+                return Err(format!("OpenServiceW failed: {e}"));
+            }
+        };
+
+        let mut status = SERVICE_STATUS::default();
+        if let Err(e) = ControlService(svc, SERVICE_CONTROL_STOP, &mut status).ok() {
+            if e.code() != ERROR_SERVICE_NOT_ACTIVE.to_hresult() {
+                let _ = CloseServiceHandle(svc);
+                let _ = CloseServiceHandle(scm);
+                return Err(format!("ControlService(STOP) failed: {e}"));
+            }
+        }
+
+        let delete_result = DeleteService(svc).ok();
+
+        let _ = CloseServiceHandle(svc);
+        let _ = CloseServiceHandle(scm);
+
+        delete_result.map_err(|e| format!("DeleteService failed: {e}"))?;
+    }
+
+    Ok(())
 }

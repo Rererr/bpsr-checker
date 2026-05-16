@@ -48,6 +48,18 @@ pub fn classify(base_id: i32) -> BuffSourceKind {
     }
 }
 
+/// AoiSyncDelta.field_10 の buff_config_id から重複使用無効デバフのキャラを判定。
+/// 2110055/2110056 等は BuffTable で確認された Exhausted 系 ID。
+/// アルーナ・バジリスクの ID は実機ログで判明次第追加。
+pub fn classify_buff(buff_config_id: i64) -> BuffSourceKind {
+    match buff_config_id {
+        2110056 => BuffSourceKind::Tina,   // ティナ免疫デバフ (03:45:01 ログで確認)
+        2110055 => BuffSourceKind::Tarta,  // タータ Exhausted (BuffTable確認: 烈焰焚身)
+        // アルーナ・バジリスク: 実機ログ確認待ち
+        _ => BuffSourceKind::Other,
+    }
+}
+
 /// 同キャラの複数バフから代表（最長残時間）を選んで返す。
 pub fn aggregate_by_kind(
     snapshots: &[BuffStateSnapshot],

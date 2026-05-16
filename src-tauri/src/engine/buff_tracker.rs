@@ -98,6 +98,33 @@ impl BuffTracker {
         entry.create_time_server = change.create_time;
     }
 
+    /// AoiSyncDelta.field_10 から取得した AoiBuffDetail を追跡。
+    /// buff_config_id をキーに、duration_ms > 0 のデバフのみ保存。
+    /// apply_time が同一なら周期同期なのでリセットしない。
+    pub fn apply_buff_detail(&mut self, detail: &pb::AoiBuffDetail, now_ms: u128) {
+        if detail.duration_ms <= 0 {
+            return;
+        }
+        let id = detail.buff_config_id as i32;
+        if let Some(existing) = self.buffs.get(&id) {
+            if existing.create_time_server == detail.apply_time {
+                return;
+            }
+        }
+        self.buffs.insert(id, BuffState {
+            buff_uuid: id,
+            base_id: id,
+            host_uuid: detail.target_uuid,
+            fire_uuid: 0,
+            create_time_server: detail.apply_time,
+            received_at_local_ms: now_ms,
+            duration_ms: detail.duration_ms,
+            layer: 1,
+            count: 1,
+            source_config_id: 0,
+        });
+    }
+
     /// AoiSyncToMeDelta.effects から取得した EffectInfo を追跡。
     /// duration_ms <= 0 は無期限扱いでスキップ（デバフ表示対象外）。
     /// 同じ activated_at なら周期同期なので時刻をリセットしない。

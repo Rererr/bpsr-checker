@@ -521,6 +521,7 @@ pub fn cancel_3min_measure_mode(state: tauri::State<'_, EncounterMutex>) {
 #[tauri::command]
 #[specta::specta]
 pub fn get_self_buffs(state: tauri::State<'_, EncounterMutex>) -> SelfBuffsData {
+    use crate::engine::buff_source::classify_buff;
     use crate::engine::processor::now_ms;
     use std::collections::HashMap;
 
@@ -538,7 +539,11 @@ pub fn get_self_buffs(state: tauri::State<'_, EncounterMutex>) -> SelfBuffsData 
 
     let mut by_kind: HashMap<String, SelfBuffSnapshot> = HashMap::new();
     for snap in &snapshots {
-        let kind = classify(snap.base_id);
+        // base_id が Effect ID (39XXXX) → classify() / buff_config_id (211XXXX) → classify_buff()
+        let kind = {
+            let k = classify(snap.base_id);
+            if k != BuffSourceKind::Other { k } else { classify_buff(snap.base_id as i64) }
+        };
         if kind == BuffSourceKind::Other {
             continue;
         }
@@ -552,6 +557,7 @@ pub fn get_self_buffs(state: tauri::State<'_, EncounterMutex>) -> SelfBuffsData 
             duration_ms: snap.duration_ms,
             received_at_ms: snap.received_at_local_ms as f64,
         });
+        // 最長残時間を採用
         if snap.remaining_ms > entry.remaining_ms {
             *entry = SelfBuffSnapshot {
                 kind: kind_str,

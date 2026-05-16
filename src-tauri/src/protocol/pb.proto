@@ -35,8 +35,10 @@ message EffectInfo {
 }
 
 // AoiSyncDelta.field_10 に入るバフイベントリスト
-// buff_config_id=BuffTable ID, duration_ms=免疫デバフ実測値(e.g. 60000/600000)
+// buff_type ごとに detail 構造が異なるため、body/detail は bytes でラップして
+// 必要な型のみ手動デコードする方針。
 message AoiBuffDetail {
+  // buff_type == 18 用の構造 (免疫デバフ等)
   int32 slot_id = 1;
   int64 buff_config_id = 2;
   int32 level = 3;
@@ -50,14 +52,14 @@ message AoiBuffDetail {
 
 message AoiBuffBody {
   int32 buff_type = 1;
-  AoiBuffDetail detail = 2;
+  bytes detail_raw = 2;
 }
 
 message AoiBuff {
   int32 event_type = 1;
   int32 skill_slot = 2;
   int64 actor_uuid = 3;
-  AoiBuffBody body = 5;
+  bytes body_raw = 5;
 }
 
 message AoiBuffList {

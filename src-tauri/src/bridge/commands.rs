@@ -2,7 +2,7 @@ use crate::bridge::models::{
     EncounterSnapshot, HeaderInfo, MeasureModeStatus, PlayerRow, PlayersWindow, SelfBuffSnapshot,
     SelfBuffsData, SkillRow, SkillsWindow, TimeSeriesPoint,
 };
-use crate::engine::buff_source::{classify, BuffSourceKind};
+use crate::engine::buff_source::BuffSourceKind;
 use crate::engine::class::{Class, ClassSpec};
 use crate::engine::combat_stats::CombatStats;
 use crate::engine::encounter::{Encounter, EncounterMutex};
@@ -539,11 +539,9 @@ pub fn get_self_buffs(state: tauri::State<'_, EncounterMutex>) -> SelfBuffsData 
 
     let mut by_kind: HashMap<String, SelfBuffSnapshot> = HashMap::new();
     for snap in &snapshots {
-        // base_id が Effect ID (39XXXX) → classify() / buff_config_id (211XXXX) → classify_buff()
-        let kind = {
-            let k = classify(snap.base_id);
-            if k != BuffSourceKind::Other { k } else { classify_buff(snap.base_id as i64) }
-        };
+        // 免疫デバフ (field_10 由来の buff_config_id) のみ表示。
+        // リキャストタイマー (EffectInfo の 39XXXX) は表示しない。
+        let kind = classify_buff(snap.base_id as i64);
         if kind == BuffSourceKind::Other {
             continue;
         }

@@ -441,21 +441,35 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
     }
 
     // AoiSyncDelta.field_10: 免疫デバフを含むバフイベントリスト
+    // buff_type ごとに detail 構造が異なるため body/detail を手動デコード
     if target_uid == encounter.local_player_uid {
         if let Some(buff_list) = &aoi_sync_delta.buff_list {
             let ts = now_ms();
             for buff in &buff_list.buffs {
-                let detail = buff.body.as_ref().and_then(|b| b.detail.as_ref());
-                if let Some(d) = detail {
-                    let kind = crate::engine::buff_source::classify_buff(d.buff_config_id);
-                    info!(
-                        "[Buff10] config_id={} dur={}ms kind={:?} slot={} target_uid={}",
-                        d.buff_config_id, d.duration_ms, kind,
-                        buff.skill_slot,
-                        entity::get_player_uid(d.target_uuid)
-                    );
-                    encounter.buff_tracker.apply_buff_detail(d, ts);
+                if buff.body_raw.is_empty() {
+                    continue;
                 }
+                let body = match pb::AoiBuffBody::decode(buff.body_raw.as_slice()) {
+                    Ok(b) => b,
+                    Err(_) => continue,
+                };
+                // buff_type=18 が免疫デバフ系の構造を持つ。他は別構造なのでスキップ。
+                if body.buff_type != 18 || body.detail_raw.is_empty() {
+                    continue;
+                }
+                let detail = match pb::AoiBuffDetail::decode(body.detail_raw.as_slice()) {
+                    Ok(d) => d,
+                    Err(_) => continue,
+                };
+                if detail.duration_ms <= 0 {
+                    continue;
+                }
+                let kind = crate::engine::buff_source::classify_buff(detail.buff_config_id);
+                info!(
+                    "[Buff10] config_id={} dur={}ms kind={:?}",
+                    detail.buff_config_id, detail.duration_ms, kind
+                );
+                encounter.buff_tracker.apply_buff_detail(&detail, ts);
             }
         }
     }

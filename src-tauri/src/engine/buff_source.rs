@@ -42,8 +42,8 @@ pub fn classify(base_id: i32) -> BuffSourceKind {
         15001..=16000 | 392001 => BuffSourceKind::Aluna,
         // タータ (塔塔/Tatta): Skill 3911, effect_id=391101 (60s immunity, 盾)
         4801 | 8801..=8901 | 35101..=36101 | 391101 => BuffSourceKind::Tarta,
-        // バジリスク: effect_id 実機ログで確定予定（候補: 390301, 392601）
-        390301 | 392601 => BuffSourceKind::Basilisk,
+        // バジリスク: Skill 3957, effect_id=395701 (120s recast, 実機確認済み)
+        390301 | 392601 | 395701 => BuffSourceKind::Basilisk,
         _ => BuffSourceKind::Other,
     }
 }

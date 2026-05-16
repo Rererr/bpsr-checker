@@ -60,6 +60,7 @@
   "time_series_samples": "Graph samples",
   "time_series_interval": "Graph interval (ms)",
   "settings_overlay": "Overlay",
+  "imagine_debuff_timer": "Imagine debuff timer",
   "always_on_top": "Always on top",
   "click_through": "Click-through",
   "click_through_hint": "Disable: Ctrl+Shift+Z",

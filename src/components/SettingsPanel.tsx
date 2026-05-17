@@ -1,6 +1,5 @@
 import { Show, createResource, createSignal } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { t, locale, setLocale } from "../lib/i18n";
 import type { Locale } from "../lib/i18n";
 import {
@@ -635,14 +634,7 @@ export function SettingsPanel() {
                 // 軽量モード ON のときはデバフタイマーを OFF にできない
                 if (!v && imagineOnlyMode()) return;
                 setShowBuffOverlay(v);
-                WebviewWindow.getByLabel("buffs").then((win) => {
-                  if (!win) return;
-                  if (v) {
-                    win.show().catch(() => {});
-                  } else {
-                    win.hide().catch(() => {});
-                  }
-                }).catch(() => {});
+                invoke("set_buffs_window_visible", { visible: v }).catch(() => {});
               }}
             />
           </div>
@@ -661,9 +653,7 @@ export function SettingsPanel() {
                     setShowBuffOverlay(true);
                   }
                   if (v) {
-                    WebviewWindow.getByLabel("buffs").then((win) => {
-                      if (win) win.show().catch(() => {});
-                    }).catch(() => {});
+                    invoke("set_buffs_window_visible", { visible: true }).catch(() => {});
                   }
                 }}
               />

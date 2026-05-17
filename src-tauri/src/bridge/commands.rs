@@ -456,6 +456,19 @@ pub fn set_click_through(window: tauri::WebviewWindow, enabled: bool) -> Result<
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+#[specta::specta]
+pub fn set_buffs_window_visible(app: tauri::AppHandle, visible: bool) -> Result<(), String> {
+    let win = app
+        .get_webview_window("buffs")
+        .ok_or_else(|| "buffs window not found".to_string())?;
+    if visible {
+        win.show().map_err(|e| e.to_string())
+    } else {
+        win.hide().map_err(|e| e.to_string())
+    }
+}
+
 // ─── selected_uid コマンド ────────────────────────────────────────────────────
 
 #[tauri::command]

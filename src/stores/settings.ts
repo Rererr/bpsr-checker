@@ -1,6 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { createEffect, createSignal } from "solid-js";
 import { persisted } from "../lib/persisted";
 
@@ -101,10 +100,6 @@ export function wireBackendSettings() {
   createEffect(() => { invoke("set_imagine_only_mode", { enabled: imagineOnlyMode() }).catch(() => {}); });
   listen("click-through-disabled", () => setClickThrough(false));
 
-  // 軽量モード ON ならデバフタイマーも強制表示
-  if (showBuffOverlay() || imagineOnlyMode()) {
-    WebviewWindow.getByLabel("buffs").then((win) => {
-      if (win) win.show().catch(() => {});
-    }).catch(() => {});
-  }
+  // 起動時の表示状態を Rust 側から確実に制御（WebView2 hidden 初期化問題の回避）
+  invoke("set_buffs_window_visible", { visible: showBuffOverlay() || imagineOnlyMode() }).catch(() => {});
 }

@@ -54,6 +54,7 @@ pub fn run() {
         commands::get_measure_mode_status,
         commands::get_self_buffs,
         commands::set_imagine_only_mode,
+        commands::set_buffs_window_visible,
     ]);
 
     #[cfg(debug_assertions)]

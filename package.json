@@ -2,6 +2,7 @@
   "name": "bpsr-checker",
   "version": "0.5.2",
   "description": "軽量DPSチェッカー",
+  "license": "GPL-3.0-only",
   "type": "module",
   "scripts": {
     "dev": "vite dev",

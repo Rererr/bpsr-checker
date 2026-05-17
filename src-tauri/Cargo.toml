@@ -1,9 +1,10 @@
 [package]
 name = "bpsr-checker"
-version = "0.7.7"
+version = "0.7.8"
 description = "軽量DPSチェッカー for Blue Protocol: Star Resonance"
 authors = ["Rererr"]
 edition = "2024"
+license = "GPL-3.0-only"
 
 [lib]
 name = "bpsr_checker_lib"

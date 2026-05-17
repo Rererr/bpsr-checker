@@ -36,7 +36,7 @@ export default function App() {
   return (
     <div style={{
       background: `rgba(20, 20, 30, ${opacity()})`,
-      "min-height": "100vh",
+      height: "100vh",
       display: "flex",
       "flex-direction": "column",
       "font-size": `${fontSize()}px`,

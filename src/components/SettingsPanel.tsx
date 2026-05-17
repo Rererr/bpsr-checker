@@ -137,6 +137,8 @@ export function SettingsPanel() {
         "flex-direction": "column",
         gap: "8px",
         "font-size": "11px",
+        "min-height": "0",
+        "overflow-y": "auto",
       }}
     >
       <details open>

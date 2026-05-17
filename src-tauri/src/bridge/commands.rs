@@ -411,6 +411,20 @@ pub fn set_time_series_config(samples: f64, interval_ms: f64) {
 
 #[tauri::command]
 #[specta::specta]
+pub fn set_imagine_only_mode(state: tauri::State<'_, EncounterMutex>, enabled: bool) {
+    let was_enabled = crate::engine::runtime_settings::IMAGINE_ONLY_MODE
+        .swap(enabled, std::sync::atomic::Ordering::Relaxed);
+    // 切替時は古い集計結果を残さないようにエンカウンターをクリア
+    if was_enabled != enabled {
+        if let Ok(mut enc) = state.lock() {
+            enc.clear_combat_stats();
+        }
+        info!("Imagine-only mode: {enabled}");
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn get_time_series(
     state: tauri::State<'_, EncounterMutex>,
 ) -> Vec<crate::bridge::models::TimeSeriesPoint> {

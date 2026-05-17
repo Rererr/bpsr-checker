@@ -37,6 +37,7 @@ const [threeMinDurationSec, setThreeMinDurationSec] = persisted<number>("threeMi
 const [threeMinAutoOpen, setThreeMinAutoOpen] = persisted<boolean>("threeMinAutoOpen", true);
 const [abbreviateScores, setAbbreviateScores] = persisted<boolean>("abbreviateScores", false);
 const [showBuffOverlay, setShowBuffOverlay] = persisted<boolean>("showBuffOverlay", false);
+const [imagineOnlyMode, setImagineOnlyMode] = persisted<boolean>("imagineOnlyMode", false);
 
 export {
   opacity, setOpacity,
@@ -70,6 +71,7 @@ export {
   threeMinAutoOpen, setThreeMinAutoOpen,
   abbreviateScores, setAbbreviateScores,
   showBuffOverlay, setShowBuffOverlay,
+  imagineOnlyMode, setImagineOnlyMode,
 };
 
 export function wireBackendSettings() {
@@ -95,9 +97,12 @@ export function wireBackendSettings() {
   });
   createEffect(() => { invoke("set_always_on_top", { enabled: alwaysOnTop() }).catch(() => {}); });
   createEffect(() => { invoke("set_click_through", { enabled: clickThrough() }).catch(() => {}); });
+  // 軽量モード ON のとき backend の DPS/回復集計を停止する
+  createEffect(() => { invoke("set_imagine_only_mode", { enabled: imagineOnlyMode() }).catch(() => {}); });
   listen("click-through-disabled", () => setClickThrough(false));
 
-  if (showBuffOverlay()) {
+  // 軽量モード ON ならデバフタイマーも強制表示
+  if (showBuffOverlay() || imagineOnlyMode()) {
     WebviewWindow.getByLabel("buffs").then((win) => {
       if (win) win.show().catch(() => {});
     }).catch(() => {});

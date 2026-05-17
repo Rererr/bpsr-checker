@@ -255,6 +255,11 @@ pub fn process_opcode(app_handle: &AppHandle, env: PktEnvelope) -> AppResult<()>
 }
 
 fn process_sync_near_entities(encounter: &mut Encounter, msg: pb::SyncNearEntities) {
+    // イマジンデバフタイマー専用モードではエンティティ集計を全て省略
+    if crate::engine::runtime_settings::imagine_only_mode() {
+        return;
+    }
+
     for pkt_entity in msg.appear {
         let target_uuid = pkt_entity.uuid;
         if target_uuid == 0 {
@@ -378,9 +383,10 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
     }
     let target_uid = entity::get_player_uid(target_uuid);
     let target_entity_type = EEntityType::from(target_uuid);
+    let imagine_only = crate::engine::runtime_settings::imagine_only_mode();
 
-    // Process attributes on the target entity
-    {
+    // Process attributes on the target entity（軽量モードではスキップ）
+    if !imagine_only {
         let target_entity = get_or_create_entity(encounter, target_uid, target_entity_type);
 
         if let Some(attrs_collection) = aoi_sync_delta.attrs {
@@ -423,6 +429,11 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
                 encounter.buff_tracker.apply_buff_detail(&detail, ts);
             }
         }
+    }
+
+    // 軽量モードでは以降のダメージ/ヒール/時系列集計を全て省略
+    if imagine_only {
+        return;
     }
 
     let Some(skill_effect) = aoi_sync_delta.skill_effects else {

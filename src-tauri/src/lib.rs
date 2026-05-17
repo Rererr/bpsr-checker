@@ -53,6 +53,7 @@ pub fn run() {
         commands::finalize_3min_measure_mode,
         commands::get_measure_mode_status,
         commands::get_self_buffs,
+        commands::set_imagine_only_mode,
     ]);
 
     #[cfg(debug_assertions)]

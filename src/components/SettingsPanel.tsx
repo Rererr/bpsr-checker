@@ -33,6 +33,7 @@ import {
   threeMinAutoOpen, setThreeMinAutoOpen,
   abbreviateScores, setAbbreviateScores,
   showBuffOverlay, setShowBuffOverlay,
+  imagineOnlyMode, setImagineOnlyMode,
 } from "../stores/settings";
 import { clearHistory, dpsPlayers, header } from "../stores/encounter";
 import { formatRowAsText } from "../utils";
@@ -624,13 +625,15 @@ export function SettingsPanel() {
       <details>
         <summary style={sectionHeaderStyle}>{t("settings_overlay")}</summary>
         <div style={{ ...sectionStyle, "margin-top": "6px" }}>
-          {/* Imagine debuff timer */}
+          {/* Imagine debuff timer (window visibility) */}
           <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
             <span style={{ color: "#aaa", width: "80px" }}>{t("imagine_debuff_timer")}</span>
             <Toggle
               label=""
               value={showBuffOverlay()}
               onChange={(v) => {
+                // 軽量モード ON のときはデバフタイマーを OFF にできない
+                if (!v && imagineOnlyMode()) return;
                 setShowBuffOverlay(v);
                 WebviewWindow.getByLabel("buffs").then((win) => {
                   if (!win) return;
@@ -642,6 +645,32 @@ export function SettingsPanel() {
                 }).catch(() => {});
               }}
             />
+          </div>
+
+          {/* Imagine-only (lightweight) mode: stop DPS calc */}
+          <div style={{ display: "flex", "flex-direction": "column", gap: "2px" }}>
+            <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+              <span style={{ color: "#aaa", width: "80px" }}>{t("imagine_only_mode")}</span>
+              <Toggle
+                label=""
+                value={imagineOnlyMode()}
+                onChange={(v) => {
+                  setImagineOnlyMode(v);
+                  // 軽量モード ON ならデバフタイマーも自動 ON にしてオーバーレイ表示
+                  if (v && !showBuffOverlay()) {
+                    setShowBuffOverlay(true);
+                  }
+                  if (v) {
+                    WebviewWindow.getByLabel("buffs").then((win) => {
+                      if (win) win.show().catch(() => {});
+                    }).catch(() => {});
+                  }
+                }}
+              />
+            </div>
+            <span style={{ color: "#555", "font-size": "10px", "padding-left": "88px" }}>
+              {t("imagine_only_mode_hint")}
+            </span>
           </div>
 
           {/* Click-through */}

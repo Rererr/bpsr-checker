@@ -5,8 +5,9 @@ import { SkillTable } from "./components/SkillTable";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { HistoryView } from "./components/HistoryView";
 import { ThreeMinResultModal } from "./components/ThreeMinResultModal";
-import { wireBackendSettings, fontSize, startupTab, opacity } from "./stores/settings";
+import { wireBackendSettings, fontSize, startupTab, opacity, imagineOnlyMode } from "./stores/settings";
 import { wireMeasureMode, threeMinResult } from "./stores/measureMode";
+import { t } from "./lib/i18n";
 
 export type Tab = "dps" | "heal" | "history" | "skills";
 
@@ -47,16 +48,60 @@ export default function App() {
         onToggleSettings={() => setShowSettings(!showSettings())}
       />
       {showSettings() && <SettingsPanel />}
-      {tab() === "history" ? (
-        <HistoryView />
-      ) : tab() === "skills" && selectedPlayerUid() !== null ? (
-        <SkillTable playerUid={selectedPlayerUid()!} onBack={backToList} />
-      ) : (
-        <PlayerTable tab={tab()} onSelectPlayer={openSkills} />
-      )}
-      <Show when={threeMinResult() !== null}>
+      <Show
+        when={!imagineOnlyMode()}
+        fallback={<ImagineOnlyBanner onOpenSettings={() => setShowSettings(true)} />}
+      >
+        {tab() === "history" ? (
+          <HistoryView />
+        ) : tab() === "skills" && selectedPlayerUid() !== null ? (
+          <SkillTable playerUid={selectedPlayerUid()!} onBack={backToList} />
+        ) : (
+          <PlayerTable tab={tab()} onSelectPlayer={openSkills} />
+        )}
+      </Show>
+      <Show when={threeMinResult() !== null && !imagineOnlyMode()}>
         <ThreeMinResultModal />
       </Show>
+    </div>
+  );
+}
+
+function ImagineOnlyBanner(props: { onOpenSettings: () => void }) {
+  return (
+    <div
+      style={{
+        flex: "1",
+        display: "flex",
+        "flex-direction": "column",
+        "align-items": "center",
+        "justify-content": "center",
+        gap: "10px",
+        padding: "16px",
+        color: "#bbb",
+        "text-align": "center",
+      }}
+    >
+      <div style={{ "font-size": "13px", color: "#ddd", "font-weight": "bold" }}>
+        {t("imagine_only_mode_active_title")}
+      </div>
+      <div style={{ "font-size": "11px", color: "#999", "line-height": "1.5", "max-width": "360px" }}>
+        {t("imagine_only_mode_active_body")}
+      </div>
+      <button
+        onClick={props.onOpenSettings}
+        style={{
+          padding: "4px 12px",
+          border: "1px solid rgba(255,255,255,0.2)",
+          "border-radius": "3px",
+          background: "transparent",
+          color: "#ccc",
+          cursor: "pointer",
+          "font-size": "11px",
+        }}
+      >
+        {t("settings")}
+      </button>
     </div>
   );
 }

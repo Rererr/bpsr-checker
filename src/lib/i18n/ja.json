@@ -102,5 +102,9 @@
   "mode_3min_no_damage": "ダメージが記録されませんでした",
   "settings_3min_duration": "計測時間（秒）",
   "settings_3min_auto_open": "結果モーダル自動表示",
-  "abbreviate_scores": "スコア省略(K/M)"
+  "abbreviate_scores": "スコア省略(K/M)",
+  "element": "属性",
+  "damage_mode": "種別",
+  "columns_stats": "統計",
+  "columns_meta": "メタ"
 }

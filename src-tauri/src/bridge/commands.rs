@@ -170,6 +170,8 @@ pub fn get_dmg_taken_attackers(
         .map(|(&attacker_uid, stats)| SkillRow {
             uid: attacker_uid as f64,
             name: attacker_display_name(&encounter, attacker_uid),
+            element: 0,
+            damage_mode: 0,
             total_value: stats.total as f64,
             value_per_sec: nan_is_zero(stats.total as f64 / elapsed_secs),
             value_pct: nan_is_zero(stats.total as f64 / player_stats.total as f64 * 100.0),
@@ -248,18 +250,23 @@ pub fn get_dmg_taken_skills(
         .attacker_skill_to_dmg_taken_stats
         .iter()
         .filter(|((uid, _), _)| *uid == attacker_uid)
-        .map(|((_, skill_uid), stats)| SkillRow {
-            uid: f64::from(*skill_uid),
-            name: crate::engine::skill_names::get_skill_name(*skill_uid),
-            total_value: stats.total as f64,
-            value_per_sec: nan_is_zero(stats.total as f64 / elapsed_secs),
-            value_pct: nan_is_zero(stats.total as f64 / attacker_total * 100.0),
-            crit_rate: nan_is_zero(stats.crit_count as f64 / stats.hit_count as f64 * 100.0),
-            crit_value_rate: nan_is_zero(stats.crit_value as f64 / stats.total as f64 * 100.0),
-            lucky_rate: nan_is_zero(stats.lucky_count as f64 / stats.hit_count as f64 * 100.0),
-            lucky_value_rate: nan_is_zero(stats.lucky_value as f64 / stats.total as f64 * 100.0),
-            hits: stats.hit_count as f64,
-            hits_per_minute: nan_is_zero(stats.hit_count as f64 / elapsed_secs * 60.0),
+        .map(|((_, skill_uid), stats)| {
+            let meta = player.skill_meta.get(skill_uid).copied().unwrap_or_default();
+            SkillRow {
+                uid: f64::from(*skill_uid),
+                name: crate::engine::skill_names::get_skill_name(*skill_uid),
+                element: meta.property,
+                damage_mode: meta.damage_mode,
+                total_value: stats.total as f64,
+                value_per_sec: nan_is_zero(stats.total as f64 / elapsed_secs),
+                value_pct: nan_is_zero(stats.total as f64 / attacker_total * 100.0),
+                crit_rate: nan_is_zero(stats.crit_count as f64 / stats.hit_count as f64 * 100.0),
+                crit_value_rate: nan_is_zero(stats.crit_value as f64 / stats.total as f64 * 100.0),
+                lucky_rate: nan_is_zero(stats.lucky_count as f64 / stats.hit_count as f64 * 100.0),
+                lucky_value_rate: nan_is_zero(stats.lucky_value as f64 / stats.total as f64 * 100.0),
+                hits: stats.hit_count as f64,
+                hits_per_minute: nan_is_zero(stats.hit_count as f64 / elapsed_secs * 60.0),
+            }
         })
         .collect();
 
@@ -455,9 +462,12 @@ pub fn get_skills(
 
     for (&skill_uid, skill_stat) in &player.skill_uid_to_dps_stats {
         skill_window.top_value = skill_window.top_value.max(skill_stat.total as f64);
+        let meta = player.skill_meta.get(&skill_uid).copied().unwrap_or_default();
         let row = SkillRow {
             uid: f64::from(skill_uid),
             name: get_skill_name(skill_uid),
+            element: meta.property,
+            damage_mode: meta.damage_mode,
             total_value: skill_stat.total as f64,
             value_per_sec: nan_is_zero(skill_stat.total as f64 / elapsed_secs),
             value_pct: nan_is_zero(skill_stat.total as f64 / player_stats.total as f64 * 100.0),

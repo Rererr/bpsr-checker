@@ -4,12 +4,19 @@ use crate::engine::combat_stats::CombatStats;
 use crate::protocol::pb::EEntityType;
 use std::collections::{HashMap, VecDeque};
 
+#[derive(Debug, Default, Clone, Copy)]
+pub struct SkillMeta {
+    pub property: u8,
+    pub damage_mode: u8,
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct Entity {
     pub entity_type: EEntityType,
 
     pub dmg_stats: CombatStats,
     pub skill_uid_to_dps_stats: HashMap<i32, CombatStats>,
+    pub skill_meta: HashMap<i32, SkillMeta>,
 
     pub dmg_stats_boss_only: CombatStats,
     pub skill_uid_to_dps_stats_boss_only: HashMap<i32, CombatStats>,

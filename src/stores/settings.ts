@@ -37,6 +37,8 @@ const [threeMinAutoOpen, setThreeMinAutoOpen] = persisted<boolean>("threeMinAuto
 const [abbreviateScores, setAbbreviateScores] = persisted<boolean>("abbreviateScores", false);
 const [showBuffOverlay, setShowBuffOverlay] = persisted<boolean>("showBuffOverlay", false);
 const [imagineOnlyMode, setImagineOnlyMode] = persisted<boolean>("imagineOnlyMode", false);
+const [showElement, setShowElement] = persisted<boolean>("showElement", true);
+const [showDamageMode, setShowDamageMode] = persisted<boolean>("showDamageMode", true);
 
 export {
   opacity, setOpacity,
@@ -71,6 +73,8 @@ export {
   abbreviateScores, setAbbreviateScores,
   showBuffOverlay, setShowBuffOverlay,
   imagineOnlyMode, setImagineOnlyMode,
+  showElement, setShowElement,
+  showDamageMode, setShowDamageMode,
 };
 
 export function wireBackendSettings() {

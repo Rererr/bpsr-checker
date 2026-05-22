@@ -73,6 +73,7 @@ impl Encounter {
             entity.skill_uid_to_dps_stats.clear();
             entity.skill_uid_to_dps_stats_boss_only.clear();
             entity.skill_uid_to_heal_stats.clear();
+            entity.skill_meta.clear();
             entity.attacker_uid_to_dmg_taken_stats.clear();
             entity.attacker_skill_to_dmg_taken_stats.clear();
             entity.time_series.clear();

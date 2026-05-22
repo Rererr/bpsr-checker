@@ -9,7 +9,7 @@ use crate::engine::encounter::{Encounter, EncounterMutex};
 use crate::engine::name_cache;
 use crate::engine::selected_uid;
 use crate::engine::skill_names::get_skill_name;
-use crate::protocol::pb::EEntityType;
+use crate::protocol::pb::EntityKind;
 use log::info;
 use std::collections::VecDeque;
 use tauri::{AppHandle, Emitter, Manager};
@@ -22,11 +22,73 @@ pub struct CachedPlayerDto {
     pub ability_score: Option<i32>,
 }
 
-fn nan_is_zero(value: f64) -> f64 {
-    if value.is_nan() || value.is_infinite() {
+#[inline]
+fn ratio_pct(num: i64, denom: i64) -> f64 {
+    if denom == 0 {
         0.0
     } else {
-        value
+        num as f64 / denom as f64 * 100.0
+    }
+}
+
+#[inline]
+fn ratio_count_pct(num: u32, denom: u32) -> f64 {
+    if denom == 0 {
+        0.0
+    } else {
+        num as f64 / denom as f64 * 100.0
+    }
+}
+
+#[inline]
+fn rate_per_sec(total: i64, elapsed_secs: f64) -> f64 {
+    if elapsed_secs <= 0.0 {
+        0.0
+    } else {
+        total as f64 / elapsed_secs
+    }
+}
+
+#[inline]
+fn rate_per_minute(count: u32, elapsed_secs: f64) -> f64 {
+    if elapsed_secs <= 0.0 {
+        0.0
+    } else {
+        count as f64 / elapsed_secs * 60.0
+    }
+}
+
+fn sort_skill_rows_desc(rows: &mut [SkillRow]) {
+    rows.sort_by(|a, b| {
+        b.total_value
+            .partial_cmp(&a.total_value)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+}
+
+fn skill_row_for(
+    uid: f64,
+    name: String,
+    element: u8,
+    damage_mode: u8,
+    stats: &CombatStats,
+    elapsed_secs: f64,
+    denominator: i64,
+) -> SkillRow {
+    SkillRow {
+        uid,
+        name,
+        element,
+        damage_mode,
+        total_value: stats.total as f64,
+        value_per_sec: rate_per_sec(stats.total, elapsed_secs),
+        value_pct: ratio_pct(stats.total, denominator),
+        crit_rate: ratio_count_pct(stats.crit_count, stats.hit_count),
+        crit_value_rate: ratio_pct(stats.crit_value, stats.total),
+        lucky_rate: ratio_count_pct(stats.lucky_count, stats.hit_count),
+        lucky_value_rate: ratio_pct(stats.lucky_value, stats.total),
+        hits: stats.hit_count as f64,
+        hits_per_minute: rate_per_minute(stats.hit_count, elapsed_secs),
     }
 }
 
@@ -62,7 +124,7 @@ pub fn get_header_info(state: tauri::State<'_, EncounterMutex>) -> HeaderInfo {
     let elapsed_secs = elapsed_ms as f64 / 1000.0;
 
     HeaderInfo {
-        total_dps: nan_is_zero(encounter.dmg_stats.total as f64 / elapsed_secs),
+        total_dps: rate_per_sec(encounter.dmg_stats.total, elapsed_secs),
         total_dmg: encounter.dmg_stats.total as f64,
         elapsed_ms: elapsed_ms as f64,
         time_last_combat_packet_ms: encounter.time_last_combat_packet_ms as f64,
@@ -157,38 +219,25 @@ pub fn get_dmg_taken_attackers(
         &player.time_series,
     );
 
-    let attacker_uid_to_stats: Vec<(i64, &crate::engine::combat_stats::CombatStats)> =
-        player.attacker_uid_to_dmg_taken_stats.iter().map(|(&k, v)| (k, v)).collect();
-
-    let top_value = attacker_uid_to_stats
+    let mut top_value = 0.0_f64;
+    let mut skill_rows: Vec<SkillRow> = player
+        .attacker_uid_to_dmg_taken_stats
         .iter()
-        .map(|(_, s)| s.total as f64)
-        .fold(0.0_f64, f64::max);
-
-    let mut skill_rows: Vec<SkillRow> = attacker_uid_to_stats
-        .iter()
-        .map(|(attacker_uid, stats)| SkillRow {
-            uid: attacker_uid as f64,
-            name: attacker_display_name(&encounter, attacker_uid),
-            element: 0,
-            damage_mode: 0,
-            total_value: stats.total as f64,
-            value_per_sec: nan_is_zero(stats.total as f64 / elapsed_secs),
-            value_pct: nan_is_zero(stats.total as f64 / player_stats.total as f64 * 100.0),
-            crit_rate: nan_is_zero(stats.crit_count as f64 / stats.hit_count as f64 * 100.0),
-            crit_value_rate: nan_is_zero(stats.crit_value as f64 / stats.total as f64 * 100.0),
-            lucky_rate: nan_is_zero(stats.lucky_count as f64 / stats.hit_count as f64 * 100.0),
-            lucky_value_rate: nan_is_zero(stats.lucky_value as f64 / stats.total as f64 * 100.0),
-            hits: stats.hit_count as f64,
-            hits_per_minute: nan_is_zero(stats.hit_count as f64 / elapsed_secs * 60.0),
+        .map(|(&attacker_uid, stats)| {
+            top_value = top_value.max(stats.total as f64);
+            skill_row_for(
+                attacker_uid as f64,
+                attacker_display_name(&encounter, attacker_uid),
+                0,
+                0,
+                stats,
+                elapsed_secs,
+                player_stats.total,
+            )
         })
         .collect();
 
-    skill_rows.sort_by(|a, b| {
-        b.total_value
-            .partial_cmp(&a.total_value)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    sort_skill_rows_desc(&mut skill_rows);
 
     Ok(SkillsWindow {
         inspected_player,
@@ -239,42 +288,28 @@ pub fn get_dmg_taken_skills(
         &player.time_series,
     );
 
-    let top_value = player
-        .attacker_skill_to_dmg_taken_stats
-        .iter()
-        .filter(|((uid, _), _)| *uid == attacker_uid)
-        .map(|(_, s)| s.total as f64)
-        .fold(0.0_f64, f64::max);
-
+    let attacker_total_i64 = attacker_total as i64;
+    let mut top_value = 0.0_f64;
     let mut skill_rows: Vec<SkillRow> = player
         .attacker_skill_to_dmg_taken_stats
         .iter()
         .filter(|((uid, _), _)| *uid == attacker_uid)
         .map(|((_, skill_uid), stats)| {
+            top_value = top_value.max(stats.total as f64);
             let meta = player.skill_meta.get(skill_uid).copied().unwrap_or_default();
-            SkillRow {
-                uid: f64::from(*skill_uid),
-                name: crate::engine::skill_names::get_skill_name(*skill_uid),
-                element: meta.property,
-                damage_mode: meta.damage_mode,
-                total_value: stats.total as f64,
-                value_per_sec: nan_is_zero(stats.total as f64 / elapsed_secs),
-                value_pct: nan_is_zero(stats.total as f64 / attacker_total * 100.0),
-                crit_rate: nan_is_zero(stats.crit_count as f64 / stats.hit_count as f64 * 100.0),
-                crit_value_rate: nan_is_zero(stats.crit_value as f64 / stats.total as f64 * 100.0),
-                lucky_rate: nan_is_zero(stats.lucky_count as f64 / stats.hit_count as f64 * 100.0),
-                lucky_value_rate: nan_is_zero(stats.lucky_value as f64 / stats.total as f64 * 100.0),
-                hits: stats.hit_count as f64,
-                hits_per_minute: nan_is_zero(stats.hit_count as f64 / elapsed_secs * 60.0),
-            }
+            skill_row_for(
+                f64::from(*skill_uid),
+                crate::engine::skill_names::get_skill_name(*skill_uid),
+                meta.property,
+                meta.damage_mode,
+                stats,
+                elapsed_secs,
+                attacker_total_i64,
+            )
         })
         .collect();
 
-    skill_rows.sort_by(|a, b| {
-        b.total_value
-            .partial_cmp(&a.total_value)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    sort_skill_rows_desc(&mut skill_rows);
 
     Ok(SkillsWindow {
         inspected_player,
@@ -288,7 +323,7 @@ fn attacker_display_name(encounter: &Encounter, attacker_uid: i64) -> String {
     let Some(e) = encounter.entities.get(&attacker_uid) else {
         return format!("#{}", attacker_uid & 0xFFFF);
     };
-    if e.entity_type == EEntityType::EntChar {
+    if e.entity_type == EntityKind::Player {
         return e
             .name
             .clone()
@@ -335,7 +370,7 @@ fn build_players_window(encounter: &Encounter, stat_type: StatType) -> PlayersWi
             StatType::DmgTaken => &entity.dmg_taken_stats,
         };
 
-        if entity.entity_type != EEntityType::EntChar || entity_stats.total == 0 {
+        if entity.entity_type != EntityKind::Player || entity_stats.total == 0 {
             continue;
         }
 
@@ -397,22 +432,14 @@ fn make_player_row(
         season_level: f64::from(season_level.unwrap_or(-1)),
         season_strength: f64::from(season_strength.unwrap_or(-1)),
         total_value: entity_stats.total as f64,
-        value_per_sec: nan_is_zero(entity_stats.total as f64 / elapsed_secs),
-        value_pct: nan_is_zero(entity_stats.total as f64 / encounter_stats.total as f64 * 100.0),
-        crit_rate: nan_is_zero(
-            entity_stats.crit_count as f64 / entity_stats.hit_count as f64 * 100.0,
-        ),
-        crit_value_rate: nan_is_zero(
-            entity_stats.crit_value as f64 / entity_stats.total as f64 * 100.0,
-        ),
-        lucky_rate: nan_is_zero(
-            entity_stats.lucky_count as f64 / entity_stats.hit_count as f64 * 100.0,
-        ),
-        lucky_value_rate: nan_is_zero(
-            entity_stats.lucky_value as f64 / entity_stats.total as f64 * 100.0,
-        ),
+        value_per_sec: rate_per_sec(entity_stats.total, elapsed_secs),
+        value_pct: ratio_pct(entity_stats.total, encounter_stats.total),
+        crit_rate: ratio_count_pct(entity_stats.crit_count, entity_stats.hit_count),
+        crit_value_rate: ratio_pct(entity_stats.crit_value, entity_stats.total),
+        lucky_rate: ratio_count_pct(entity_stats.lucky_count, entity_stats.hit_count),
+        lucky_value_rate: ratio_pct(entity_stats.lucky_value, entity_stats.total),
         hits: entity_stats.hit_count as f64,
-        hits_per_minute: nan_is_zero(entity_stats.hit_count as f64 / elapsed_secs * 60.0),
+        hits_per_minute: rate_per_minute(entity_stats.hit_count, elapsed_secs),
         time_series: time_series.iter().cloned().collect(),
     }
 }
@@ -463,38 +490,20 @@ pub fn get_skills(
     for (&skill_uid, skill_stat) in &player.skill_uid_to_dps_stats {
         skill_window.top_value = skill_window.top_value.max(skill_stat.total as f64);
         let meta = player.skill_meta.get(&skill_uid).copied().unwrap_or_default();
-        let row = SkillRow {
-            uid: f64::from(skill_uid),
-            name: get_skill_name(skill_uid),
-            element: meta.property,
-            damage_mode: meta.damage_mode,
-            total_value: skill_stat.total as f64,
-            value_per_sec: nan_is_zero(skill_stat.total as f64 / elapsed_secs),
-            value_pct: nan_is_zero(skill_stat.total as f64 / player_stats.total as f64 * 100.0),
-            crit_rate: nan_is_zero(
-                skill_stat.crit_count as f64 / skill_stat.hit_count as f64 * 100.0,
-            ),
-            crit_value_rate: nan_is_zero(
-                skill_stat.crit_value as f64 / skill_stat.total as f64 * 100.0,
-            ),
-            lucky_rate: nan_is_zero(
-                skill_stat.lucky_count as f64 / skill_stat.hit_count as f64 * 100.0,
-            ),
-            lucky_value_rate: nan_is_zero(
-                skill_stat.lucky_value as f64 / skill_stat.total as f64 * 100.0,
-            ),
-            hits: skill_stat.hit_count as f64,
-            hits_per_minute: nan_is_zero(skill_stat.hit_count as f64 / elapsed_secs * 60.0),
-        };
+        let row = skill_row_for(
+            f64::from(skill_uid),
+            get_skill_name(skill_uid),
+            meta.property,
+            meta.damage_mode,
+            skill_stat,
+            elapsed_secs,
+            player_stats.total,
+        );
         skill_window.skill_rows.push(row);
     }
     drop(encounter);
 
-    skill_window.skill_rows.sort_by(|a, b| {
-        b.total_value
-            .partial_cmp(&a.total_value)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    sort_skill_rows_desc(&mut skill_window.skill_rows);
 
     Ok(skill_window)
 }
@@ -766,7 +775,7 @@ pub fn get_self_buffs(state: tauri::State<'_, EncounterMutex>) -> SelfBuffsData 
     let mut by_kind: HashMap<String, SelfBuffSnapshot> = HashMap::new();
     for snap in &snapshots {
         // 免疫デバフ (field_10 由来の buff_config_id) のみ表示。
-        // リキャストタイマー (EffectInfo の 39XXXX) は表示しない。
+        // リキャストタイマー (TimedEffect の 39XXXX) は表示しない。
         let kind = classify_buff(snap.base_id as i64);
         if kind == BuffSourceKind::Other {
             continue;

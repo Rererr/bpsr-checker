@@ -48,7 +48,7 @@ pub fn classify(base_id: i32) -> BuffSourceKind {
     }
 }
 
-/// AoiSyncDelta.field_10 の buff_config_id から重複使用無効デバフのキャラを判定。
+/// SceneDelta.buff_list の buff_config_id から重複使用無効デバフのキャラを判定。
 /// BuffTable.json と実機ログの両方で確認済み。
 pub fn classify_buff(buff_config_id: i64) -> BuffSourceKind {
     match buff_config_id {

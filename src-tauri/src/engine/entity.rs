@@ -1,7 +1,7 @@
 use crate::bridge::models::TimeSeriesPoint;
 use crate::engine::class::{Class, ClassSpec};
 use crate::engine::combat_stats::CombatStats;
-use crate::protocol::pb::EEntityType;
+use crate::protocol::pb::EntityKind;
 use std::collections::{HashMap, VecDeque};
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -12,7 +12,7 @@ pub struct SkillMeta {
 
 #[derive(Debug, Default, Clone)]
 pub struct Entity {
-    pub entity_type: EEntityType,
+    pub entity_type: EntityKind,
 
     pub dmg_stats: CombatStats,
     pub skill_uid_to_dps_stats: HashMap<i32, CombatStats>,

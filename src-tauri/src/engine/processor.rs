@@ -9,7 +9,7 @@ use crate::engine::selected_uid;
 use crate::error::{AppError, AppResult};
 use crate::protocol::constants::{attr_type, entity};
 use crate::protocol::opcodes::{Pkt, PktEnvelope};
-use crate::protocol::pb::{self, EEntityType};
+use crate::protocol::pb::{self, EntityKind};
 use bytes::Bytes;
 use log::{debug, info, warn};
 use prost::Message;
@@ -24,14 +24,14 @@ use tauri::{AppHandle, Manager};
 fn get_or_create_entity(
     encounter: &mut Encounter,
     uid: i64,
-    entity_type: EEntityType,
+    entity_type: EntityKind,
 ) -> &mut Entity {
     let was_new = !encounter.entities.contains_key(&uid);
     let entity = encounter.entities.entry(uid).or_insert_with(|| Entity {
         entity_type,
         ..Default::default()
     });
-    if was_new && entity_type == EEntityType::EntChar {
+    if was_new && entity_type == EntityKind::Player {
         if let Some(cached) = name_cache::lookup(uid) {
             if !cached.name.is_empty() {
                 entity.name = Some(cached.name);
@@ -99,7 +99,7 @@ pub(crate) fn now_ms() -> u128 {
 }
 
 fn should_accept(encounter: &mut Encounter, conn: Option<Server>, op: &Pkt) -> bool {
-    if matches!(op, Pkt::ServerChangeInfo | Pkt::NotifySocialData) {
+    if matches!(op, Pkt::ServerHandover | Pkt::SocialEnvelope) {
         return true;
     }
     let Some(conn) = conn else {
@@ -130,7 +130,7 @@ fn should_accept(encounter: &mut Encounter, conn: Option<Server>, op: &Pkt) -> b
         return conn == active;
     }
 
-    // 完全未確定 (起動直後): 全 accept。SyncContainerData 受信後に active_connection が確定する
+    // 完全未確定 (起動直後): 全 accept。WorldEnterSnapshot 受信後に active_connection が確定する
     true
 }
 
@@ -138,20 +138,19 @@ pub fn process_opcode(app_handle: &AppHandle, env: PktEnvelope) -> AppResult<()>
     let PktEnvelope { op, data, conn } = env;
 
     match op {
-        Pkt::ServerChangeInfo => {
+        Pkt::ServerHandover => {
             let state = app_handle.state::<EncounterMutex>();
             let mut encounter = state
                 .lock()
                 .map_err(|e| AppError::LockPoisoned(e.to_string()))?;
-            // ServerChangeInfo でコネクション状態をリセット（新しいサーバ接続 or ログアウト後）
+            // ServerHandover でコネクション状態をリセット（新しいサーバ接続 or ログアウト後）
             encounter.active_connection = None;
             encounter.conn_to_uid.clear();
-            info!("[ServerChangeInfo] received (encounter retained; use reset to clear)");
+            info!("[ServerHandover] received (encounter retained; use reset to clear)");
         }
 
-        Pkt::NotifySocialData => {
-            let Some(notify) = decode_packet::<pb::NotifySocialData>(data, "NotifySocialData")
-            else {
+        Pkt::SocialEnvelope => {
+            let Some(notify) = decode_packet::<pb::SocialEnvelope>(data, "SocialEnvelope") else {
                 return Ok(());
             };
 
@@ -164,7 +163,7 @@ pub fn process_opcode(app_handle: &AppHandle, env: PktEnvelope) -> AppResult<()>
             if let Some(scene) = scene_data {
                 if scene.line_id != 0 {
                     info!(
-                        "[SocialNtf] scene changed: line_id={} level_map_id={} (encounter retained)",
+                        "[SocialEnvelope] scene changed: line_id={} level_map_id={} (encounter retained)",
                         scene.line_id, scene.level_map_id
                     );
                 }
@@ -182,64 +181,63 @@ pub fn process_opcode(app_handle: &AppHandle, env: PktEnvelope) -> AppResult<()>
             }
 
             match op {
-                Pkt::SyncNearEntities => {
-                    let Some(msg) = decode_packet::<pb::SyncNearEntities>(data, "SyncNearEntities")
+                Pkt::WorldEntityBatch => {
+                    let Some(msg) =
+                        decode_packet::<pb::WorldEntityBatch>(data, "WorldEntityBatch")
                     else {
                         return Ok(());
                     };
-                    process_sync_near_entities(&mut encounter, msg);
+                    process_world_entity_batch(&mut encounter, msg);
                 }
 
-                Pkt::SyncContainerData => {
+                Pkt::WorldEnterSnapshot => {
                     let Some(msg) =
-                        decode_packet::<pb::SyncContainerData>(data, "SyncContainerData")
+                        decode_packet::<pb::WorldEnterSnapshot>(data, "WorldEnterSnapshot")
                     else {
                         return Ok(());
                     };
                     if let Some(c) = conn {
-                        process_sync_container_data(&mut encounter, msg, c);
+                        process_world_enter_snapshot(&mut encounter, msg, c);
                     } else {
-                        warn!("[SyncContainerData] conn is None, skipping connection learning");
+                        warn!("[WorldEnterSnapshot] conn is None, skipping connection learning");
                     }
                 }
 
-                Pkt::SyncToMeDeltaInfo => {
-                    let Some(msg) =
-                        decode_packet::<pb::SyncToMeDeltaInfo>(data, "SyncToMeDeltaInfo")
+                Pkt::LocalDeltaBatch => {
+                    let Some(msg) = decode_packet::<pb::LocalDeltaBatch>(data, "LocalDeltaBatch")
                     else {
                         return Ok(());
                     };
-                    process_sync_to_me_delta_info(&mut encounter, msg);
+                    process_local_delta_batch(&mut encounter, msg);
                 }
 
-                Pkt::SyncNearDeltaInfo => {
-                    let Some(msg) =
-                        decode_packet::<pb::SyncNearDeltaInfo>(data, "SyncNearDeltaInfo")
+                Pkt::WorldDeltaBatch => {
+                    let Some(msg) = decode_packet::<pb::WorldDeltaBatch>(data, "WorldDeltaBatch")
                     else {
                         return Ok(());
                     };
-                    for aoi_sync_delta in msg.delta_infos {
-                        process_aoi_sync_delta(&mut encounter, aoi_sync_delta);
+                    for scene_delta in msg.delta_infos {
+                        process_scene_delta(&mut encounter, scene_delta);
                     }
                 }
 
-                Pkt::NotifyBuffChange => {
+                Pkt::BuffTick => {
                     let ts = now_ms();
                     let local_uid = encounter.local_player_uid;
 
-                    if let Ok(msg) = pb::BuffInfo::decode(data.as_slice()) {
+                    if let Ok(msg) = pb::BuffSnapshot::decode(data.as_slice()) {
                         encounter.buff_tracker.apply_full_info(&msg, ts, local_uid);
                     }
 
-                    if let Ok(msg) = pb::BuffChangeNotify::decode(data.as_slice()) {
+                    if let Ok(msg) = pb::BuffTick::decode(data.as_slice()) {
                         encounter.buff_tracker.apply_change(&msg, ts, local_uid);
                     }
                 }
 
-                Pkt::SyncBuffInfo => {
+                Pkt::BuffSnapshotBundle => {
                     let ts = now_ms();
                     let local_uid = encounter.local_player_uid;
-                    if let Ok(msg) = pb::BuffInfoSync::decode(data.as_slice()) {
+                    if let Ok(msg) = pb::BuffSnapshotBundle::decode(data.as_slice()) {
                         for buff in &msg.buff_infos {
                             encounter.buff_tracker.apply_full_info(buff, ts, local_uid);
                         }
@@ -254,7 +252,7 @@ pub fn process_opcode(app_handle: &AppHandle, env: PktEnvelope) -> AppResult<()>
     Ok(())
 }
 
-fn process_sync_near_entities(encounter: &mut Encounter, msg: pb::SyncNearEntities) {
+fn process_world_entity_batch(encounter: &mut Encounter, msg: pb::WorldEntityBatch) {
     // イマジンデバフタイマー専用モードではエンティティ集計を全て省略
     if crate::engine::runtime_settings::imagine_only_mode() {
         return;
@@ -266,17 +264,17 @@ fn process_sync_near_entities(encounter: &mut Encounter, msg: pb::SyncNearEntiti
             continue;
         }
         let target_uid = entity::get_player_uid(target_uuid);
-        let target_entity_type = EEntityType::from(target_uuid);
+        let target_entity_type = EntityKind::from(target_uuid);
 
         let target_entity = get_or_create_entity(encounter, target_uid, target_entity_type);
         target_entity.entity_type = target_entity_type;
 
         if let Some(attrs) = &pkt_entity.attrs {
             match target_entity_type {
-                EEntityType::EntChar => {
+                EntityKind::Player => {
                     process_player_attrs(target_uid, target_entity, attrs.attrs.clone());
                 }
-                EEntityType::EntMonster => {
+                EntityKind::Monster => {
                     process_monster_attrs(target_entity, attrs.attrs.clone());
                 }
                 _ => {}
@@ -285,9 +283,9 @@ fn process_sync_near_entities(encounter: &mut Encounter, msg: pb::SyncNearEntiti
     }
 }
 
-fn process_sync_container_data(
+fn process_world_enter_snapshot(
     encounter: &mut Encounter,
-    msg: pb::SyncContainerData,
+    msg: pb::WorldEnterSnapshot,
     conn: Server,
 ) {
     let Some(v_data) = &msg.v_data else {
@@ -321,8 +319,8 @@ fn process_sync_container_data(
         }
     }
 
-    let target_entity = get_or_create_entity(encounter, player_uid, EEntityType::EntChar);
-    target_entity.entity_type = EEntityType::EntChar;
+    let target_entity = get_or_create_entity(encounter, player_uid, EntityKind::Player);
+    target_entity.entity_type = EntityKind::Player;
 
     let mut cache_name: Option<String> = None;
     let mut cache_class: Option<i32> = None;
@@ -357,12 +355,12 @@ fn process_sync_container_data(
     );
 }
 
-fn process_sync_to_me_delta_info(encounter: &mut Encounter, msg: pb::SyncToMeDeltaInfo) {
+fn process_local_delta_batch(encounter: &mut Encounter, msg: pb::LocalDeltaBatch) {
     let Some(delta_info) = msg.delta_info else {
         return;
     };
 
-    // AoiSyncToMeDelta.effects(field 3): 自プレイヤーへのバフ/デバフ効果リスト
+    // LocalSceneDelta.effects(field 3): 自プレイヤーへのバフ/デバフ効果リスト
     if !delta_info.effects.is_empty() {
         let ts = now_ms();
         for effect in &delta_info.effects {
@@ -373,28 +371,28 @@ fn process_sync_to_me_delta_info(encounter: &mut Encounter, msg: pb::SyncToMeDel
     let Some(base_delta) = delta_info.base_delta else {
         return;
     };
-    process_aoi_sync_delta(encounter, base_delta);
+    process_scene_delta(encounter, base_delta);
 }
 
-fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSyncDelta) {
-    let target_uuid = aoi_sync_delta.uuid;
+fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::SceneDelta) {
+    let target_uuid = scene_delta.uuid;
     if target_uuid == 0 {
         return;
     }
     let target_uid = entity::get_player_uid(target_uuid);
-    let target_entity_type = EEntityType::from(target_uuid);
+    let target_entity_type = EntityKind::from(target_uuid);
     let imagine_only = crate::engine::runtime_settings::imagine_only_mode();
 
     // Process attributes on the target entity（軽量モードではスキップ）
     if !imagine_only {
         let target_entity = get_or_create_entity(encounter, target_uid, target_entity_type);
 
-        if let Some(attrs_collection) = aoi_sync_delta.attrs {
+        if let Some(attrs_collection) = scene_delta.attrs {
             match target_entity_type {
-                EEntityType::EntChar => {
+                EntityKind::Player => {
                     process_player_attrs(target_uid, target_entity, attrs_collection.attrs);
                 }
-                EEntityType::EntMonster => {
+                EntityKind::Monster => {
                     process_monster_attrs(target_entity, attrs_collection.attrs);
                 }
                 _ => {}
@@ -402,16 +400,16 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
         }
     }
 
-    // AoiSyncDelta.field_10: 免疫デバフを含むバフイベントリスト
+    // SceneDelta.buff_list: 免疫デバフを含むバフイベントリスト
     // buff_type ごとに detail 構造が異なるため body/detail を手動デコード
     if target_uid == encounter.local_player_uid {
-        if let Some(buff_list) = &aoi_sync_delta.buff_list {
+        if let Some(buff_list) = &scene_delta.buff_list {
             let ts = now_ms();
             for buff in &buff_list.buffs {
                 if buff.body_raw.is_empty() {
                     continue;
                 }
-                let body = match pb::AoiBuffBody::decode(buff.body_raw.as_slice()) {
+                let body = match pb::BuffPayload::decode(buff.body_raw.as_slice()) {
                     Ok(b) => b,
                     Err(_) => continue,
                 };
@@ -419,7 +417,7 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
                 if body.buff_type != 18 || body.detail_raw.is_empty() {
                     continue;
                 }
-                let detail = match pb::AoiBuffDetail::decode(body.detail_raw.as_slice()) {
+                let detail = match pb::BuffPayloadDetail::decode(body.detail_raw.as_slice()) {
                     Ok(d) => d,
                     Err(_) => continue,
                 };
@@ -436,7 +434,7 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
         return;
     }
 
-    let Some(skill_effect) = aoi_sync_delta.skill_effects else {
+    let Some(skill_effect) = scene_delta.skill_effects else {
         return; // no damage in this delta, that's fine
     };
 
@@ -466,24 +464,24 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
     }
 
     // Process each damage event
-    for sync_damage_info in skill_effect.damages {
+    for damage in skill_effect.damages {
         let is_boss = encounter
             .entities
             .get(&target_uid)
             .and_then(|e| e.monster_id)
             .is_some_and(|id| MONSTER_NAMES_BOSS.contains_key(&id));
 
-        let attacker_uuid = if sync_damage_info.top_summoner_id != 0 {
-            sync_damage_info.top_summoner_id
-        } else if sync_damage_info.attacker_uuid != 0 {
-            sync_damage_info.attacker_uuid
+        let attacker_uuid = if damage.top_summoner_id != 0 {
+            damage.top_summoner_id
+        } else if damage.attacker_uuid != 0 {
+            damage.attacker_uuid
         } else {
             continue; // no attacker — skip
         };
         let attacker_uid = entity::get_player_uid(attacker_uuid);
-        let attacker_entity_type = EEntityType::from(attacker_uuid);
+        let attacker_entity_type = EntityKind::from(attacker_uuid);
 
-        let skill_uid = sync_damage_info.owner_id;
+        let skill_uid = damage.owner_id;
         if skill_uid == 0 {
             continue;
         }
@@ -494,44 +492,44 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
                 encounter.has_selected_participant = true;
             }
         }
-        if attacker_entity_type == EEntityType::EntChar {
+        if attacker_entity_type == EntityKind::Player {
             encounter.participant_player_uids.insert(attacker_uid);
         }
-        if target_entity_type == EEntityType::EntChar {
+        if target_entity_type == EntityKind::Player {
             encounter.participant_player_uids.insert(target_uid);
         }
 
-        let is_heal = sync_damage_info.r#type == pb::EDamageType::Heal as i32;
+        let is_heal = damage.r#type == pb::DmgKind::Heal as i32;
 
         // Encounter-level totals first (avoids holding attacker_entity borrow across encounter.* mutations)
         if is_heal {
-            process_stats(&sync_damage_info, &mut encounter.heal_stats);
+            process_stats(&damage, &mut encounter.heal_stats);
         } else {
-            process_stats(&sync_damage_info, &mut encounter.dmg_stats);
+            process_stats(&damage, &mut encounter.dmg_stats);
             if is_boss {
-                process_stats(&sync_damage_info, &mut encounter.dmg_stats_boss_only);
+                process_stats(&damage, &mut encounter.dmg_stats_boss_only);
             }
         }
 
         // Target-side damage-taken aggregation (player targets only)
-        if !is_heal && target_entity_type == EEntityType::EntChar {
-            process_stats(&sync_damage_info, &mut encounter.dmg_taken_stats);
+        if !is_heal && target_entity_type == EntityKind::Player {
+            process_stats(&damage, &mut encounter.dmg_taken_stats);
             let target_entity = get_or_create_entity(encounter, target_uid, target_entity_type);
-            process_stats(&sync_damage_info, &mut target_entity.dmg_taken_stats);
+            process_stats(&damage, &mut target_entity.dmg_taken_stats);
             target_entity.skill_meta.entry(skill_uid).or_insert(SkillMeta {
-                property: sync_damage_info.property as u8,
-                damage_mode: sync_damage_info.damage_mode as u8,
+                property: damage.property as u8,
+                damage_mode: damage.damage_mode as u8,
             });
             let by_attacker = target_entity
                 .attacker_uid_to_dmg_taken_stats
                 .entry(attacker_uid)
                 .or_default();
-            process_stats(&sync_damage_info, by_attacker);
+            process_stats(&damage, by_attacker);
             let by_attacker_skill = target_entity
                 .attacker_skill_to_dmg_taken_stats
                 .entry((attacker_uid, skill_uid))
                 .or_default();
-            process_stats(&sync_damage_info, by_attacker_skill);
+            process_stats(&damage, by_attacker_skill);
         }
 
         let attacker_entity = get_or_create_entity(encounter, attacker_uid, attacker_entity_type);
@@ -553,8 +551,8 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
         }
 
         attacker_entity.skill_meta.entry(skill_uid).or_insert(SkillMeta {
-            property: sync_damage_info.property as u8,
-            damage_mode: sync_damage_info.damage_mode as u8,
+            property: damage.property as u8,
+            damage_mode: damage.damage_mode as u8,
         });
 
         if is_heal {
@@ -562,22 +560,22 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
                 .skill_uid_to_heal_stats
                 .entry(skill_uid)
                 .or_default();
-            process_stats(&sync_damage_info, heal_skill);
-            process_stats(&sync_damage_info, &mut attacker_entity.heal_stats);
+            process_stats(&damage, heal_skill);
+            process_stats(&damage, &mut attacker_entity.heal_stats);
         } else {
             let dps_skill = attacker_entity
                 .skill_uid_to_dps_stats
                 .entry(skill_uid)
                 .or_default();
-            process_stats(&sync_damage_info, dps_skill);
-            process_stats(&sync_damage_info, &mut attacker_entity.dmg_stats);
+            process_stats(&damage, dps_skill);
+            process_stats(&damage, &mut attacker_entity.dmg_stats);
             if is_boss {
                 let skill_boss = attacker_entity
                     .skill_uid_to_dps_stats_boss_only
                     .entry(skill_uid)
                     .or_default();
-                process_stats(&sync_damage_info, skill_boss);
-                process_stats(&sync_damage_info, &mut attacker_entity.dmg_stats_boss_only);
+                process_stats(&damage, skill_boss);
+                process_stats(&damage, &mut attacker_entity.dmg_stats_boss_only);
             }
         }
     }
@@ -635,7 +633,7 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
 
             // Per-entity sampling (only for entities that have dealt damage)
             for entity in encounter.entities.values_mut() {
-                if entity.entity_type != EEntityType::EntChar {
+                if entity.entity_type != EntityKind::Player {
                     continue;
                 }
                 if entity.dmg_stats.total == 0 && entity.time_series.is_empty() {
@@ -666,7 +664,7 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
     }
 }
 
-fn process_player_attrs(uid: i64, player_entity: &mut Entity, attrs: Vec<pb::Attr>) {
+fn process_player_attrs(uid: i64, player_entity: &mut Entity, attrs: Vec<pb::RawAttr>) {
     use crate::capture::binary_reader::BinaryReader;
 
     let mut cache_name: Option<String> = None;
@@ -741,7 +739,7 @@ fn process_player_attrs(uid: i64, player_entity: &mut Entity, attrs: Vec<pb::Att
     }
 }
 
-fn process_monster_attrs(monster_entity: &mut Entity, attrs: Vec<pb::Attr>) {
+fn process_monster_attrs(monster_entity: &mut Entity, attrs: Vec<pb::RawAttr>) {
     for attr in attrs {
         if attr.raw_data.is_empty() || attr.id == 0 {
             continue;

@@ -1,16 +1,16 @@
 use crate::engine::combat_stats::{CombatStats, process_stats};
-use crate::protocol::pb::SyncDamageInfo;
+use crate::protocol::pb::DamageRecord;
 
-/// Trait for anything that can process a damage/heal event into CombatStats.
+/// CombatStats への集計を抽象化するためのトレイト。
 pub trait StatisticsCalculator {
-    fn apply(&self, sync_damage_info: &SyncDamageInfo, stats: &mut CombatStats);
+    fn apply(&self, record: &DamageRecord, stats: &mut CombatStats);
 }
 
-/// Default calculator: applies process_stats logic (prefer lucky_value, check CRIT_BIT).
+/// 既定の集計実装。process_stats に委譲する。
 pub struct DefaultCalculator;
 
 impl StatisticsCalculator for DefaultCalculator {
-    fn apply(&self, sync_damage_info: &SyncDamageInfo, stats: &mut CombatStats) {
-        process_stats(sync_damage_info, stats);
+    fn apply(&self, record: &DamageRecord, stats: &mut CombatStats) {
+        process_stats(record, stats);
     }
 }

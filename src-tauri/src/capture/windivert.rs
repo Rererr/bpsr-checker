@@ -83,9 +83,9 @@ pub fn is_handle_closed() -> bool {
     active_divert_slot().lock().map_or(true, |g| g.is_none())
 }
 
-fn send_server_change_info(packet_sender: &tokio::sync::mpsc::Sender<PktEnvelope>) {
+fn emit_server_handover(packet_sender: &tokio::sync::mpsc::Sender<PktEnvelope>) {
     let _ = packet_sender.try_send(PktEnvelope {
-        op: Pkt::ServerChangeInfo,
+        op: Pkt::ServerHandover,
         data: vec![],
         conn: None,
     });
@@ -213,7 +213,7 @@ async fn read_packets(
                                                         + tcp_payload_reader.len(),
                                                     &mut subnet_reassemblers,
                                                 );
-                                                send_server_change_info(packet_sender);
+                                                emit_server_handover(packet_sender);
                                                 detected = true;
                                                 break;
                                             }
@@ -258,7 +258,7 @@ async fn read_packets(
                         tcp_packet.sequence_number() as usize + tcp_payload.len(),
                         &mut subnet_reassemblers,
                     );
-                    send_server_change_info(packet_sender);
+                    emit_server_handover(packet_sender);
                     detected = true;
                 }
             }

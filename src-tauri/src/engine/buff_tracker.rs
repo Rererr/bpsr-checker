@@ -42,7 +42,7 @@ impl BuffTracker {
 
     /// host_uuid が local_uid と一致するバフのみ保存。
     /// 保存した場合は true を返す。
-    pub fn apply_full_info(&mut self, info: &pb::BuffInfo, now_ms: u128, local_uid: i64) -> bool {
+    pub fn apply_full_info(&mut self, info: &pb::BuffSnapshot, now_ms: u128, local_uid: i64) -> bool {
         // host_uuid は entity UUID (packed)、local_uid は char_id (>> 16 済み)
         if entity::get_player_uid(info.host_uuid) != local_uid {
             return false;
@@ -72,7 +72,7 @@ impl BuffTracker {
     }
 
     /// 差分更新。host_uuid が local_uid と異なる場合は無視する。
-    pub fn apply_change(&mut self, change: &pb::BuffChangeNotify, now_ms: u128, local_uid: i64) {
+    pub fn apply_change(&mut self, change: &pb::BuffTick, now_ms: u128, local_uid: i64) {
         if entity::get_player_uid(change.host_uuid) != local_uid {
             return;
         }
@@ -98,10 +98,10 @@ impl BuffTracker {
         entry.create_time_server = change.create_time;
     }
 
-    /// AoiSyncDelta.field_10 から取得した AoiBuffDetail を追跡。
+    /// SceneDelta.buff_list から取得した BuffPayloadDetail を追跡。
     /// buff_config_id をキーに、duration_ms > 0 のデバフのみ保存。
     /// apply_time が同一なら周期同期なのでリセットしない。
-    pub fn apply_buff_detail(&mut self, detail: &pb::AoiBuffDetail, now_ms: u128) {
+    pub fn apply_buff_detail(&mut self, detail: &pb::BuffPayloadDetail, now_ms: u128) {
         if detail.duration_ms <= 0 {
             return;
         }
@@ -125,10 +125,10 @@ impl BuffTracker {
         });
     }
 
-    /// AoiSyncToMeDelta.effects から取得した EffectInfo を追跡。
+    /// LocalSceneDelta.effects から取得した TimedEffect を追跡。
     /// duration_ms <= 0 は無期限扱いでスキップ（デバフ表示対象外）。
     /// 同じ activated_at なら周期同期なので時刻をリセットしない。
-    pub fn apply_effect(&mut self, effect: &pb::EffectInfo, now_ms: u128) {
+    pub fn apply_effect(&mut self, effect: &pb::TimedEffect, now_ms: u128) {
         if effect.duration_ms <= 0 {
             return;
         }
@@ -202,8 +202,8 @@ impl BuffTracker {
 mod tests {
     use super::*;
 
-    fn make_buff_info(buff_uuid: i32, host_uuid: i64, duration: i32) -> pb::BuffInfo {
-        pb::BuffInfo {
+    fn make_buff_info(buff_uuid: i32, host_uuid: i64, duration: i32) -> pb::BuffSnapshot {
+        pb::BuffSnapshot {
             buff_uuid,
             base_id: 30001,
             level: 1,

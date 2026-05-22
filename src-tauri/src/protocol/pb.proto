@@ -2,31 +2,31 @@ syntax = "proto3";
 
 package pb;
 
-enum EDamageType {
+enum DmgKind {
   Normal = 0;
   Miss = 1;
   Heal = 2;
 }
 
-enum EEntityType {
-  EntErrType = 0;
-  EntMonster = 1;
-  EntChar = 10;
+enum EntityKind {
+  Unknown = 0;
+  Monster = 1;
+  Player = 10;
 }
 
-message Attr {
+message RawAttr {
   int32 id = 1;
   bytes raw_data = 2;
 }
 
-message AttrCollection {
+message EntityAttrs {
   int64 uuid = 1;
-  repeated Attr attrs = 2;
+  repeated RawAttr attrs = 2;
 }
 
-// AoiSyncDelta.effects(field 3) の各要素
-// field 3 = duration_ms: 0/未設定=無期限、-1=永続、>0=ms単位の持続時間
-message EffectInfo {
+// SceneDelta.effects(field 3) の要素
+// duration_ms: 0/未設定=無期限、-1=永続、>0=ミリ秒の持続時間
+message TimedEffect {
   int64 id = 1;
   int64 activated_at = 2;
   int64 duration_ms = 3;
@@ -34,11 +34,11 @@ message EffectInfo {
   int64 extra = 5;
 }
 
-// AoiSyncDelta.field_10 に入るバフイベントリスト
-// buff_type ごとに detail 構造が異なるため、body/detail は bytes でラップして
-// 必要な型のみ手動デコードする方針。
-message AoiBuffDetail {
-  // buff_type == 18 用の構造 (免疫デバフ等)
+// SceneDelta.buff_list に格納されるバフ通知の中身。
+// payload の中身はバフタイプによって構造が変わるので、payload と
+// detail は bytes でラップし、必要な型だけアプリ側でデコードする。
+message BuffPayloadDetail {
+  // buff_type == 18: 免疫系デバフ等で使用される構造
   int32 slot_id = 1;
   int64 buff_config_id = 2;
   int32 level = 3;
@@ -50,91 +50,91 @@ message AoiBuffDetail {
   int64 duration_ms = 11;
 }
 
-message AoiBuffBody {
+message BuffPayload {
   int32 buff_type = 1;
   bytes detail_raw = 2;
 }
 
-message AoiBuff {
+message BuffEvent {
   int32 event_type = 1;
   int32 skill_slot = 2;
   int64 actor_uuid = 3;
   bytes body_raw = 5;
 }
 
-message AoiBuffList {
-  repeated AoiBuff buffs = 2;
+message BuffEventBatch {
+  repeated BuffEvent buffs = 2;
 }
 
-message AoiSyncDelta {
+message SceneDelta {
   int64 uuid = 1;
-  AttrCollection attrs = 2;
-  AoiBuffList buff_list = 10;
-  SkillEffect skill_effects = 7;
+  EntityAttrs attrs = 2;
+  BuffEventBatch buff_list = 10;
+  SkillImpact skill_effects = 7;
 }
 
-message AoiSyncToMeDelta {
-  AoiSyncDelta base_delta = 1;
-  repeated EffectInfo effects = 3;
+message LocalSceneDelta {
+  SceneDelta base_delta = 1;
+  repeated TimedEffect effects = 3;
   int64 uuid = 5;
 }
 
-message CharBaseInfo {
+message PlayerProfile {
   int64 char_id = 1;
   string account_id = 2;
   string name = 5;
   int32 fight_point = 35;
 }
 
-message CharSerialize {
+message PlayerSnapshot {
   int64 char_id = 1;
-  CharBaseInfo char_base = 2;
-  SceneData scene_data = 3;
-  ItemPackage item_package = 7;
-  Mod mod = 57;
-  ProfessionList profession_list = 61;
+  PlayerProfile char_base = 2;
+  WorldLocation scene_data = 3;
+  InvBags item_package = 7;
+  ModuleSet mod = 57;
+  ClassState profession_list = 61;
 }
 
-message DisappearEntity { int64 uuid = 1; }
+message EntityVanish { int64 uuid = 1; }
 
-message Entity {
+message EntityAppear {
   int64 uuid = 1;
-  EEntityType ent_type = 2;
-  AttrCollection attrs = 3;
+  EntityKind ent_type = 2;
+  EntityAttrs attrs = 3;
 }
 
-message Item { ModNewAttr mod_new_attr = 13; }
+message InvItem { ModuleAttrs mod_new_attr = 13; }
 
-message ItemPackage { map<int32, Package> packages = 1; }
+message InvBags { map<int32, InvBag> packages = 1; }
 
-message Mod { map<int64, ModInfo> mod_infos = 2; }
+message ModuleSet { map<int64, ModuleEntry> mod_infos = 2; }
 
-message ModInfo { repeated int32 init_link_nums = 4; }
+message ModuleEntry { repeated int32 init_link_nums = 4; }
 
-message ModNewAttr { repeated int32 mod_parts = 1; }
+message ModuleAttrs { repeated int32 mod_parts = 1; }
 
-message NotifySocialData { NotifySocialDataRequest v_request = 1; }
+message SocialEnvelope { SocialRequest v_request = 1; }
 
-message NotifySocialDataRequest { SocialData data = 1; }
+message SocialRequest { SocialBody data = 1; }
 
-message Package { map<int64, Item> items = 4; }
+message InvBag { map<int64, InvItem> items = 4; }
 
-message ProfessionList { int32 cur_profession_id = 1; }
+message ClassState { int32 cur_profession_id = 1; }
 
-message SceneData {
+message WorldLocation {
   uint32 level_map_id = 6;
   uint32 line_id = 15;
 }
 
-message SkillEffect { repeated SyncDamageInfo damages = 2; }
+message SkillImpact { repeated DamageRecord damages = 2; }
 
-message SocialData { SceneData scene_data = 10; }
+message SocialBody { WorldLocation scene_data = 10; }
 
-message SyncContainerData { CharSerialize v_data = 1; }
+message WorldEnterSnapshot { PlayerSnapshot v_data = 1; }
 
-message SyncDamageInfo {
+message DamageRecord {
   bool is_miss = 2;
-  EDamageType type = 4;
+  DmgKind type = 4;
   int32 type_flag = 5;
   int64 value = 6;
   int64 lucky_value = 8;
@@ -147,27 +147,27 @@ message SyncDamageInfo {
   int32 damage_mode = 25;
 }
 
-message SyncNearDeltaInfo { repeated AoiSyncDelta delta_infos = 1; }
+message WorldDeltaBatch { repeated SceneDelta delta_infos = 1; }
 
-message SyncNearEntities {
-  repeated Entity appear = 1;
-  repeated DisappearEntity disappear = 2;
+message WorldEntityBatch {
+  repeated EntityAppear appear = 1;
+  repeated EntityVanish disappear = 2;
 }
 
-message SyncToMeDeltaInfo { AoiSyncToMeDelta delta_info = 1; }
+message LocalDeltaBatch { LocalSceneDelta delta_info = 1; }
 
-message Vector3 {
+message Vec3f {
   float x = 1;
   float y = 2;
   float z = 3;
 }
 
-message FightSourceInfo {
+message CombatOrigin {
   int32 fight_source_type = 1;
   int32 source_config_id = 2;
 }
 
-message BuffInfo {
+message BuffSnapshot {
   int32 buff_uuid = 1;
   int32 base_id = 2;
   int32 level = 3;
@@ -179,15 +179,15 @@ message BuffInfo {
   int32 part_id = 9;
   int32 count = 10;
   int32 duration = 11;
-  FightSourceInfo fight_source_info = 12;
+  CombatOrigin fight_source_info = 12;
 }
 
-message BuffInfoSync {
+message BuffSnapshotBundle {
   int64 uuid = 1;
-  repeated BuffInfo buff_infos = 2;
+  repeated BuffSnapshot buff_infos = 2;
 }
 
-message BuffChangeNotify {
+message BuffTick {
   int64 host_uuid = 1;
   int32 buff_uuid = 2;
   int32 base_id = 3;

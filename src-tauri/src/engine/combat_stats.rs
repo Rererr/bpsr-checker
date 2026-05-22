@@ -1,5 +1,5 @@
 use crate::protocol::constants::damage;
-use crate::protocol::pb::SyncDamageInfo;
+use crate::protocol::pb::DamageRecord;
 
 #[derive(Debug, Default, Clone)]
 pub struct CombatStats {
@@ -31,17 +31,17 @@ impl CombatStats {
     }
 }
 
-/// Process a SyncDamageInfo packet and update the given CombatStats.
-/// Prefers lucky_value over value (same logic as bpsr-logs).
-pub fn process_stats(sync_damage_info: &SyncDamageInfo, stats: &mut CombatStats) {
-    let actual_value = if sync_damage_info.lucky_value != 0 {
-        sync_damage_info.lucky_value
+/// 1件のダメージ記録を CombatStats に集計する。
+/// lucky_value が立っているときは value より優先して採用する。
+pub fn process_stats(record: &DamageRecord, stats: &mut CombatStats) {
+    let actual_value = if record.lucky_value != 0 {
+        record.lucky_value
     } else {
-        sync_damage_info.value
+        record.value
     };
 
-    let is_lucky = sync_damage_info.lucky_value != 0;
-    let is_crit = (sync_damage_info.type_flag & damage::CRIT_BIT) != 0;
+    let is_lucky = record.lucky_value != 0;
+    let is_crit = (record.type_flag & damage::CRIT_BIT) != 0;
 
     stats.record_hit(actual_value, is_crit, is_lucky);
 }

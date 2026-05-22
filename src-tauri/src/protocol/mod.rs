@@ -6,14 +6,14 @@ pub mod packet_parser;
 pub mod pb;
 
 use crate::protocol::constants::entity;
-use crate::protocol::pb::EEntityType;
+use crate::protocol::pb::EntityKind;
 
-impl From<i64> for EEntityType {
+impl From<i64> for EntityKind {
     fn from(entity_type: i64) -> Self {
         match entity_type & entity::TYPE_MASK as i64 {
-            64 => EEntityType::EntMonster,
-            640 => EEntityType::EntChar,
-            _ => EEntityType::EntErrType,
+            64 => EntityKind::Monster,
+            640 => EntityKind::Player,
+            _ => EntityKind::Unknown,
         }
     }
 }

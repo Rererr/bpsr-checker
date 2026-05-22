@@ -2,7 +2,7 @@ use crate::bridge::models::TimeSeriesPoint;
 use crate::engine::buff_tracker::BuffTracker;
 use crate::engine::combat_stats::CombatStats;
 use crate::engine::entity::Entity;
-use crate::protocol::pb::EEntityType;
+use crate::protocol::pb::EntityKind;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 pub type EncounterMutex = std::sync::Mutex<Encounter>;
@@ -49,7 +49,7 @@ impl Encounter {
     pub fn clear_combat_stats(&mut self) {
         // active_connection と conn_to_uid は保持する。
         // これらはセッション間でコネクション識別に再利用するため、
-        // ServerChangeInfo 受信時と set_selected_uid 変更時のみクリアする。
+        // ServerHandover 受信時と set_selected_uid 変更時のみクリアする。
         self.is_paused = false;
         self.time_fight_start_ms = 0;
         self.time_last_combat_packet_ms = 0;
@@ -64,7 +64,7 @@ impl Encounter {
         self.participant_player_uids.clear();
         self.buff_tracker.clear();
         self.entities
-            .retain(|_, entity| entity.entity_type != EEntityType::EntChar);
+            .retain(|_, entity| entity.entity_type != EntityKind::Player);
         for entity in self.entities.values_mut() {
             entity.dmg_stats = CombatStats::default();
             entity.dmg_stats_boss_only = CombatStats::default();

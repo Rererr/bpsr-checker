@@ -3,14 +3,14 @@ use crate::error::AppError;
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum Pkt {
-    ServerChangeInfo,
-    NotifySocialData,
-    SyncNearEntities,
-    SyncContainerData,
-    SyncToMeDeltaInfo,
-    SyncNearDeltaInfo,
-    NotifyBuffChange,
-    SyncBuffInfo,
+    ServerHandover,
+    SocialEnvelope,
+    WorldEntityBatch,
+    WorldEnterSnapshot,
+    LocalDeltaBatch,
+    WorldDeltaBatch,
+    BuffTick,
+    BuffSnapshotBundle,
 }
 
 pub struct PktEnvelope {
@@ -23,15 +23,15 @@ impl TryFrom<u32> for Pkt {
     type Error = AppError;
 
     fn try_from(pkt: u32) -> Result<Self, Self::Error> {
-        match pkt {
-            0x00000006 => Ok(Pkt::SyncNearEntities),
-            0x00000015 => Ok(Pkt::SyncContainerData),
-            0x0000002e => Ok(Pkt::SyncToMeDeltaInfo),
-            0x0000002d => Ok(Pkt::SyncNearDeltaInfo),
-            0x00003003 => Ok(Pkt::NotifyBuffChange),
-            0x00003005 => Ok(Pkt::SyncBuffInfo),
-            _ => Err(AppError::Parse(format!("Unknown opcode: 0x{pkt:08x}"))),
-        }
+        Ok(match pkt {
+            0x00000006 => Pkt::WorldEntityBatch,
+            0x00000015 => Pkt::WorldEnterSnapshot,
+            0x0000002d => Pkt::WorldDeltaBatch,
+            0x0000002e => Pkt::LocalDeltaBatch,
+            0x00003003 => Pkt::BuffTick,
+            0x00003005 => Pkt::BuffSnapshotBundle,
+            unknown => return Err(AppError::Parse(format!("Unknown opcode: 0x{unknown:08x}"))),
+        })
     }
 }
 

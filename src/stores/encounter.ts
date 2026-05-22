@@ -38,6 +38,8 @@ export interface PlayersWindow {
 export interface SkillRow {
   uid: number;
   name: string;
+  element: number;
+  damageMode: number;
   totalValue: number;
   valuePerSec: number;
   valuePct: number;

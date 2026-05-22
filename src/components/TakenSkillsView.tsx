@@ -1,8 +1,8 @@
 import { createSignal, createEffect, For, Show, onCleanup } from "solid-js";
 import { t } from "../lib/i18n";
 import { fetchTakenSkills } from "../stores/encounter";
-import { showCrit, showLucky, showHpm, showCritValue, showLuckyValue, showHits, pollIntervalMs } from "../stores/settings";
-import { formatNumber, formatDps, formatPct, getClassColor } from "../utils";
+import { showCrit, showLucky, showHpm, showCritValue, showLuckyValue, showHits, pollIntervalMs, showElement, showDamageMode } from "../stores/settings";
+import { formatNumber, formatDps, formatPct, getClassColor, elementLabel, damageModeLabel } from "../utils";
 import type { SkillsWindow, SkillRow } from "../stores/encounter";
 
 interface TakenSkillsViewProps {
@@ -27,7 +27,10 @@ export function TakenSkillsView(props: TakenSkillsViewProps) {
   });
 
   const gridCols = () => {
-    let cols = "minmax(80px, 1.5fr) 70px 65px 45px";
+    let cols = "minmax(80px, 1.5fr)";
+    if (showElement()) cols += " 36px";
+    if (showDamageMode()) cols += " 40px";
+    cols += " 70px 65px 45px";
     if (showCrit()) cols += " 50px";
     if (showCritValue()) cols += " 50px";
     if (showLucky()) cols += " 50px";
@@ -98,6 +101,12 @@ export function TakenSkillsView(props: TakenSkillsViewProps) {
         }}
       >
         <span>{t("skill")}</span>
+        <Show when={showElement()}>
+          <span style={{ "text-align": "center" }}>{t("element")}</span>
+        </Show>
+        <Show when={showDamageMode()}>
+          <span style={{ "text-align": "center" }}>{t("damage_mode")}</span>
+        </Show>
         <span style={{ "text-align": "right" }}>{t("damage")}</span>
         <span style={{ "text-align": "right" }}>{t("dps")}</span>
         <span style={{ "text-align": "right" }}>{t("pct")}</span>
@@ -175,6 +184,26 @@ function SkillRowItem(props: SkillRowItemProps) {
       }}>
         {props.row.name}
       </span>
+      <Show when={showElement()}>
+        {() => {
+          const el = elementLabel(props.row.element);
+          return (
+            <span style={{ "text-align": "center", "z-index": "1", color: el.color, "font-size": "11px" }}>
+              {el.icon}{el.name}
+            </span>
+          );
+        }}
+      </Show>
+      <Show when={showDamageMode()}>
+        {() => {
+          const md = damageModeLabel(props.row.damageMode);
+          return (
+            <span style={{ "text-align": "center", "z-index": "1", color: md.color, "font-size": "11px" }}>
+              {md.name}
+            </span>
+          );
+        }}
+      </Show>
       <span style={{ "text-align": "right", "z-index": "1" }}>
         {formatNumber(props.row.totalValue)}
       </span>

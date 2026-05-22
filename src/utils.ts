@@ -43,6 +43,32 @@ export function getClassColor(className: string): string {
   return CLASS_COLORS[className] ?? "#95a5a6";
 }
 
+interface ElementInfo { icon: string; name: string; color: string }
+const ELEMENT_TABLE: ElementInfo[] = [
+  { icon: "⚔", name: "物", color: "#aaa" },
+  { icon: "🔥", name: "炎", color: "#e74c3c" },
+  { icon: "❄", name: "氷", color: "#4fc3f7" },
+  { icon: "⚡", name: "雷", color: "#f1c40f" },
+  { icon: "🌿", name: "森", color: "#2ecc71" },
+  { icon: "💨", name: "風", color: "#1abc9c" },
+  { icon: "⛰", name: "岩", color: "#a0522d" },
+  { icon: "✨", name: "光", color: "#ecf0f1" },
+  { icon: "🌑", name: "闇", color: "#9b59b6" },
+];
+export function elementLabel(e: number): ElementInfo {
+  return ELEMENT_TABLE[e] ?? { icon: "?", name: "-", color: "#666" };
+}
+
+interface ModeInfo { name: string; color: string }
+const DAMAGE_MODE_TABLE: ModeInfo[] = [
+  { name: "-",   color: "#666" },
+  { name: "物理", color: "#e67e22" },
+  { name: "魔法", color: "#3498db" },
+];
+export function damageModeLabel(m: number): ModeInfo {
+  return DAMAGE_MODE_TABLE[m] ?? { name: "-", color: "#666" };
+}
+
 export function maskPlayerName(name: string, uid: number): string {
   return `Player#${(uid & 0xffff).toString(16).padStart(4, "0").toUpperCase()}`;
 }

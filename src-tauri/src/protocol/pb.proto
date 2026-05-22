@@ -142,7 +142,9 @@ message SyncDamageInfo {
   int64 attacker_uuid = 11;
   int32 owner_id = 12;
   bool is_dead = 17;
+  int32 property = 18;
   int64 top_summoner_id = 21;
+  int32 damage_mode = 25;
 }
 
 message SyncNearDeltaInfo { repeated AoiSyncDelta delta_infos = 1; }

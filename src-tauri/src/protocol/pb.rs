@@ -250,8 +250,12 @@ pub struct SyncDamageInfo {
     pub owner_id: i32,
     #[prost(bool, tag = "17")]
     pub is_dead: bool,
+    #[prost(int32, tag = "18")]
+    pub property: i32,
     #[prost(int64, tag = "21")]
     pub top_summoner_id: i64,
+    #[prost(int32, tag = "25")]
+    pub damage_mode: i32,
 }
 #[derive(specta::Type)]
 #[derive(Clone, PartialEq, ::prost::Message)]

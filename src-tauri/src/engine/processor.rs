@@ -2,7 +2,7 @@ use crate::capture::server::Server;
 use crate::engine::class::{Class, ClassSpec, get_class_from_spec, get_class_spec_from_skill_id};
 use crate::engine::combat_stats::process_stats;
 use crate::engine::encounter::{Encounter, EncounterMutex};
-use crate::engine::entity::Entity;
+use crate::engine::entity::{Entity, SkillMeta};
 use crate::engine::monster_names::MONSTER_NAMES_BOSS;
 use crate::engine::name_cache;
 use crate::engine::selected_uid;
@@ -518,6 +518,10 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
             process_stats(&sync_damage_info, &mut encounter.dmg_taken_stats);
             let target_entity = get_or_create_entity(encounter, target_uid, target_entity_type);
             process_stats(&sync_damage_info, &mut target_entity.dmg_taken_stats);
+            target_entity.skill_meta.entry(skill_uid).or_insert(SkillMeta {
+                property: sync_damage_info.property as u8,
+                damage_mode: sync_damage_info.damage_mode as u8,
+            });
             let by_attacker = target_entity
                 .attacker_uid_to_dmg_taken_stats
                 .entry(attacker_uid)
@@ -547,6 +551,11 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
                 attacker_entity.class = Some(get_class_from_spec(class_spec));
             }
         }
+
+        attacker_entity.skill_meta.entry(skill_uid).or_insert(SkillMeta {
+            property: sync_damage_info.property as u8,
+            damage_mode: sync_damage_info.damage_mode as u8,
+        });
 
         if is_heal {
             let heal_skill = attacker_entity

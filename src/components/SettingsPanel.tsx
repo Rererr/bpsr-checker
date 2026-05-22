@@ -11,6 +11,8 @@ import {
   showCritValue, setShowCritValue,
   showLuckyValue, setShowLuckyValue,
   showHits, setShowHits,
+  showElement, setShowElement,
+  showDamageMode, setShowDamageMode,
   copyTemplate, setCopyTemplate,
   nameTemplate, setNameTemplate,
   DEFAULT_NAME_TEMPLATE,
@@ -274,9 +276,9 @@ export function SettingsPanel() {
             </select>
           </div>
 
-          {/* Column toggles */}
+          {/* Column toggles: stats */}
           <div style={{ display: "flex", "align-items": "flex-start", gap: "8px" }}>
-            <span style={{ color: "#aaa", width: "60px", "padding-top": "1px" }}>{t("columns")}</span>
+            <span style={{ color: "#777", width: "60px", "padding-top": "1px", "font-size": "10px", "text-transform": "uppercase", "letter-spacing": "0.04em" }}>{t("columns_stats")}</span>
             <div style={{ display: "flex", "flex-wrap": "wrap", gap: "6px 10px", flex: "1" }}>
               <Toggle label={t("crit_rate")} value={showCrit()} onChange={setShowCrit} />
               <Toggle label={t("crit_value")} value={showCritValue()} onChange={setShowCritValue} />
@@ -284,6 +286,15 @@ export function SettingsPanel() {
               <Toggle label={t("lucky_value")} value={showLuckyValue()} onChange={setShowLuckyValue} />
               <Toggle label={t("hits")} value={showHits()} onChange={setShowHits} />
               <Toggle label={t("hpm")} value={showHpm()} onChange={setShowHpm} />
+            </div>
+          </div>
+
+          {/* Column toggles: meta */}
+          <div style={{ display: "flex", "align-items": "flex-start", gap: "8px" }}>
+            <span style={{ color: "#777", width: "60px", "padding-top": "1px", "font-size": "10px", "text-transform": "uppercase", "letter-spacing": "0.04em" }}>{t("columns_meta")}</span>
+            <div style={{ display: "flex", "flex-wrap": "wrap", gap: "6px 10px", flex: "1" }}>
+              <Toggle label={t("element")} value={showElement()} onChange={setShowElement} />
+              <Toggle label={t("damage_mode")} value={showDamageMode()} onChange={setShowDamageMode} />
               <Toggle label={t("score")} value={showScore()} onChange={setShowScore} />
               <Toggle label={t("abbreviate_scores")} value={abbreviateScores()} onChange={setAbbreviateScores} />
             </div>

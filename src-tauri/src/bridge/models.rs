@@ -112,6 +112,8 @@ pub struct SkillsWindow {
 pub struct SkillRow {
     pub uid: f64,
     pub name: String,
+    pub element: u8,
+    pub damage_mode: u8,
     // Stats
     pub total_value: f64,
     pub value_per_sec: f64,

@@ -12,7 +12,7 @@ use crate::engine::skill_names::get_skill_name;
 use crate::protocol::pb::EEntityType;
 use log::info;
 use std::collections::VecDeque;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(serde::Serialize, specta::Type, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -158,7 +158,7 @@ pub fn get_dmg_taken_attackers(
     );
 
     let attacker_uid_to_stats: Vec<(i64, &crate::engine::combat_stats::CombatStats)> =
-        player.attacker_uid_to_dmg_taken_stats.iter().collect();
+        player.attacker_uid_to_dmg_taken_stats.iter().map(|(&k, v)| (k, v)).collect();
 
     let top_value = attacker_uid_to_stats
         .iter()
@@ -167,7 +167,7 @@ pub fn get_dmg_taken_attackers(
 
     let mut skill_rows: Vec<SkillRow> = attacker_uid_to_stats
         .iter()
-        .map(|(&attacker_uid, stats)| SkillRow {
+        .map(|(attacker_uid, stats)| SkillRow {
             uid: attacker_uid as f64,
             name: attacker_display_name(&encounter, attacker_uid),
             element: 0,

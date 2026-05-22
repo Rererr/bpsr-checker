@@ -6,6 +6,7 @@
 [![License](https://img.shields.io/github/license/Rererr/bpsr-checker)](./LICENSE)
 [![Downloads](https://img.shields.io/github/downloads/Rererr/bpsr-checker/total)](https://github.com/Rererr/bpsr-checker/releases)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-blue)
+[![Discord](https://img.shields.io/badge/Discord-参加する-5865F2?logo=discord&logoColor=white)](https://discord.gg/exU3gPBx3)
 
 Tauri 2 + SolidJS + Rust で実装。低 CPU・低メモリで、ゲーム画面の上に半透明オーバーレイ表示できる軽量設計です。**外部サーバへのデータ送信は一切ありません。**
 
@@ -111,7 +112,7 @@ Tauri 2 + SolidJS + Rust で実装。低 CPU・低メモリで、ゲーム画面
 | クリックスルー中にウィンドウ操作したい | `Ctrl+Shift+Z` で解除。 |
 | 過去のリリースとライセンスが違う | v0.7.8 以降は GPL-3.0、それ以前は MIT ライセンスでした。([詳細](#ライセンス)) |
 
-不具合報告・要望は [Issues](https://github.com/Rererr/bpsr-checker/issues) へお寄せください。
+不具合報告・要望は [Issues](https://github.com/Rererr/bpsr-checker/issues) または [Discord](https://discord.gg/exU3gPBx3) へお寄せください。
 
 ## ソースからのビルド
 

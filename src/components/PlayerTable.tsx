@@ -1,6 +1,6 @@
 import { For, Show, createSignal } from "solid-js";
 import { t } from "../lib/i18n";
-import { dpsPlayers, healPlayers, bossPlayers } from "../stores/encounter";
+import { dpsPlayers, healPlayers, bossPlayers, takenPlayers } from "../stores/encounter";
 import {
   showCrit, showLucky, showHpm, showScore,
   showCritValue, showLuckyValue, showHits,
@@ -22,9 +22,12 @@ export function PlayerTable(props: PlayerTableProps) {
   const data = (): PlayersWindow => {
     switch (props.tab) {
       case "heal": return healPlayers();
+      case "taken": return takenPlayers();
       default: return dpsPlayers();
     }
   };
+
+  const hideSparkline = () => props.tab === "taken";
 
   return (
     <div style={{ flex: "1", overflow: "auto" }}>
@@ -32,7 +35,7 @@ export function PlayerTable(props: PlayerTableProps) {
       <div
         style={{
           display: "grid",
-          "grid-template-columns": gridCols(),
+          "grid-template-columns": gridCols(hideSparkline()),
           padding: "2px 8px",
           "font-size": "10px",
           color: "#888",
@@ -41,7 +44,7 @@ export function PlayerTable(props: PlayerTableProps) {
         }}
       >
         <span>{t("player")}</span>
-        <Show when={hasSparklineColumn()}>
+        <Show when={!hideSparkline() && hasSparklineColumn()}>
           <span />
         </Show>
         <span style={{ "text-align": "right" }}>{t("damage")}</span>
@@ -90,9 +93,9 @@ export function PlayerTable(props: PlayerTableProps) {
             const nonLocalRankAbove = data().playerRows
               .slice(0, index())
               .filter((r) => r.uid !== data().localPlayerUid).length;
-            const showSparkline = isLocal
+            const showSparkline = !hideSparkline() && (isLocal
               ? graphForLocalPlayer()
-              : nonLocalRankAbove < graphPlayerCount();
+              : nonLocalRankAbove < graphPlayerCount());
             return (
               <PlayerRowItem
                 row={row}
@@ -100,6 +103,7 @@ export function PlayerTable(props: PlayerTableProps) {
                 topValue={data().topValue}
                 isLocal={isLocal}
                 showSparkline={showSparkline}
+                hideSpark={hideSparkline()}
                 onClick={() => props.onSelectPlayer(row.uid)}
               />
             );
@@ -116,6 +120,7 @@ interface PlayerRowItemProps {
   topValue: number;
   isLocal: boolean;
   showSparkline: boolean;
+  hideSpark: boolean;
   onClick: () => void;
 }
 
@@ -142,7 +147,7 @@ function PlayerRowItem(props: PlayerRowItemProps) {
       style={{
         position: "relative",
         display: "grid",
-        "grid-template-columns": gridCols(),
+        "grid-template-columns": gridCols(props.hideSpark),
         padding: "3px 8px",
         "font-size": "12px",
         cursor: "pointer",
@@ -201,7 +206,7 @@ function PlayerRowItem(props: PlayerRowItemProps) {
         </span>
       </div>
 
-      <Show when={hasSparklineColumn()}>
+      <Show when={!props.hideSpark && hasSparklineColumn()}>
         <span style={{ "z-index": "1", display: "flex", "align-items": "center", "justify-content": "center" }}>
           <Show when={props.showSparkline}>
             <Sparkline
@@ -289,9 +294,9 @@ function PlayerRowItem(props: PlayerRowItemProps) {
 
 const hasSparklineColumn = () => graphPlayerCount() > 0 || graphForLocalPlayer();
 
-function gridCols(): string {
+function gridCols(hideSpark: boolean): string {
   let cols = "minmax(80px, 1.2fr)";
-  if (hasSparklineColumn()) cols += " 64px";
+  if (!hideSpark && hasSparklineColumn()) cols += " 64px";
   cols += " 70px 65px 45px";
   if (showCrit()) cols += " 50px";
   if (showCritValue()) cols += " 50px";

@@ -2,6 +2,8 @@ import { createSignal, Show } from "solid-js";
 import { Header } from "./components/Header";
 import { PlayerTable } from "./components/PlayerTable";
 import { SkillTable } from "./components/SkillTable";
+import { TakenAttackersView } from "./components/TakenAttackersView";
+import { TakenSkillsView } from "./components/TakenSkillsView";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { HistoryView } from "./components/HistoryView";
 import { ThreeMinResultModal } from "./components/ThreeMinResultModal";
@@ -9,9 +11,9 @@ import { wireBackendSettings, fontSize, startupTab, opacity, imagineOnlyMode } f
 import { wireMeasureMode, threeMinResult } from "./stores/measureMode";
 import { t } from "./lib/i18n";
 
-export type Tab = "dps" | "heal" | "history" | "skills";
+export type Tab = "dps" | "heal" | "taken" | "history" | "skills";
 
-const VALID_STARTUP_TABS: Tab[] = ["dps", "heal", "history"];
+const VALID_STARTUP_TABS: Tab[] = ["dps", "heal", "taken", "history"];
 
 export default function App() {
   wireBackendSettings();
@@ -22,6 +24,9 @@ export default function App() {
     : "dps";
   const [tab, setTab] = createSignal<Tab>(initialTab);
   const [selectedPlayerUid, setSelectedPlayerUid] = createSignal<number | null>(null);
+  const [takenTargetUid, setTakenTargetUid] = createSignal<number | null>(null);
+  const [takenAttackerUid, setTakenAttackerUid] = createSignal<number | null>(null);
+  const [takenAttackerName, setTakenAttackerName] = createSignal<string>("");
   const [showSettings, setShowSettings] = createSignal(false);
 
   const openSkills = (uid: number) => {
@@ -32,6 +37,24 @@ export default function App() {
   const backToList = () => {
     setSelectedPlayerUid(null);
     setTab("dps");
+  };
+
+  const openTakenAttackers = (uid: number) => {
+    setTakenTargetUid(uid);
+    setTakenAttackerUid(null);
+  };
+
+  const openTakenSkills = (attackerUid: number, attackerName: string) => {
+    setTakenAttackerUid(attackerUid);
+    setTakenAttackerName(attackerName);
+  };
+
+  const backFromTakenSkills = () => {
+    setTakenAttackerUid(null);
+  };
+
+  const backFromTakenAttackers = () => {
+    setTakenTargetUid(null);
   };
 
   return (
@@ -56,8 +79,24 @@ export default function App() {
           <HistoryView />
         ) : tab() === "skills" && selectedPlayerUid() !== null ? (
           <SkillTable playerUid={selectedPlayerUid()!} onBack={backToList} />
+        ) : tab() === "taken" && takenTargetUid() !== null && takenAttackerUid() !== null ? (
+          <TakenSkillsView
+            playerUid={takenTargetUid()!}
+            attackerUid={takenAttackerUid()!}
+            attackerName={takenAttackerName()}
+            onBack={backFromTakenSkills}
+          />
+        ) : tab() === "taken" && takenTargetUid() !== null ? (
+          <TakenAttackersView
+            playerUid={takenTargetUid()!}
+            onSelectAttacker={openTakenSkills}
+            onBack={backFromTakenAttackers}
+          />
         ) : (
-          <PlayerTable tab={tab()} onSelectPlayer={openSkills} />
+          <PlayerTable
+            tab={tab()}
+            onSelectPlayer={tab() === "taken" ? openTakenAttackers : openSkills}
+          />
         )}
       </Show>
       <Show when={threeMinResult() !== null && !imagineOnlyMode()}>

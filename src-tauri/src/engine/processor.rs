@@ -513,6 +513,23 @@ fn process_aoi_sync_delta(encounter: &mut Encounter, aoi_sync_delta: pb::AoiSync
             }
         }
 
+        // Target-side damage-taken aggregation (player targets only)
+        if !is_heal && target_entity_type == EEntityType::EntChar {
+            process_stats(&sync_damage_info, &mut encounter.dmg_taken_stats);
+            let target_entity = get_or_create_entity(encounter, target_uid, target_entity_type);
+            process_stats(&sync_damage_info, &mut target_entity.dmg_taken_stats);
+            let by_attacker = target_entity
+                .attacker_uid_to_dmg_taken_stats
+                .entry(attacker_uid)
+                .or_default();
+            process_stats(&sync_damage_info, by_attacker);
+            let by_attacker_skill = target_entity
+                .attacker_skill_to_dmg_taken_stats
+                .entry((attacker_uid, skill_uid))
+                .or_default();
+            process_stats(&sync_damage_info, by_attacker_skill);
+        }
+
         let attacker_entity = get_or_create_entity(encounter, attacker_uid, attacker_entity_type);
 
         // Infer class spec from skill id

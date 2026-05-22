@@ -82,7 +82,13 @@ const [bossPlayers, setBossPlayers] = createSignal<PlayersWindow>({
   topValue: 0,
 });
 
-export { header, dpsPlayers, healPlayers, bossPlayers };
+const [takenPlayers, setTakenPlayers] = createSignal<PlayersWindow>({
+  playerRows: [],
+  localPlayerUid: 0,
+  topValue: 0,
+});
+
+export { header, dpsPlayers, healPlayers, bossPlayers, takenPlayers };
 
 export async function fetchDpsData() {
   try {
@@ -111,6 +117,29 @@ export async function fetchBossData() {
   } catch {}
 }
 
+export async function fetchTakenData() {
+  try {
+    const data = await invoke<PlayersWindow>("get_dmg_taken_players");
+    setTakenPlayers(data);
+  } catch {}
+}
+
+export async function fetchTakenAttackers(playerUid: number): Promise<SkillsWindow | null> {
+  try {
+    return await invoke<SkillsWindow>("get_dmg_taken_attackers", { playerUid });
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchTakenSkills(playerUid: number, attackerUid: number): Promise<SkillsWindow | null> {
+  try {
+    return await invoke<SkillsWindow>("get_dmg_taken_skills", { playerUid, attackerUid });
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchSkills(playerUid: number): Promise<SkillsWindow | null> {
   try {
     return await invoke<SkillsWindow>("get_skills", { playerUid });
@@ -124,6 +153,7 @@ export function resetPlayerWindows(): void {
   setDpsPlayers({ playerRows: [], localPlayerUid: 0, topValue: 0 });
   setHealPlayers({ playerRows: [], localPlayerUid: 0, topValue: 0 });
   setBossPlayers({ playerRows: [], localPlayerUid: 0, topValue: 0 });
+  setTakenPlayers({ playerRows: [], localPlayerUid: 0, topValue: 0 });
 }
 
 export async function resetEncounter() {

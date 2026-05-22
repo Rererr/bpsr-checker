@@ -29,6 +29,7 @@ pub struct Encounter {
     pub dmg_stats: CombatStats,
     pub dmg_stats_boss_only: CombatStats,
     pub heal_stats: CombatStats,
+    pub dmg_taken_stats: CombatStats,
     pub time_series: VecDeque<TimeSeriesPoint>,
     pub last_sample_ms: u128,
     pub last_sample_total_dmg: i64,
@@ -55,6 +56,7 @@ impl Encounter {
         self.dmg_stats = CombatStats::default();
         self.dmg_stats_boss_only = CombatStats::default();
         self.heal_stats = CombatStats::default();
+        self.dmg_taken_stats = CombatStats::default();
         self.time_series.clear();
         self.last_sample_ms = 0;
         self.last_sample_total_dmg = 0;
@@ -67,9 +69,12 @@ impl Encounter {
             entity.dmg_stats = CombatStats::default();
             entity.dmg_stats_boss_only = CombatStats::default();
             entity.heal_stats = CombatStats::default();
+            entity.dmg_taken_stats = CombatStats::default();
             entity.skill_uid_to_dps_stats.clear();
             entity.skill_uid_to_dps_stats_boss_only.clear();
             entity.skill_uid_to_heal_stats.clear();
+            entity.attacker_uid_to_dmg_taken_stats.clear();
+            entity.attacker_skill_to_dmg_taken_stats.clear();
             entity.time_series.clear();
             entity.last_sample_total_dmg = 0;
         }

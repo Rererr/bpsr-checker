@@ -17,6 +17,10 @@ pub struct Entity {
     pub heal_stats: CombatStats,
     pub skill_uid_to_heal_stats: HashMap<i32, CombatStats>,
 
+    pub dmg_taken_stats: CombatStats,
+    pub attacker_uid_to_dmg_taken_stats: HashMap<i64, CombatStats>,
+    pub attacker_skill_to_dmg_taken_stats: HashMap<(i64, i32), CombatStats>,
+
     // Players
     pub name: Option<String>,
     pub class: Option<Class>,

@@ -50,6 +50,8 @@
   "copy_row": "コピー",
   "copy_all": "全行コピー",
   "tab_history": "履歴",
+  "tab_taken": "被ダメ",
+  "attacker": "攻撃元",
   "combat_exit_sec": "戦闘離脱秒数",
   "history_limit": "履歴保存上限",
   "settings_history": "履歴",

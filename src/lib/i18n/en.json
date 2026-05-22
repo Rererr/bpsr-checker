@@ -50,6 +50,8 @@
   "copy_row": "Copy",
   "copy_all": "Copy all",
   "tab_history": "History",
+  "tab_taken": "Taken",
+  "attacker": "Attacker",
   "combat_exit_sec": "Combat exit (sec)",
   "history_limit": "History limit",
   "settings_history": "History",

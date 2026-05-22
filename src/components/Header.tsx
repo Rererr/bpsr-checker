@@ -7,8 +7,10 @@ import {
   fetchDpsData,
   fetchHealData,
   fetchBossData,
+  fetchTakenData,
   dpsPlayers,
   healPlayers,
+  takenPlayers,
   resetEncounter,
   togglePause,
   timeSeries,
@@ -58,6 +60,7 @@ export function Header(props: HeaderProps) {
       if (showSparkline) fetchTimeSeries();
       if (tab === "heal") fetchHealData();
       if (tab === "dps") fetchBossData(); // prefetch for boss tab
+      if (tab === "taken") fetchTakenData();
       fetchMeasureModeStatus();
     }, ms);
     onCleanup(() => clearInterval(interval));
@@ -110,7 +113,11 @@ export function Header(props: HeaderProps) {
 
   const [copiedAll, setCopiedAll] = createSignal(false);
   const handleCopyAll = async () => {
-    const rows = props.tab === "heal" ? healPlayers().playerRows : dpsPlayers().playerRows;
+    const rows = props.tab === "heal"
+      ? healPlayers().playerRows
+      : props.tab === "taken"
+      ? takenPlayers().playerRows
+      : dpsPlayers().playerRows;
     if (rows.length === 0) return;
     const tpl = copyTemplate();
     const text = rows.map((r, i) => formatRowAsText(r, i + 1, tpl)).join("\n");
@@ -137,7 +144,7 @@ export function Header(props: HeaderProps) {
     >
       {/* Tabs */}
       <div style={{ display: "flex", gap: "2px" }}>
-        {(["dps", "heal", "history"] as Tab[]).map((tab) => (
+        {(["dps", "heal", "taken", "history"] as Tab[]).map((tab) => (
           <button
             onClick={() => props.onTabChange(tab)}
             style={{
@@ -150,7 +157,13 @@ export function Header(props: HeaderProps) {
               "font-size": "11px",
             }}
           >
-            {tab === "dps" ? t("tab_dps") : tab === "heal" ? t("tab_heal") : t("tab_history")}
+            {tab === "dps"
+              ? t("tab_dps")
+              : tab === "heal"
+              ? t("tab_heal")
+              : tab === "taken"
+              ? t("tab_taken")
+              : t("tab_history")}
           </button>
         ))}
       </div>

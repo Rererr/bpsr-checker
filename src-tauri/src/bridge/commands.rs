@@ -35,6 +35,7 @@ enum StatType {
     Dmg,
     DmgBossOnly,
     Heal,
+    DmgTaken,
 }
 
 // ─── Header ──────────────────────────────────────────────────────────────────
@@ -109,6 +110,192 @@ pub fn get_heal_players(state: tauri::State<'_, EncounterMutex>) -> PlayersWindo
     build_players_window(&*encounter, StatType::Heal)
 }
 
+#[tauri::command]
+#[specta::specta]
+pub fn get_dmg_taken_players(state: tauri::State<'_, EncounterMutex>) -> PlayersWindow {
+    let encounter = match state.lock() {
+        Ok(e) => e,
+        Err(e) => {
+            log::error!("Lock poisoned in get_dmg_taken_players: {e}");
+            return PlayersWindow::default();
+        }
+    };
+    build_players_window(&*encounter, StatType::DmgTaken)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_dmg_taken_attackers(
+    state: tauri::State<'_, EncounterMutex>,
+    player_uid: i64,
+) -> Result<SkillsWindow, String> {
+    let encounter = state.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+
+    let Some(player) = encounter.entities.get(&player_uid) else {
+        return Err(format!("Could not find player with uid {player_uid}"));
+    };
+
+    let elapsed_ms = encounter
+        .time_last_combat_packet_ms
+        .saturating_sub(encounter.time_fight_start_ms);
+    let elapsed_secs = elapsed_ms as f64 / 1000.0;
+
+    let player_stats = &player.dmg_taken_stats;
+    let encounter_stats = &encounter.dmg_taken_stats;
+
+    let inspected_player = make_player_row(
+        player_uid,
+        player.name.as_deref().unwrap_or(""),
+        player.class,
+        player.class_spec,
+        player.ability_score,
+        player.season_level,
+        player.season_strength,
+        player_stats,
+        encounter_stats,
+        elapsed_secs,
+        &player.time_series,
+    );
+
+    let attacker_uid_to_stats: Vec<(i64, &crate::engine::combat_stats::CombatStats)> =
+        player.attacker_uid_to_dmg_taken_stats.iter().collect();
+
+    let top_value = attacker_uid_to_stats
+        .iter()
+        .map(|(_, s)| s.total as f64)
+        .fold(0.0_f64, f64::max);
+
+    let mut skill_rows: Vec<SkillRow> = attacker_uid_to_stats
+        .iter()
+        .map(|(&attacker_uid, stats)| SkillRow {
+            uid: attacker_uid as f64,
+            name: attacker_display_name(&encounter, attacker_uid),
+            total_value: stats.total as f64,
+            value_per_sec: nan_is_zero(stats.total as f64 / elapsed_secs),
+            value_pct: nan_is_zero(stats.total as f64 / player_stats.total as f64 * 100.0),
+            crit_rate: nan_is_zero(stats.crit_count as f64 / stats.hit_count as f64 * 100.0),
+            crit_value_rate: nan_is_zero(stats.crit_value as f64 / stats.total as f64 * 100.0),
+            lucky_rate: nan_is_zero(stats.lucky_count as f64 / stats.hit_count as f64 * 100.0),
+            lucky_value_rate: nan_is_zero(stats.lucky_value as f64 / stats.total as f64 * 100.0),
+            hits: stats.hit_count as f64,
+            hits_per_minute: nan_is_zero(stats.hit_count as f64 / elapsed_secs * 60.0),
+        })
+        .collect();
+
+    skill_rows.sort_by(|a, b| {
+        b.total_value
+            .partial_cmp(&a.total_value)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    Ok(SkillsWindow {
+        inspected_player,
+        skill_rows,
+        local_player_uid: encounter.local_player_uid as f64,
+        top_value,
+    })
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_dmg_taken_skills(
+    state: tauri::State<'_, EncounterMutex>,
+    player_uid: i64,
+    attacker_uid: i64,
+) -> Result<SkillsWindow, String> {
+    let encounter = state.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+
+    let Some(player) = encounter.entities.get(&player_uid) else {
+        return Err(format!("Could not find player with uid {player_uid}"));
+    };
+
+    let elapsed_ms = encounter
+        .time_last_combat_packet_ms
+        .saturating_sub(encounter.time_fight_start_ms);
+    let elapsed_secs = elapsed_ms as f64 / 1000.0;
+
+    let attacker_total = player
+        .attacker_uid_to_dmg_taken_stats
+        .get(&attacker_uid)
+        .map(|s| s.total as f64)
+        .unwrap_or(0.0);
+    let encounter_stats = &encounter.dmg_taken_stats;
+
+    let player_stats = &player.dmg_taken_stats;
+
+    let inspected_player = make_player_row(
+        player_uid,
+        player.name.as_deref().unwrap_or(""),
+        player.class,
+        player.class_spec,
+        player.ability_score,
+        player.season_level,
+        player.season_strength,
+        player_stats,
+        encounter_stats,
+        elapsed_secs,
+        &player.time_series,
+    );
+
+    let top_value = player
+        .attacker_skill_to_dmg_taken_stats
+        .iter()
+        .filter(|((uid, _), _)| *uid == attacker_uid)
+        .map(|(_, s)| s.total as f64)
+        .fold(0.0_f64, f64::max);
+
+    let mut skill_rows: Vec<SkillRow> = player
+        .attacker_skill_to_dmg_taken_stats
+        .iter()
+        .filter(|((uid, _), _)| *uid == attacker_uid)
+        .map(|((_, skill_uid), stats)| SkillRow {
+            uid: f64::from(*skill_uid),
+            name: crate::engine::skill_names::get_skill_name(*skill_uid),
+            total_value: stats.total as f64,
+            value_per_sec: nan_is_zero(stats.total as f64 / elapsed_secs),
+            value_pct: nan_is_zero(stats.total as f64 / attacker_total * 100.0),
+            crit_rate: nan_is_zero(stats.crit_count as f64 / stats.hit_count as f64 * 100.0),
+            crit_value_rate: nan_is_zero(stats.crit_value as f64 / stats.total as f64 * 100.0),
+            lucky_rate: nan_is_zero(stats.lucky_count as f64 / stats.hit_count as f64 * 100.0),
+            lucky_value_rate: nan_is_zero(stats.lucky_value as f64 / stats.total as f64 * 100.0),
+            hits: stats.hit_count as f64,
+            hits_per_minute: nan_is_zero(stats.hit_count as f64 / elapsed_secs * 60.0),
+        })
+        .collect();
+
+    skill_rows.sort_by(|a, b| {
+        b.total_value
+            .partial_cmp(&a.total_value)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    Ok(SkillsWindow {
+        inspected_player,
+        skill_rows,
+        local_player_uid: encounter.local_player_uid as f64,
+        top_value,
+    })
+}
+
+fn attacker_display_name(encounter: &Encounter, attacker_uid: i64) -> String {
+    let Some(e) = encounter.entities.get(&attacker_uid) else {
+        return format!("#{}", attacker_uid & 0xFFFF);
+    };
+    if e.entity_type == EEntityType::EntChar {
+        return e
+            .name
+            .clone()
+            .unwrap_or_else(|| format!("プレイヤー#{}", attacker_uid & 0xFFFF));
+    }
+    if let Some(mid) = e.monster_id {
+        if let Some(name) = crate::engine::monster_names::get_boss_name(mid) {
+            return name.to_string();
+        }
+        return format!("モンスター#{mid}");
+    }
+    format!("#{}", attacker_uid & 0xFFFF)
+}
+
 fn build_players_window(encounter: &Encounter, stat_type: StatType) -> PlayersWindow {
     let selected = selected_uid::get();
     if selected.is_some() && !encounter.has_selected_participant {
@@ -124,6 +311,7 @@ fn build_players_window(encounter: &Encounter, stat_type: StatType) -> PlayersWi
         StatType::Dmg => &encounter.dmg_stats,
         StatType::DmgBossOnly => &encounter.dmg_stats_boss_only,
         StatType::Heal => &encounter.heal_stats,
+        StatType::DmgTaken => &encounter.dmg_taken_stats,
     };
 
     let mut window = PlayersWindow {
@@ -137,6 +325,7 @@ fn build_players_window(encounter: &Encounter, stat_type: StatType) -> PlayersWi
             StatType::Dmg => &entity.dmg_stats,
             StatType::DmgBossOnly => &entity.dmg_stats_boss_only,
             StatType::Heal => &entity.heal_stats,
+            StatType::DmgTaken => &entity.dmg_taken_stats,
         };
 
         if entity.entity_type != EEntityType::EntChar || entity_stats.total == 0 {

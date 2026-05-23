@@ -81,6 +81,189 @@ const sectionStyle = {
   gap: "6px",
 };
 
+// ─── ToggleChip ───────────────────────────────────────────────
+// ラベル左・ピルスイッチ右の1行カード型トグル
+function ToggleChip(props: {
+  label: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <label
+      style={{
+        display: "flex",
+        "align-items": "center",
+        "justify-content": "space-between",
+        gap: "6px",
+        padding: "4px 7px",
+        background: props.value
+          ? "rgba(79,195,247,0.1)"
+          : "rgba(255,255,255,0.04)",
+        border: `1px solid ${props.value
+          ? "rgba(79,195,247,0.3)"
+          : "rgba(255,255,255,0.08)"}`,
+        "border-radius": "5px",
+        cursor: props.disabled ? "not-allowed" : "pointer",
+        opacity: props.disabled ? "0.45" : "1",
+        "pointer-events": props.disabled ? "none" : "auto",
+        "min-width": "0",
+      }}
+    >
+      <input
+        type="checkbox"
+        checked={props.value}
+        onChange={(e) => props.onChange(e.currentTarget.checked)}
+        style={{ display: "none" }}
+      />
+      <span
+        style={{
+          color: props.value ? "#b8dff0" : "#888",
+          "font-size": "10px",
+          overflow: "hidden",
+          "text-overflow": "ellipsis",
+          "white-space": "nowrap",
+          "line-height": "1.3",
+        }}
+      >
+        {props.label}
+      </span>
+      {/* ピルインジケーター */}
+      <div
+        style={{
+          width: "24px",
+          height: "13px",
+          background: props.value ? "#4fc3f7" : "rgba(255,255,255,0.12)",
+          "border-radius": "7px",
+          position: "relative",
+          "flex-shrink": "0",
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            top: "2.5px",
+            left: props.value ? "12.5px" : "2.5px",
+            width: "8px",
+            height: "8px",
+            background: props.value ? "#fff" : "rgba(255,255,255,0.5)",
+            "border-radius": "50%",
+          }}
+        />
+      </div>
+    </label>
+  );
+}
+
+// ─── NumCell ──────────────────────────────────────────────────
+// ラベル上・input全幅のコンパクトセル（2列グリッドに収める）
+function NumCell(props: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div>
+      <div
+        style={{
+          color: "#777",
+          "font-size": "9px",
+          "margin-bottom": "2px",
+          overflow: "hidden",
+          "text-overflow": "ellipsis",
+          "white-space": "nowrap",
+        }}
+      >
+        {props.label}
+      </div>
+      <input
+        type="number"
+        min={props.min}
+        max={props.max}
+        step={props.step ?? 1}
+        value={props.value}
+        onInput={(e) => {
+          const v = parseInt(e.currentTarget.value, 10);
+          if (!isNaN(v) && v >= props.min && v <= props.max) props.onChange(v);
+        }}
+        style={{
+          width: "100%",
+          "box-sizing": "border-box",
+          background: "rgba(255,255,255,0.08)",
+          border: "1px solid rgba(255,255,255,0.15)",
+          color: "#ddd",
+          "border-radius": "3px",
+          padding: "2px 5px",
+          "font-size": "11px",
+        }}
+      />
+    </div>
+  );
+}
+
+// ─── SelectCell ───────────────────────────────────────────────
+// ラベル上・select全幅のコンパクトセル
+function SelectCell(props: {
+  label: string;
+  children: any;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div>
+      <div
+        style={{
+          color: "#777",
+          "font-size": "9px",
+          "margin-bottom": "2px",
+          overflow: "hidden",
+          "text-overflow": "ellipsis",
+          "white-space": "nowrap",
+        }}
+      >
+        {props.label}
+      </div>
+      <select
+        value={props.value}
+        onChange={(e) => props.onChange(e.currentTarget.value)}
+        style={{
+          width: "100%",
+          "box-sizing": "border-box",
+          background: "rgba(255,255,255,0.08)",
+          border: "1px solid rgba(255,255,255,0.15)",
+          color: "#ddd",
+          "border-radius": "3px",
+          padding: "2px 4px",
+          "font-size": "11px",
+        }}
+      >
+        {props.children}
+      </select>
+    </div>
+  );
+}
+
+// ─── グリッドスタイル ─────────────────────────────────────────
+// auto-fill: 140px 以上取れる限りカラムを自動増加
+//   ~300px → 2列   / ~560px → 4列 / ~1024px → 7列+
+const autoFillGrid = {
+  display: "grid",
+  "grid-template-columns": "repeat(auto-fill, minmax(140px, 1fr))",
+  gap: "4px 6px",
+  "align-items": "end",
+} as const;
+
+// 意味的に対になっている2項目は常に2列固定
+const pairGrid = {
+  display: "grid",
+  "grid-template-columns": "1fr 1fr",
+  gap: "4px",
+} as const;
+
+// ─── メインコンポーネント ─────────────────────────────────────
 export function SettingsPanel() {
   const [uidInputValue, setUidInputValue] = createSignal(selectedUid()?.toString() ?? "");
 
@@ -143,10 +326,13 @@ export function SettingsPanel() {
         "overflow-y": "auto",
       }}
     >
+
+      {/* ── キャラクター ── */}
       <details open>
         <summary style={sectionHeaderStyle}>{t("settings_character")}</summary>
         <div style={{ ...sectionStyle, "margin-top": "6px" }}>
-          {/* UID input */}
+
+          {/* UID入力 */}
           <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
             <span style={{ color: "#aaa", width: "80px" }}>{t("selected_uid_label")}</span>
             <input
@@ -183,7 +369,7 @@ export function SettingsPanel() {
             </button>
           </div>
 
-          {/* Resolved name */}
+          {/* 解決済み名前 */}
           <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
             <span style={{ color: "#aaa", width: "80px" }} />
             <span style={{ color: nameCache()?.name ? "#ddd" : "#555", "font-size": "11px" }}>
@@ -191,7 +377,7 @@ export function SettingsPanel() {
             </span>
           </div>
 
-          {/* Candidates */}
+          {/* 候補 */}
           <Show when={dpsPlayers().playerRows.length > 0}>
             <div style={{ display: "flex", "align-items": "flex-start", gap: "6px" }}>
               <span style={{ color: "#777", "font-size": "10px", "white-space": "nowrap", "padding-top": "2px" }}>
@@ -224,24 +410,23 @@ export function SettingsPanel() {
             </div>
           </Show>
 
-          {/* Hint */}
           <div style={{ color: "#555", "font-size": "10px" }}>
             {t("selected_uid_input_hint")}
           </div>
-
-          {/* Warning */}
           <div style={{ color: "#b07040", "font-size": "10px" }}>
             {t("selected_uid_change_warning")}
           </div>
         </div>
       </details>
 
+      {/* ── 表示 ── */}
       <details open>
         <summary style={sectionHeaderStyle}>{t("settings_display")}</summary>
         <div style={{ ...sectionStyle, "margin-top": "6px" }}>
-          {/* Opacity */}
+
+          {/* 透明度スライダー */}
           <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-            <span style={{ color: "#aaa", width: "60px" }}>{t("transparency")}</span>
+            <span style={{ color: "#aaa", "font-size": "10px", "flex-shrink": "0" }}>{t("transparency")}</span>
             <input
               type="range"
               min="0.3"
@@ -251,34 +436,35 @@ export function SettingsPanel() {
               onInput={(e) => setOpacity(parseFloat(e.currentTarget.value))}
               style={{ flex: "1" }}
             />
-            <span style={{ color: "#888", width: "30px", "text-align": "right" }}>
+            <span style={{ color: "#888", width: "28px", "text-align": "right", "font-size": "10px" }}>
               {Math.round(opacity() * 100)}%
             </span>
           </div>
 
-          {/* Language */}
-          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-            <span style={{ color: "#aaa", width: "60px" }}>{t("language")}</span>
-            <select
+          {/* 言語 + グラフ表示人数 */}
+          <div style={pairGrid}>
+            <SelectCell
+              label={t("language")}
               value={locale()}
-              onChange={(e) => setLocale(e.currentTarget.value as Locale)}
-              style={{
-                background: "rgba(255,255,255,0.1)",
-                border: "1px solid rgba(255,255,255,0.2)",
-                color: "#ddd",
-                "border-radius": "3px",
-                padding: "2px 4px",
-                "font-size": "11px",
-              }}
+              onChange={(v) => setLocale(v as Locale)}
             >
               <option value="ja">日本語</option>
               <option value="en">English</option>
-            </select>
+            </SelectCell>
+            <NumCell
+              label={t("graph_player_count")}
+              value={graphPlayerCount()}
+              min={0}
+              max={10}
+              onChange={setGraphPlayerCount}
+            />
           </div>
 
-          {/* Column toggles: stats */}
+          {/* 列表示: 統計 */}
           <div style={{ display: "flex", "align-items": "flex-start", gap: "8px" }}>
-            <span style={{ color: "#777", width: "60px", "padding-top": "1px", "font-size": "10px", "text-transform": "uppercase", "letter-spacing": "0.04em" }}>{t("columns_stats")}</span>
+            <span style={{ color: "#777", width: "40px", "padding-top": "1px", "font-size": "10px", "text-transform": "uppercase", "letter-spacing": "0.04em" }}>
+              {t("columns_stats")}
+            </span>
             <div style={{ display: "flex", "flex-wrap": "wrap", gap: "6px 10px", flex: "1" }}>
               <Toggle label={t("crit_rate")} value={showCrit()} onChange={setShowCrit} />
               <Toggle label={t("crit_value")} value={showCritValue()} onChange={setShowCritValue} />
@@ -289,9 +475,11 @@ export function SettingsPanel() {
             </div>
           </div>
 
-          {/* Column toggles: meta */}
+          {/* 列表示: メタ */}
           <div style={{ display: "flex", "align-items": "flex-start", gap: "8px" }}>
-            <span style={{ color: "#777", width: "60px", "padding-top": "1px", "font-size": "10px", "text-transform": "uppercase", "letter-spacing": "0.04em" }}>{t("columns_meta")}</span>
+            <span style={{ color: "#777", width: "40px", "padding-top": "1px", "font-size": "10px", "text-transform": "uppercase", "letter-spacing": "0.04em" }}>
+              {t("columns_meta")}
+            </span>
             <div style={{ display: "flex", "flex-wrap": "wrap", gap: "6px 10px", flex: "1" }}>
               <Toggle label={t("element")} value={showElement()} onChange={setShowElement} />
               <Toggle label={t("damage_mode")} value={showDamageMode()} onChange={setShowDamageMode} />
@@ -300,9 +488,9 @@ export function SettingsPanel() {
             </div>
           </div>
 
-          {/* Name column template */}
+          {/* 名前列テンプレ */}
           <div style={{ display: "flex", "align-items": "flex-start", gap: "8px" }}>
-            <span style={{ color: "#aaa", width: "60px", "padding-top": "2px" }}>{t("name_template")}</span>
+            <span style={{ color: "#aaa", width: "100px", "padding-top": "2px" }}>{t("name_template")}</span>
             <div style={{ flex: "1", display: "flex", "flex-direction": "column", gap: "3px" }}>
               <div style={{ display: "flex", gap: "4px" }}>
                 <textarea
@@ -357,54 +545,33 @@ export function SettingsPanel() {
             </div>
           </div>
 
-          {/* Header total sparkline */}
-          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-            <span style={{ color: "#aaa", width: "60px" }}>{t("header_sparkline")}</span>
-            <Toggle label="" value={showHeaderSparkline()} onChange={setShowHeaderSparkline} />
-          </div>
-
-          {/* Graph player count */}
-          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-            <span style={{ color: "#aaa", width: "60px" }}>{t("graph_player_count")}</span>
-            <input
-              type="number"
-              min="0"
-              max="10"
-              step="1"
-              value={graphPlayerCount()}
-              onInput={(e) => {
-                const v = parseInt(e.currentTarget.value, 10);
-                if (!isNaN(v) && v >= 0 && v <= 10) setGraphPlayerCount(v);
-              }}
-              style={{
-                width: "60px",
-                background: "rgba(255,255,255,0.1)",
-                border: "1px solid rgba(255,255,255,0.2)",
-                color: "#ddd",
-                "border-radius": "3px",
-                padding: "2px 4px",
-                "font-size": "11px",
-              }}
+          {/* グラフ表示トグル: ヘッダー合計 + 自分キャラ */}
+          <div style={pairGrid}>
+            <ToggleChip
+              label={t("header_sparkline")}
+              value={showHeaderSparkline()}
+              onChange={setShowHeaderSparkline}
+            />
+            <ToggleChip
+              label={t("graph_for_local")}
+              value={graphForLocalPlayer()}
+              onChange={setGraphForLocalPlayer}
             />
           </div>
-
-          {/* Graph for local player */}
-          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-            <span style={{ color: "#aaa", width: "60px" }}>{t("graph_for_local")}</span>
-            <Toggle label="" value={graphForLocalPlayer()} onChange={setGraphForLocalPlayer} />
-          </div>
-          <div style={{ color: "#555", "font-size": "10px", "padding-left": "68px" }}>
+          <div style={{ color: "#555", "font-size": "9px" }}>
             {t("graph_column_hint")}
           </div>
+
         </div>
       </details>
 
+      {/* ── コピー ── */}
       <details>
         <summary style={sectionHeaderStyle}>{t("settings_copy")}</summary>
         <div style={{ ...sectionStyle, "margin-top": "6px" }}>
-          {/* Template textarea */}
+
           <div style={{ display: "flex", "align-items": "flex-start", gap: "8px" }}>
-            <span style={{ color: "#aaa", width: "60px", "padding-top": "2px" }}>{t("copy_template")}</span>
+            <span style={{ color: "#aaa", width: "100px", "padding-top": "2px" }}>{t("copy_template")}</span>
             <textarea
               rows="2"
               value={copyTemplate()}
@@ -423,14 +590,12 @@ export function SettingsPanel() {
             />
           </div>
 
-          {/* Placeholder reference */}
-          <div style={{ color: "#666", "font-size": "10px", "padding-left": "68px", "font-family": "monospace" }}>
+          <div style={{ color: "#666", "font-size": "10px", "padding-left": "108px", "font-family": "monospace" }}>
             {"{rank} {name} {class} {spec} {dmg} {dps} {pct} {crit} {critV} {lucky} {luckyV} {hits} {hpm} {score} {seasonLv} {seasonStr}"}
           </div>
 
-          {/* Live preview */}
           <div style={{ display: "flex", "align-items": "flex-start", gap: "8px" }}>
-            <span style={{ color: "#aaa", width: "60px", "padding-top": "2px" }}>{t("copy_template_preview")}</span>
+            <span style={{ color: "#aaa", width: "100px", "padding-top": "2px" }}>{t("copy_template_preview")}</span>
             <pre style={{
               flex: "1",
               margin: "0",
@@ -445,309 +610,183 @@ export function SettingsPanel() {
               {formatRowAsText(SAMPLE_ROW, 1, copyTemplate(), abbreviateScores())}
             </pre>
           </div>
+
         </div>
       </details>
 
+      {/* ── 戦闘 ── */}
       <details>
         <summary style={sectionHeaderStyle}>{t("settings_combat")}</summary>
         <div style={{ ...sectionStyle, "margin-top": "6px" }}>
-          {/* Combat exit timeout */}
-          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-            <span style={{ color: "#aaa", width: "80px" }}>{t("combat_exit_sec")}</span>
-            <input
-              type="number"
-              min="0"
-              max="60"
-              step="1"
+
+          {/* 幅が広いほど1行に収まる（~300px:2列 / ~560px:4列） */}
+          <div style={autoFillGrid}>
+            <NumCell
+              label={t("combat_exit_sec")}
               value={combatExitSec()}
-              onInput={(e) => {
-                const v = parseInt(e.currentTarget.value, 10);
-                if (!isNaN(v) && v >= 0 && v <= 60) setCombatExitSec(v);
-              }}
-              style={{
-                width: "70px",
-                background: "rgba(255,255,255,0.1)",
-                border: "1px solid rgba(255,255,255,0.2)",
-                color: "#ddd",
-                "border-radius": "3px",
-                padding: "2px 4px",
-                "font-size": "11px",
-              }}
+              min={0}
+              max={60}
+              onChange={setCombatExitSec}
             />
-          </div>
-
-          {/* Poll interval */}
-          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-            <span style={{ color: "#aaa", width: "80px" }}>{t("poll_interval_ms")}</span>
-            <input
-              type="number"
-              min="50"
-              max="2000"
-              step="50"
+            <NumCell
+              label={t("poll_interval_ms")}
               value={pollIntervalMs()}
-              onInput={(e) => {
-                const v = parseInt(e.currentTarget.value, 10);
-                if (!isNaN(v) && v >= 50 && v <= 2000) setPollIntervalMs(v);
-              }}
-              style={{
-                width: "70px",
-                background: "rgba(255,255,255,0.1)",
-                border: "1px solid rgba(255,255,255,0.2)",
-                color: "#ddd",
-                "border-radius": "3px",
-                padding: "2px 4px",
-                "font-size": "11px",
-              }}
+              min={50}
+              max={2000}
+              step={50}
+              onChange={setPollIntervalMs}
             />
-          </div>
-
-          {/* 3分計測 duration */}
-          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-            <span style={{ color: "#aaa", width: "80px" }}>{t("settings_3min_duration")}</span>
-            <input
-              type="number"
-              min="30"
-              max="1800"
-              step="30"
+            <NumCell
+              label={t("settings_3min_duration")}
               value={threeMinDurationSec()}
-              onInput={(e) => {
-                const v = parseInt(e.currentTarget.value, 10);
-                if (!isNaN(v) && v >= 30 && v <= 1800) setThreeMinDurationSec(v);
-              }}
-              style={{
-                width: "70px",
-                background: "rgba(255,255,255,0.1)",
-                border: "1px solid rgba(255,255,255,0.2)",
-                color: "#ddd",
-                "border-radius": "3px",
-                padding: "2px 4px",
-                "font-size": "11px",
-              }}
+              min={30}
+              max={1800}
+              step={30}
+              onChange={setThreeMinDurationSec}
+            />
+            <ToggleChip
+              label={t("settings_3min_auto_open")}
+              value={threeMinAutoOpen()}
+              onChange={setThreeMinAutoOpen}
             />
           </div>
 
-          {/* 3分計測 auto-open modal */}
-          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-            <span style={{ color: "#aaa", width: "80px" }}>{t("settings_3min_auto_open")}</span>
-            <Toggle label="" value={threeMinAutoOpen()} onChange={setThreeMinAutoOpen} />
-          </div>
         </div>
       </details>
 
+      {/* ── 履歴 ── */}
       <details>
         <summary style={sectionHeaderStyle}>{t("settings_history")}</summary>
         <div style={{ ...sectionStyle, "margin-top": "6px" }}>
-          {/* History limit */}
-          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-            <span style={{ color: "#aaa", width: "80px" }}>{t("history_limit")}</span>
-            <input
-              type="number"
-              min="0"
-              max="100"
-              step="1"
+
+          {/* 幅が広いほど1行に収まる（~300px:2列 / ~560px:4列） */}
+          <div style={autoFillGrid}>
+            <NumCell
+              label={t("history_limit")}
               value={historyLimit()}
-              onInput={(e) => {
-                const v = parseInt(e.currentTarget.value, 10);
-                if (!isNaN(v) && v >= 0 && v <= 100) setHistoryLimit(v);
-              }}
-              style={{
-                width: "70px",
-                background: "rgba(255,255,255,0.1)",
-                border: "1px solid rgba(255,255,255,0.2)",
-                color: "#ddd",
-                "border-radius": "3px",
-                padding: "2px 4px",
-                "font-size": "11px",
-              }}
+              min={0}
+              max={100}
+              onChange={setHistoryLimit}
             />
-          </div>
-
-          {/* Time series samples */}
-          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-            <span style={{ color: "#aaa", width: "80px" }}>{t("time_series_samples")}</span>
-            <input
-              type="number"
-              min="10"
-              max="200"
-              step="10"
+            <NumCell
+              label={t("time_series_samples")}
               value={timeSeriesSamples()}
-              onInput={(e) => {
-                const v = parseInt(e.currentTarget.value, 10);
-                if (!isNaN(v) && v >= 10 && v <= 200) setTimeSeriesSamples(v);
-              }}
-              style={{
-                width: "70px",
-                background: "rgba(255,255,255,0.1)",
-                border: "1px solid rgba(255,255,255,0.2)",
-                color: "#ddd",
-                "border-radius": "3px",
-                padding: "2px 4px",
-                "font-size": "11px",
-              }}
+              min={10}
+              max={200}
+              step={10}
+              onChange={setTimeSeriesSamples}
             />
-          </div>
-
-          {/* Time series interval */}
-          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-            <span style={{ color: "#aaa", width: "80px" }}>{t("time_series_interval")}</span>
-            <input
-              type="number"
-              min="250"
-              max="5000"
-              step="250"
+            <NumCell
+              label={t("time_series_interval")}
               value={timeSeriesIntervalMs()}
-              onInput={(e) => {
-                const v = parseInt(e.currentTarget.value, 10);
-                if (!isNaN(v) && v >= 250 && v <= 5000) setTimeSeriesIntervalMs(v);
-              }}
-              style={{
-                width: "70px",
-                background: "rgba(255,255,255,0.1)",
-                border: "1px solid rgba(255,255,255,0.2)",
-                color: "#ddd",
-                "border-radius": "3px",
-                padding: "2px 4px",
-                "font-size": "11px",
-              }}
+              min={250}
+              max={5000}
+              step={250}
+              onChange={setTimeSeriesIntervalMs}
             />
-          </div>
-
-          {/* Clear history */}
-          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
             <button
               onClick={() => clearHistory()}
               style={{
-                padding: "2px 8px",
+                padding: "3px 8px",
                 border: "1px solid rgba(255,255,255,0.2)",
                 "border-radius": "3px",
                 background: "transparent",
                 color: "#ccc",
                 cursor: "pointer",
-                "font-size": "11px",
+                "font-size": "10px",
+                "align-self": "end",
               }}
             >
               {t("clear_history")}
             </button>
           </div>
+
         </div>
       </details>
 
+      {/* ── オーバーレイ ── */}
       <details>
         <summary style={sectionHeaderStyle}>{t("settings_overlay")}</summary>
         <div style={{ ...sectionStyle, "margin-top": "6px" }}>
-          {/* Imagine debuff timer (window visibility) */}
-          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-            <span style={{ color: "#aaa", width: "80px" }}>{t("imagine_debuff_timer")}</span>
-            <Toggle
-              label=""
+
+          {/* イマジンデバフタイマー + 専用モード（対になっているので常に2列） */}
+          <div style={pairGrid}>
+            <ToggleChip
+              label={t("imagine_debuff_timer")}
               value={showBuffOverlay()}
+              disabled={imagineOnlyMode()}
               onChange={(v) => {
-                // 軽量モード ON のときはデバフタイマーを OFF にできない
                 if (!v && imagineOnlyMode()) return;
                 setShowBuffOverlay(v);
                 invoke("set_buffs_window_visible", { visible: v }).catch(() => {});
               }}
             />
-          </div>
-
-          {/* Imagine-only (lightweight) mode: stop DPS calc */}
-          <div style={{ display: "flex", "flex-direction": "column", gap: "2px" }}>
-            <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-              <span style={{ color: "#aaa", width: "80px" }}>{t("imagine_only_mode")}</span>
-              <Toggle
-                label=""
-                value={imagineOnlyMode()}
-                onChange={(v) => {
-                  setImagineOnlyMode(v);
-                  // 軽量モード ON ならデバフタイマーも自動 ON にしてオーバーレイ表示
-                  if (v && !showBuffOverlay()) {
-                    setShowBuffOverlay(true);
-                  }
-                  if (v) {
-                    invoke("set_buffs_window_visible", { visible: true }).catch(() => {});
-                  }
-                }}
-              />
-            </div>
-            <span style={{ color: "#555", "font-size": "10px", "padding-left": "88px" }}>
-              {t("imagine_only_mode_hint")}
-            </span>
-          </div>
-
-          {/* Click-through */}
-          <div style={{ display: "flex", "flex-direction": "column", gap: "2px" }}>
-            <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-              <span style={{ color: "#aaa", width: "80px" }}>{t("click_through")}</span>
-              <Toggle label="" value={clickThrough()} onChange={setClickThrough} />
-            </div>
-            <span style={{ color: "#555", "font-size": "10px", "padding-left": "88px" }}>
-              {t("click_through_hint")}
-            </span>
-          </div>
-
-          {/* Font size */}
-          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-            <span style={{ color: "#aaa", width: "80px" }}>{t("font_size")}</span>
-            <input
-              type="number"
-              min="10"
-              max="18"
-              step="1"
-              value={fontSize()}
-              onInput={(e) => {
-                const v = parseInt(e.currentTarget.value, 10);
-                if (!isNaN(v) && v >= 10 && v <= 18) setFontSize(v);
-              }}
-              style={{
-                width: "60px",
-                background: "rgba(255,255,255,0.1)",
-                border: "1px solid rgba(255,255,255,0.2)",
-                color: "#ddd",
-                "border-radius": "3px",
-                padding: "2px 4px",
-                "font-size": "11px",
+            <ToggleChip
+              label={t("imagine_only_mode")}
+              value={imagineOnlyMode()}
+              onChange={(v) => {
+                setImagineOnlyMode(v);
+                if (v && !showBuffOverlay()) {
+                  setShowBuffOverlay(true);
+                }
+                if (v) {
+                  invoke("set_buffs_window_visible", { visible: true }).catch(() => {});
+                }
               }}
             />
           </div>
-
-          {/* Highlight local player */}
-          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-            <span style={{ color: "#aaa", width: "80px" }}>{t("highlight_local")}</span>
-            <Toggle label="" value={highlightLocalPlayer()} onChange={setHighlightLocalPlayer} />
+          <div style={{ color: "#555", "font-size": "9px" }}>
+            {t("imagine_only_mode_hint")}
           </div>
 
-          {/* Privacy mask */}
-          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-            <span style={{ color: "#aaa", width: "80px" }}>{t("privacy_mask")}</span>
-            <Toggle label="" value={privacyMaskNames()} onChange={setPrivacyMaskNames} />
+          {/* クリックスルー */}
+          <ToggleChip
+            label={t("click_through")}
+            value={clickThrough()}
+            onChange={setClickThrough}
+          />
+          <div style={{ color: "#555", "font-size": "9px" }}>
+            {t("click_through_hint")}
           </div>
 
-          {/* Startup tab */}
-          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-            <span style={{ color: "#aaa", width: "80px" }}>{t("startup_tab")}</span>
-            <select
+          {/* フォント / タブ / 強調 / マスク: 幅が広いほど1行に収まる */}
+          <div style={autoFillGrid}>
+            <NumCell
+              label={t("font_size")}
+              value={fontSize()}
+              min={10}
+              max={18}
+              onChange={setFontSize}
+            />
+            <SelectCell
+              label={t("startup_tab")}
               value={startupTab()}
-              onChange={(e) => setStartupTab(e.currentTarget.value)}
-              style={{
-                background: "rgba(255,255,255,0.1)",
-                border: "1px solid rgba(255,255,255,0.2)",
-                color: "#ddd",
-                "border-radius": "3px",
-                padding: "2px 4px",
-                "font-size": "11px",
-              }}
+              onChange={setStartupTab}
             >
               <option value="dps">{t("tab_dps")}</option>
               <option value="heal">{t("tab_heal")}</option>
               <option value="history">{t("tab_history")}</option>
-            </select>
+            </SelectCell>
+            <ToggleChip
+              label={t("highlight_local")}
+              value={highlightLocalPlayer()}
+              onChange={setHighlightLocalPlayer}
+            />
+            <ToggleChip
+              label={t("privacy_mask")}
+              value={privacyMaskNames()}
+              onChange={setPrivacyMaskNames}
+            />
           </div>
+
         </div>
       </details>
+
     </div>
   );
 }
 
+// ─── Toggle（列表示グループ用・既存維持） ─────────────────────
 function Toggle(props: { label: string; value: boolean; onChange: (v: boolean) => void }) {
   return (
     <label style={{

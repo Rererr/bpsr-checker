@@ -1,7 +1,7 @@
-﻿[package]
+[package]
 name = "bpsr-checker"
-version = "0.7.14"
-description = "霆ｽ驥愁PS繝√ぉ繝・き繝ｼ for Blue Protocol: Star Resonance"
+version = "0.7.15"
+description = "軽量DPSチェッカー for Blue Protocol: Star Resonance"
 authors = ["Rererr"]
 edition = "2024"
 license = "GPL-3.0-only"

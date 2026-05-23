@@ -364,7 +364,7 @@ dependencies = [
 
 [[package]]
 name = "bpsr-checker"
-version = "0.7.13"
+version = "0.7.15"
 dependencies = [
  "byteorder",
  "bytes",

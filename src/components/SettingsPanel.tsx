@@ -35,6 +35,7 @@ import {
   abbreviateScores, setAbbreviateScores,
   showBuffOverlay, setShowBuffOverlay,
   imagineOnlyMode, setImagineOnlyMode,
+  compactSplitMode, setCompactSplitMode,
 } from "../stores/settings";
 import { clearHistory, dpsPlayers, header } from "../stores/encounter";
 import { formatRowAsText } from "../utils";
@@ -458,6 +459,14 @@ export function SettingsPanel() {
               max={10}
               onChange={setGraphPlayerCount}
             />
+          </div>
+
+          {/* Compact split mode */}
+          <div style={{ display: "flex", "align-items": "flex-start", gap: "8px" }}>
+            <span style={{ color: "#777", width: "60px", "padding-top": "1px", "font-size": "10px", "text-transform": "uppercase", "letter-spacing": "0.04em" }}>{t("view")}</span>
+            <div style={{ display: "flex", "flex-wrap": "wrap", gap: "6px 10px", flex: "1" }}>
+              <Toggle label={t("compact_split_mode")} value={compactSplitMode()} onChange={setCompactSplitMode} />
+            </div>
           </div>
 
           {/* 列表示: 統計 */}

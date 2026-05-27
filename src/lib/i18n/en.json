@@ -106,5 +106,8 @@
   "element": "Element",
   "damage_mode": "Type",
   "columns_stats": "Stats",
-  "columns_meta": "Meta"
+  "columns_meta": "Meta",
+  "view": "View",
+  "compact_split_mode": "Compact split view",
+  "buffs_empty_hint": "Pin a player in the DPS list"
 }

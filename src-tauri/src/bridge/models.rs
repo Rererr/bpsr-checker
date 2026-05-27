@@ -82,9 +82,17 @@ pub struct SelfBuffSnapshot {
 
 #[derive(specta::Type, serde::Serialize, Default, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct SelfBuffsData {
+pub struct PlayerBuffSnapshot {
+    pub uid: f64,
     pub buffs: Vec<SelfBuffSnapshot>,
+}
+
+#[derive(specta::Type, serde::Serialize, Default, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackedBuffsData {
+    pub players: Vec<PlayerBuffSnapshot>,
     pub now_ms: f64,
+    pub local_player_uid: f64,
 }
 
 #[derive(serde::Serialize, specta::Type, Clone, Debug)]

@@ -223,23 +223,21 @@ pub fn process_opcode(app_handle: &AppHandle, env: PktEnvelope) -> AppResult<()>
 
                 Pkt::BuffTick => {
                     let ts = now_ms();
-                    let local_uid = encounter.local_player_uid;
 
                     if let Ok(msg) = pb::BuffSnapshot::decode(data.as_slice()) {
-                        encounter.buff_tracker.apply_full_info(&msg, ts, local_uid);
+                        encounter.buff_tracker.apply_full_info(&msg, ts);
                     }
 
                     if let Ok(msg) = pb::BuffTick::decode(data.as_slice()) {
-                        encounter.buff_tracker.apply_change(&msg, ts, local_uid);
+                        encounter.buff_tracker.apply_change(&msg, ts);
                     }
                 }
 
                 Pkt::BuffSnapshotBundle => {
                     let ts = now_ms();
-                    let local_uid = encounter.local_player_uid;
                     if let Ok(msg) = pb::BuffSnapshotBundle::decode(data.as_slice()) {
                         for buff in &msg.buff_infos {
-                            encounter.buff_tracker.apply_full_info(buff, ts, local_uid);
+                            encounter.buff_tracker.apply_full_info(buff, ts);
                         }
                     }
                 }
@@ -363,8 +361,9 @@ fn process_local_delta_batch(encounter: &mut Encounter, msg: pb::LocalDeltaBatch
     // LocalSceneDelta.effects(field 3): 自プレイヤーへのバフ/デバフ効果リスト
     if !delta_info.effects.is_empty() {
         let ts = now_ms();
+        let local_uid = encounter.local_player_uid;
         for effect in &delta_info.effects {
-            encounter.buff_tracker.apply_effect(effect, ts);
+            encounter.buff_tracker.apply_effect(effect, ts, local_uid);
         }
     }
 
@@ -400,9 +399,9 @@ fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::SceneDelta) {
         }
     }
 
-    // SceneDelta.buff_list: 免疫デバフを含むバフイベントリスト
+    // SceneDelta.buff_list: 免疫デバフを含むバフイベントリスト（全プレイヤー対象）
     // buff_type ごとに detail 構造が異なるため body/detail を手動デコード
-    if target_uid == encounter.local_player_uid {
+    if target_entity_type == EntityKind::Player {
         if let Some(buff_list) = &scene_delta.buff_list {
             let ts = now_ms();
             for buff in &buff_list.buffs {
@@ -424,7 +423,7 @@ fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::SceneDelta) {
                 if detail.duration_ms <= 0 {
                     continue;
                 }
-                encounter.buff_tracker.apply_buff_detail(&detail, ts);
+                encounter.buff_tracker.apply_buff_detail(&detail, ts, target_uid);
             }
         }
     }

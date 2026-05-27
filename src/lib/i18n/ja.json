@@ -106,5 +106,8 @@
   "element": "属性",
   "damage_mode": "種別",
   "columns_stats": "統計",
-  "columns_meta": "メタ"
+  "columns_meta": "メタ",
+  "view": "表示",
+  "compact_split_mode": "2列コンパクト表示",
+  "buffs_empty_hint": "DPS一覧でピンアイコンをクリック"
 }

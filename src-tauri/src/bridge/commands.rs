@@ -1,6 +1,6 @@
 use crate::bridge::models::{
-    EncounterSnapshot, HeaderInfo, MeasureModeStatus, PlayerRow, PlayersWindow, SelfBuffSnapshot,
-    SelfBuffsData, SkillRow, SkillsWindow, TimeSeriesPoint,
+    EncounterSnapshot, HeaderInfo, MeasureModeStatus, PlayerBuffSnapshot, PlayerRow, PlayersWindow,
+    SelfBuffSnapshot, SkillRow, SkillsWindow, TimeSeriesPoint, TrackedBuffsData,
 };
 use crate::engine::buff_source::BuffSourceKind;
 use crate::engine::class::{Class, ClassSpec};
@@ -753,29 +753,15 @@ pub fn cancel_3min_measure_mode(state: tauri::State<'_, EncounterMutex>) {
     }
 }
 
-#[tauri::command]
-#[specta::specta]
-pub fn get_self_buffs(state: tauri::State<'_, EncounterMutex>) -> SelfBuffsData {
+fn aggregate_player_buffs(
+    snapshots: Vec<crate::engine::buff_tracker::BuffStateSnapshot>,
+    uid: f64,
+) -> PlayerBuffSnapshot {
     use crate::engine::buff_source::classify_buff;
-    use crate::engine::processor::now_ms;
     use std::collections::HashMap;
-
-    let mut enc = match state.lock() {
-        Ok(e) => e,
-        Err(e) => {
-            log::error!("Lock poisoned in get_self_buffs: {e}");
-            return SelfBuffsData::default();
-        }
-    };
-
-    let now_ms = now_ms();
-    enc.buff_tracker.gc(now_ms);
-    let snapshots = enc.buff_tracker.snapshot(now_ms);
 
     let mut by_kind: HashMap<String, SelfBuffSnapshot> = HashMap::new();
     for snap in &snapshots {
-        // 免疫デバフ (field_10 由来の buff_config_id) のみ表示。
-        // リキャストタイマー (TimedEffect の 39XXXX) は表示しない。
         let kind = classify_buff(snap.base_id as i64);
         if kind == BuffSourceKind::Other {
             continue;
@@ -790,7 +776,6 @@ pub fn get_self_buffs(state: tauri::State<'_, EncounterMutex>) -> SelfBuffsData 
             duration_ms: snap.duration_ms,
             received_at_ms: snap.received_at_local_ms as f64,
         });
-        // 最長残時間を採用
         if snap.remaining_ms > entry.remaining_ms {
             *entry = SelfBuffSnapshot {
                 kind: kind_str,
@@ -804,9 +789,45 @@ pub fn get_self_buffs(state: tauri::State<'_, EncounterMutex>) -> SelfBuffsData 
         }
     }
 
-    SelfBuffsData {
+    PlayerBuffSnapshot {
+        uid,
         buffs: by_kind.into_values().collect(),
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_tracked_buffs(
+    state: tauri::State<'_, EncounterMutex>,
+    uids: Vec<f64>,
+) -> TrackedBuffsData {
+    use crate::engine::processor::now_ms;
+
+    let mut enc = match state.lock() {
+        Ok(e) => e,
+        Err(e) => {
+            log::error!("Lock poisoned in get_tracked_buffs: {e}");
+            return TrackedBuffsData::default();
+        }
+    };
+
+    let now_ms = now_ms();
+    let local_uid = enc.local_player_uid;
+    enc.buff_tracker.gc(now_ms);
+
+    let players = uids
+        .iter()
+        .map(|&uid_f64| {
+            let uid_i64 = uid_f64 as i64;
+            let snapshots = enc.buff_tracker.snapshot_for(uid_i64, now_ms);
+            aggregate_player_buffs(snapshots, uid_f64)
+        })
+        .collect();
+
+    TrackedBuffsData {
+        players,
         now_ms: now_ms as f64,
+        local_player_uid: local_uid as f64,
     }
 }
 

@@ -2,10 +2,8 @@ import { For } from "solid-js";
 import type { JSX } from "solid-js";
 import type { SelfBuffSnapshot } from "../stores/buffs";
 import { getClassColor } from "../utils";
-import { CircularBuff } from "./CircularBuff";
+import { CircularBuff, CHAR_KINDS } from "./CircularBuff";
 import type { CharKind } from "./CircularBuff";
-
-const CHAR_KINDS: CharKind[] = ["Tina", "Aluna", "Tarta", "Basilisk"];
 
 interface PlayerBuffRowProps {
   uid: number;

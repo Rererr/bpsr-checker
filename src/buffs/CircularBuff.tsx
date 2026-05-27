@@ -4,6 +4,8 @@ import type { SelfBuffSnapshot } from "../stores/buffs";
 
 export type CharKind = "Tina" | "Aluna" | "Tarta" | "Basilisk";
 
+export const CHAR_KINDS: CharKind[] = ["Tina", "Aluna", "Tarta", "Basilisk"];
+
 export const KIND_COLORS: Record<CharKind, string> = {
   Tina: "#4dd0e1",
   Aluna: "#f48fb1",

@@ -13,6 +13,7 @@ export interface SelfBuffSnapshot {
 
 export interface PlayerBuffSnapshot {
   uid: number;
+  name: string;
   buffs: SelfBuffSnapshot[];
 }
 
@@ -84,6 +85,7 @@ const MOCK_DATA: TrackedBuffsData = {
   players: [
     {
       uid: 1001,
+      name: "テストA",
       buffs: [
         { kind: "Tina", baseId: 1, buffUuid: 101, layer: 1, remainingMs: 42000, durationMs: 60000, receivedAtMs: now - 18000 },
         { kind: "Tarta", baseId: 3, buffUuid: 301, layer: 1, remainingMs: 8100, durationMs: 12000, receivedAtMs: now - 3900 },
@@ -91,6 +93,7 @@ const MOCK_DATA: TrackedBuffsData = {
     },
     {
       uid: 1002,
+      name: "テストB",
       buffs: [
         { kind: "Aluna", baseId: 2, buffUuid: 201, layer: 1, remainingMs: 11000, durationMs: 15000, receivedAtMs: now - 4000 },
         { kind: "Basilisk", baseId: 4, buffUuid: 401, layer: 1, remainingMs: 2300, durationMs: 10000, receivedAtMs: now - 7700 },
@@ -98,6 +101,7 @@ const MOCK_DATA: TrackedBuffsData = {
     },
     {
       uid: 1003,
+      name: "テストC",
       buffs: [
         { kind: "Tina", baseId: 1, buffUuid: 102, layer: 1, remainingMs: 900, durationMs: 10000, receivedAtMs: now - 9100 },
       ],

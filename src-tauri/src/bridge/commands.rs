@@ -756,6 +756,7 @@ pub fn cancel_3min_measure_mode(state: tauri::State<'_, EncounterMutex>) {
 fn aggregate_player_buffs(
     snapshots: Vec<crate::engine::buff_tracker::BuffStateSnapshot>,
     uid: f64,
+    name: String,
 ) -> PlayerBuffSnapshot {
     use crate::engine::buff_source::classify_buff;
     use std::collections::HashMap;
@@ -791,6 +792,7 @@ fn aggregate_player_buffs(
 
     PlayerBuffSnapshot {
         uid,
+        name,
         buffs: by_kind.into_values().collect(),
     }
 }
@@ -820,7 +822,10 @@ pub fn get_tracked_buffs(
         .map(|&uid_f64| {
             let uid_i64 = uid_f64 as i64;
             let snapshots = enc.buff_tracker.snapshot_for(uid_i64, now_ms);
-            aggregate_player_buffs(snapshots, uid_f64)
+            let name = name_cache::lookup(uid_i64)
+                .map(|c| c.name)
+                .unwrap_or_default();
+            aggregate_player_buffs(snapshots, uid_f64, name)
         })
         .collect();
 

@@ -2,8 +2,8 @@ import { For, onCleanup, onMount, Show } from "solid-js";
 import type { JSX } from "solid-js";
 import { trackedBuffs, startBuffPolling, stopBuffPolling } from "../stores/buffs";
 import { watchedUids } from "../stores/watchlist";
-import { dpsPlayers } from "../stores/encounter";
 import { PlayerBuffRow } from "./PlayerBuffRow";
+import { CHAR_KINDS, KIND_COLORS } from "./CircularBuff";
 import { t } from "../lib/i18n";
 
 export function BuffOverlay(): JSX.Element {
@@ -12,17 +12,8 @@ export function BuffOverlay(): JSX.Element {
     onCleanup(() => stopBuffPolling());
   });
 
-  const getPlayerInfo = (uid: number) => {
-    const rows = dpsPlayers().playerRows;
-    const row = rows.find((r) => r.uid === uid);
-    return {
-      name: row?.name ?? "",
-      className: row?.className ?? "",
-    };
-  };
-
-  const buffsByUid = (uid: number) =>
-    trackedBuffs().players.find((p) => p.uid === uid)?.buffs ?? [];
+  const playerSnap = (uid: number) =>
+    trackedBuffs().players.find((p) => p.uid === uid);
 
   return (
     <div
@@ -54,15 +45,50 @@ export function BuffOverlay(): JSX.Element {
           </div>
         }
       >
+        {/* カラムヘッダー */}
+        <div
+          style={{
+            display: "flex",
+            "align-items": "center",
+            gap: "4px",
+            padding: "2px 0 3px 0",
+            "border-bottom": "1px solid rgba(255,255,255,0.08)",
+            "margin-bottom": "2px",
+          }}
+        >
+          {/* 名前列のスペース確保 */}
+          <div style={{ width: "54px", "flex-shrink": "0" }} />
+          <For each={CHAR_KINDS}>
+            {(kind) => (
+              <div
+                style={{
+                  width: "28px",
+                  "flex-shrink": "0",
+                  "text-align": "center",
+                  "font-size": "9px",
+                  color: KIND_COLORS[kind],
+                  "font-weight": "600",
+                  overflow: "hidden",
+                  "text-overflow": "ellipsis",
+                  "white-space": "nowrap",
+                  "user-select": "none",
+                }}
+              >
+                {kind}
+              </div>
+            )}
+          </For>
+        </div>
+
         <For each={watchedUids()}>
           {(uid) => {
-            const info = () => getPlayerInfo(uid);
+            const snap = () => playerSnap(uid);
             return (
               <PlayerBuffRow
                 uid={uid}
-                name={info().name}
-                className={info().className}
-                buffs={buffsByUid(uid)}
+                name={snap()?.name ?? ""}
+                className=""
+                buffs={snap()?.buffs ?? []}
               />
             );
           }}

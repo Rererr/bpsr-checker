@@ -102,6 +102,7 @@ function NormalLayout(props: NormalLayoutProps) {
         <Show when={showScore()}>
           <span style={{ "text-align": "right" }}>{t("score")}</span>
         </Show>
+        <span /> {/* ウォッチボタン列 */}
       </div>
 
       {/* Rows */}
@@ -280,29 +281,6 @@ function PlayerRowItem(props: PlayerRowItemProps) {
       onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; setHovered(true); }}
       onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; setHovered(false); }}
     >
-      {/* Watch toggle button — ホバー時のみ表示、watched 状態は右ボーダーで示す */}
-      <Show when={hovered()}>
-        <button
-          onClick={(e) => { e.stopPropagation(); toggleWatch(props.row.uid); }}
-          title={watched() ? "ウォッチ解除" : "バフタイマーでウォッチ"}
-          style={{
-            position: "absolute",
-            right: "4px",
-            top: "50%",
-            transform: "translateY(-50%)",
-            background: "none",
-            border: "none",
-            padding: "2px",
-            cursor: "pointer",
-            color: watched() ? "#4fc3f7" : "rgba(255,255,255,0.4)",
-            "z-index": "2",
-            display: "flex",
-            "align-items": "center",
-          }}
-        >
-          <WatchIcon pinned={watched()} />
-        </button>
-      </Show>
       {/* Background bar */}
       <div
         style={{
@@ -408,6 +386,32 @@ function PlayerRowItem(props: PlayerRowItemProps) {
             {props.row.abilityScore > 0 ? formatScore(props.row.abilityScore, abbreviateScores()) : "-"}
           </span>
         </Show>
+        {/* ウォッチボタン — グリッド末尾列に配置、ホバー時のみ表示 */}
+        <div
+          style={{
+            display: "flex",
+            "align-items": "center",
+            "justify-content": "center",
+            visibility: hovered() ? "visible" : "hidden",
+            "z-index": "1",
+          }}
+        >
+          <button
+            onClick={(e) => { e.stopPropagation(); toggleWatch(props.row.uid); }}
+            title={watched() ? "ウォッチ解除" : "バフタイマーでウォッチ"}
+            style={{
+              background: "none",
+              border: "none",
+              padding: "2px",
+              cursor: "pointer",
+              color: watched() ? "#4fc3f7" : "rgba(255,255,255,0.4)",
+              display: "flex",
+              "align-items": "center",
+            }}
+          >
+            <WatchIcon pinned={watched()} />
+          </button>
+        </div>
       </Show>
     </div>
   );
@@ -449,5 +453,6 @@ function gridCols(hideSpark: boolean): string {
   if (showHits()) cols += " 50px";
   if (showHpm()) cols += " 50px";
   if (showScore()) cols += " 50px";
+  cols += " 16px"; // ウォッチボタン列
   return cols;
 }

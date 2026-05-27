@@ -84,6 +84,7 @@ pub struct SelfBuffSnapshot {
 #[serde(rename_all = "camelCase")]
 pub struct PlayerBuffSnapshot {
     pub uid: f64,
+    pub name: String,
     pub buffs: Vec<SelfBuffSnapshot>,
 }
 

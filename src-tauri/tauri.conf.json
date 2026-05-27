@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "bpsr-checker",
-  "version": "0.7.15",
+  "version": "0.8.0",
   "identifier": "com.rererr.bpsr-checker",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -32,10 +32,10 @@
         "shadow": false,
         "decorations": false,
         "transparent": true,
-        "width": 240,
-        "height": 180,
-        "minWidth": 180,
-        "minHeight": 80,
+        "width": 286,
+        "height": 96,
+        "minWidth": 200,
+        "minHeight": 72,
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "visible": true,

@@ -55,7 +55,7 @@ pub fn run() {
         commands::cancel_3min_measure_mode,
         commands::finalize_3min_measure_mode,
         commands::get_measure_mode_status,
-        commands::get_self_buffs,
+        commands::get_tracked_buffs,
         commands::set_imagine_only_mode,
         commands::set_buffs_window_visible,
     ]);

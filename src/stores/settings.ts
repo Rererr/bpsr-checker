@@ -39,6 +39,7 @@ const [showBuffOverlay, setShowBuffOverlay] = persisted<boolean>("showBuffOverla
 const [imagineOnlyMode, setImagineOnlyMode] = persisted<boolean>("imagineOnlyMode", false);
 const [showElement, setShowElement] = persisted<boolean>("showElement", true);
 const [showDamageMode, setShowDamageMode] = persisted<boolean>("showDamageMode", true);
+const [compactSplitMode, setCompactSplitMode] = persisted<boolean>("compactSplitMode", false);
 
 export {
   opacity, setOpacity,
@@ -75,6 +76,7 @@ export {
   imagineOnlyMode, setImagineOnlyMode,
   showElement, setShowElement,
   showDamageMode, setShowDamageMode,
+  compactSplitMode, setCompactSplitMode,
 };
 
 export function wireBackendSettings() {

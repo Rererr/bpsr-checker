@@ -7,10 +7,10 @@ export type CharKind = "Tina" | "Aluna" | "Tarta" | "Basilisk";
 export const CHAR_KINDS: CharKind[] = ["Tina", "Aluna", "Tarta", "Basilisk"];
 
 export const KIND_COLORS: Record<CharKind, string> = {
-  Tina: "#4dd0e1",
-  Aluna: "#f48fb1",
-  Tarta: "#ffb74d",
-  Basilisk: "#9575cd",
+  Tina: "#ff4d6d",
+  Aluna: "#5fd35f",
+  Tarta: "#b98bff",
+  Basilisk: "#d9a05b",
 };
 
 const SIZE = 28;

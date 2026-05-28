@@ -14,4 +14,4 @@ export function t(key: TranslationKey): string {
 }
 
 export { locale, setLocale };
-export type { Locale };
+export type { Locale, TranslationKey };

@@ -4,7 +4,16 @@ import { trackedBuffs, startBuffPolling, stopBuffPolling } from "../stores/buffs
 import { watchedUids } from "../stores/watchlist";
 import { PlayerBuffRow } from "./PlayerBuffRow";
 import { CHAR_KINDS, KIND_COLORS } from "./CircularBuff";
+import type { CharKind } from "./CircularBuff";
 import { t } from "../lib/i18n";
+import type { TranslationKey } from "../lib/i18n";
+
+const CHAR_LABEL_KEY: Record<CharKind, TranslationKey> = {
+  Tina: "char_tina",
+  Aluna: "char_aluna",
+  Tarta: "char_tarta",
+  Basilisk: "char_basilisk",
+};
 
 export function BuffOverlay(): JSX.Element {
   onMount(() => {
@@ -21,7 +30,7 @@ export function BuffOverlay(): JSX.Element {
       style={{
         background: "rgba(10, 10, 18, 0.82)",
         "border-radius": "6px",
-        padding: "4px 8px",
+        padding: "10px 8px 4px",
         "min-height": "100vh",
         "max-height": "100vh",
         "overflow-y": "auto",
@@ -62,19 +71,17 @@ export function BuffOverlay(): JSX.Element {
             {(kind) => (
               <div
                 style={{
-                  width: "28px",
+                  width: "48px",
                   "flex-shrink": "0",
                   "text-align": "center",
                   "font-size": "9px",
                   color: KIND_COLORS[kind],
                   "font-weight": "600",
-                  overflow: "hidden",
-                  "text-overflow": "ellipsis",
                   "white-space": "nowrap",
                   "user-select": "none",
                 }}
               >
-                {kind}
+                {t(CHAR_LABEL_KEY[kind])}
               </div>
             )}
           </For>

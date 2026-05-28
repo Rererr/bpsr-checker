@@ -87,7 +87,6 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: "bpsr-checker ${{ github.ref_name }}"
-          body: "DPSチェッカー ${{ github.ref_name }}"
           draft: false
           prerelease: false
           files: signed/*

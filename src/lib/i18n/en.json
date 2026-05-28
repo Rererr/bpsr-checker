@@ -109,5 +109,9 @@
   "columns_meta": "Meta",
   "view": "View",
   "compact_split_mode": "Compact split view",
-  "buffs_empty_hint": "Pin a player in the DPS list"
+  "buffs_empty_hint": "Pin a player in the DPS list",
+  "char_tina": "Tina",
+  "char_aluna": "Aluna",
+  "char_tarta": "Tarta",
+  "char_basilisk": "Basilisk"
 }

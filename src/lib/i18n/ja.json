@@ -109,5 +109,9 @@
   "columns_meta": "メタ",
   "view": "表示",
   "compact_split_mode": "2列コンパクト表示",
-  "buffs_empty_hint": "DPS一覧でピンアイコンをクリック"
+  "buffs_empty_hint": "DPS一覧でピンアイコンをクリック",
+  "char_tina": "ティナ",
+  "char_aluna": "アルーナ",
+  "char_tarta": "タータ",
+  "char_basilisk": "バジリスク"
 }

@@ -42,7 +42,11 @@ export function PlayerBuffRow(props: PlayerBuffRowProps): JSX.Element {
         {props.name || `${props.uid}`}
       </div>
       <For each={CHAR_KINDS}>
-        {(kind) => <CircularBuff kind={kind} snap={getSnap(kind)} />}
+        {(kind) => (
+          <div style={{ width: "48px", "flex-shrink": "0", display: "flex", "justify-content": "center" }}>
+            <CircularBuff kind={kind} snap={getSnap(kind)} />
+          </div>
+        )}
       </For>
     </div>
   );

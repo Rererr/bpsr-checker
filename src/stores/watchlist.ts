@@ -43,3 +43,25 @@ export function seedLocalPlayer(uid: number): void {
   if (uid === 0) return;
   setWatched((prev) => (prev.includes(uid) ? prev : [uid, ...prev]));
 }
+
+const MAX_WATCHLIST = 20;
+
+export function clearWatchlist(): void {
+  setWatched([]);
+}
+
+export function removeFromWatchlist(uid: number): void {
+  setWatched((prev) => prev.filter((u) => u !== uid));
+}
+
+export function bulkAddPlayers(uids: number[]): void {
+  setWatched((prev) => {
+    if (prev.length >= MAX_WATCHLIST) return prev;
+    const merged = [...prev];
+    for (const uid of uids) {
+      if (merged.length >= MAX_WATCHLIST) break;
+      if (!merged.includes(uid)) merged.push(uid);
+    }
+    return merged;
+  });
+}

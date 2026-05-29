@@ -1,4 +1,4 @@
-import { For } from "solid-js";
+import { For, createSignal } from "solid-js";
 import type { JSX } from "solid-js";
 import type { SelfBuffSnapshot } from "../stores/buffs";
 import { getClassColor } from "../utils";
@@ -10,15 +10,19 @@ interface PlayerBuffRowProps {
   name: string;
   className: string;
   buffs: SelfBuffSnapshot[];
+  onRemove: () => void;
 }
 
 export function PlayerBuffRow(props: PlayerBuffRowProps): JSX.Element {
+  const [hovered, setHovered] = createSignal(false);
   const classColor = () => getClassColor(props.className);
   const getSnap = (kind: CharKind) =>
     props.buffs.find((b) => b.kind === kind) ?? null;
 
   return (
     <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
         display: "flex",
         "align-items": "center",
@@ -29,7 +33,7 @@ export function PlayerBuffRow(props: PlayerBuffRowProps): JSX.Element {
       <div
         title={props.name || `UID:${props.uid}`}
         style={{
-          width: "54px",
+          width: "46px",
           "flex-shrink": "0",
           "font-size": "10px",
           color: classColor(),
@@ -48,6 +52,34 @@ export function PlayerBuffRow(props: PlayerBuffRowProps): JSX.Element {
           </div>
         )}
       </For>
+      <div
+        style={{
+          width: "16px",
+          "flex-shrink": "0",
+          display: "flex",
+          "align-items": "center",
+          "justify-content": "center",
+          visibility: hovered() ? "visible" : "hidden",
+        }}
+      >
+        <button
+          onClick={(e) => { e.stopPropagation(); props.onRemove(); }}
+          title="ウォッチ解除"
+          style={{
+            background: "none",
+            border: "none",
+            padding: "2px",
+            cursor: "pointer",
+            color: "rgba(255,255,255,0.4)",
+            display: "flex",
+            "align-items": "center",
+            "line-height": "1",
+            "font-size": "12px",
+          }}
+        >
+          ×
+        </button>
+      </div>
     </div>
   );
 }

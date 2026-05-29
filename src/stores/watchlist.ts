@@ -1,33 +1,33 @@
 import { createSignal, createEffect } from "solid-js";
 
-const STORAGE_KEY = "bpsr.watchlist";
-
-function load(): number[] {
-  try {
-    const s = localStorage.getItem(STORAGE_KEY);
-    return s ? (JSON.parse(s) as number[]) : [];
-  } catch {
-    return [];
+function makePersisted(key: string) {
+  function load(): number[] {
+    try {
+      const s = localStorage.getItem(key);
+      return s ? (JSON.parse(s) as number[]) : [];
+    } catch {
+      return [];
+    }
   }
+  const [sig, set] = createSignal<number[]>(load());
+  createEffect(() => {
+    try {
+      localStorage.setItem(key, JSON.stringify(sig()));
+    } catch {}
+  });
+  window.addEventListener("storage", (e) => {
+    if (e.key === key && e.newValue !== null) {
+      try {
+        set(JSON.parse(e.newValue) as number[]);
+      } catch {}
+    }
+  });
+  return [sig, set] as const;
 }
 
 // uid 追加順を保持するため配列で管理
-const [_watched, setWatched] = createSignal<number[]>(load());
-
-createEffect(() => {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(_watched()));
-  } catch {}
-});
-
-// 別ウィンドウ（BuffOverlay）からの変更を受け取る
-window.addEventListener("storage", (e) => {
-  if (e.key === STORAGE_KEY && e.newValue !== null) {
-    try {
-      setWatched(JSON.parse(e.newValue) as number[]);
-    } catch {}
-  }
-});
+const [_watched, setWatched] = makePersisted("bpsr.watchlist");
+const [_excluded, setExcluded] = makePersisted("bpsr.watchlist.excluded");
 
 export const watchedUids = () => _watched();
 export const isWatched = (uid: number) => _watched().includes(uid);
@@ -48,20 +48,27 @@ const MAX_WATCHLIST = 20;
 
 export function clearWatchlist(): void {
   setWatched([]);
+  setExcluded([]);
 }
 
 export function removeFromWatchlist(uid: number): void {
   setWatched((prev) => prev.filter((u) => u !== uid));
+  setExcluded((prev) => (prev.includes(uid) ? prev : [...prev, uid]));
 }
 
 export function bulkAddPlayers(uids: number[]): void {
   setWatched((prev) => {
     if (prev.length >= MAX_WATCHLIST) return prev;
+    const excluded = _excluded();
     const merged = [...prev];
+    let changed = false;
     for (const uid of uids) {
       if (merged.length >= MAX_WATCHLIST) break;
-      if (!merged.includes(uid)) merged.push(uid);
+      if (!merged.includes(uid) && !excluded.includes(uid)) {
+        merged.push(uid);
+        changed = true;
+      }
     }
-    return merged;
+    return changed ? merged : prev;
   });
 }

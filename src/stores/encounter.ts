@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
+import { clearWatchlist, bulkAddPlayers } from "./watchlist";
 
 // Types matching Rust bridge/models.rs
 export interface HeaderInfo {
@@ -100,6 +101,9 @@ export async function fetchDpsData() {
     ]);
     setHeader(h);
     setDpsPlayers(d);
+    if (d.playerRows.length > 0) {
+      bulkAddPlayers(d.playerRows.map((r) => r.uid));
+    }
   } catch {
     // silently ignore — backend may not be ready
   }
@@ -156,6 +160,7 @@ export function resetPlayerWindows(): void {
   setHealPlayers({ playerRows: [], localPlayerUid: 0, topValue: 0 });
   setBossPlayers({ playerRows: [], localPlayerUid: 0, topValue: 0 });
   setTakenPlayers({ playerRows: [], localPlayerUid: 0, topValue: 0 });
+  clearWatchlist();
 }
 
 export async function resetEncounter() {

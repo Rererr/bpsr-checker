@@ -1,7 +1,7 @@
 import { For, onCleanup, onMount, Show } from "solid-js";
 import type { JSX } from "solid-js";
 import { trackedBuffs, startBuffPolling, stopBuffPolling } from "../stores/buffs";
-import { watchedUids } from "../stores/watchlist";
+import { watchedUids, removeFromWatchlist } from "../stores/watchlist";
 import { PlayerBuffRow } from "./PlayerBuffRow";
 import { CHAR_KINDS, KIND_COLORS } from "./CircularBuff";
 import type { CharKind } from "./CircularBuff";
@@ -66,7 +66,7 @@ export function BuffOverlay(): JSX.Element {
           }}
         >
           {/* 名前列のスペース確保 */}
-          <div style={{ width: "54px", "flex-shrink": "0" }} />
+          <div style={{ width: "46px", "flex-shrink": "0" }} />
           <For each={CHAR_KINDS}>
             {(kind) => (
               <div
@@ -96,6 +96,7 @@ export function BuffOverlay(): JSX.Element {
                 name={snap()?.name ?? ""}
                 className=""
                 buffs={snap()?.buffs ?? []}
+                onRemove={() => removeFromWatchlist(uid)}
               />
             );
           }}

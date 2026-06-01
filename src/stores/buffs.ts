@@ -1,15 +1,9 @@
 import { createSignal } from "solid-js";
+import { invoke } from "@tauri-apps/api/core";
 import { isWatched, seedLocalPlayer, watchedUids } from "./watchlist";
+import type { SelfBuffSnapshot } from "../buffs/types";
 
-export interface SelfBuffSnapshot {
-  kind: string;
-  baseId: number;
-  buffUuid: number;
-  layer: number;
-  remainingMs: number;
-  durationMs: number;
-  receivedAtMs: number;
-}
+export type { SelfBuffSnapshot };
 
 export interface PlayerBuffSnapshot {
   uid: number;
@@ -49,7 +43,6 @@ async function fetchTrackedBuffs(): Promise<void> {
     return;
   }
   const uids = watchedUids();
-  const { invoke } = await import("@tauri-apps/api/core");
   const data = await invoke<TrackedBuffsData>("get_tracked_buffs", { uids });
   setPollReceivedAt(performance.now());
   setTrackedBuffs(data);

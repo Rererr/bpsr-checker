@@ -4,6 +4,7 @@ import type { SelfBuffSnapshot } from "../stores/buffs";
 import { getClassColor } from "../utils";
 import { CircularBuff, CHAR_KINDS } from "./CircularBuff";
 import type { CharKind } from "./CircularBuff";
+import { t } from "../lib/i18n";
 
 interface PlayerBuffRowProps {
   uid: number;
@@ -64,7 +65,7 @@ export function PlayerBuffRow(props: PlayerBuffRowProps): JSX.Element {
       >
         <button
           onClick={(e) => { e.stopPropagation(); props.onRemove(); }}
-          title="ウォッチ解除"
+          title={t("unwatch")}
           style={{
             background: "none",
             border: "none",

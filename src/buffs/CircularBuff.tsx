@@ -1,8 +1,8 @@
 import type { JSX } from "solid-js";
 import { pollReceivedAt, tick } from "../stores/buffs";
-import type { SelfBuffSnapshot } from "../stores/buffs";
+import type { CharKind, SelfBuffSnapshot } from "./types";
 
-export type CharKind = "Tina" | "Aluna" | "Tarta" | "Basilisk";
+export type { CharKind };
 
 export const CHAR_KINDS: CharKind[] = ["Tina", "Aluna", "Tarta", "Basilisk"];
 
@@ -13,10 +13,10 @@ export const KIND_COLORS: Record<CharKind, string> = {
   Basilisk: "#d9a05b",
 };
 
-const SIZE = 28;
+const SIZE = 32;
 const STROKE = 3;
-const R = SIZE / 2 - STROKE / 2; // 12.5
-const CIRCUMFERENCE = 2 * Math.PI * R; // ≈ 78.54
+const R = SIZE / 2 - STROKE / 2; // 14.5
+const CIRCUMFERENCE = 2 * Math.PI * R; // ≈ 91.11
 
 interface CircularBuffProps {
   kind: CharKind;
@@ -111,7 +111,7 @@ export function CircularBuff(props: CircularBuffProps): JSX.Element {
           display: "flex",
           "align-items": "center",
           "justify-content": "center",
-          "font-size": "7px",
+          "font-size": "9px",
           "font-variant-numeric": "tabular-nums",
           color: textColor(),
           "pointer-events": "none",

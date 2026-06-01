@@ -20,13 +20,12 @@ const VALID_STARTUP_TABS: Tab[] = ["dps", "heal", "taken", "history"];
 
 export default function App() {
   clearWatchlist();
-  onMount(() => {
-    let unlisteners: UnlistenFn[] = [];
-    Promise.all([
+  onMount(async () => {
+    const unlisteners = await Promise.all([
       wireBackendSettings(),
       wireMeasureMode(),
       wireEncounterReset(),
-    ]).then((us) => { unlisteners = us; });
+    ]);
     onCleanup(() => unlisteners.forEach((u) => u()));
   });
 
@@ -104,10 +103,17 @@ export default function App() {
             onBack={backFromTakenAttackers}
           />
         ) : (
-          <PlayerTable
-            tab={tab()}
-            onSelectPlayer={tab() === "taken" ? openTakenAttackers : openSkills}
-          />
+          <div style={{ flex: "1", display: "flex", "flex-direction": "column", "min-height": "0" }}>
+            <Show when={tab() === "taken"}>
+              <div style={{ padding: "4px 8px", "font-size": "10px", color: "#888", "border-bottom": "1px solid rgba(255,255,255,0.05)" }}>
+                {t("taken_select_target")}
+              </div>
+            </Show>
+            <PlayerTable
+              tab={tab()}
+              onSelectPlayer={tab() === "taken" ? openTakenAttackers : openSkills}
+            />
+          </div>
         )}
       </Show>
       <Show when={threeMinResult() !== null && !imagineOnlyMode()}>
@@ -137,6 +143,9 @@ function ImagineOnlyBanner(props: { onOpenSettings: () => void }) {
       </div>
       <div style={{ "font-size": "11px", color: "#999", "line-height": "1.5", "max-width": "360px" }}>
         {t("imagine_only_mode_active_body")}
+      </div>
+      <div style={{ "font-size": "10px", color: "#666", "max-width": "360px" }}>
+        {t("imagine_only_mode_active_hint")}
       </div>
       <button
         onClick={props.onOpenSettings}

@@ -115,7 +115,7 @@ function ToggleChip(props: {
         type="checkbox"
         checked={props.value}
         onChange={(e) => props.onChange(e.currentTarget.checked)}
-        style={{ display: "none" }}
+        style={{ position: "absolute", opacity: 0, width: "1px", height: "1px", margin: "-1px", overflow: "hidden" }}
       />
       <span
         style={{
@@ -166,6 +166,8 @@ function NumCell(props: {
   step?: number;
   onChange: (v: number) => void;
 }) {
+  const [outOfRange, setOutOfRange] = createSignal(false);
+
   return (
     <div>
       <div
@@ -188,13 +190,19 @@ function NumCell(props: {
         value={props.value}
         onInput={(e) => {
           const v = parseInt(e.currentTarget.value, 10);
-          if (!isNaN(v) && v >= props.min && v <= props.max) props.onChange(v);
+          if (isNaN(v) || v < props.min || v > props.max) {
+            setOutOfRange(true);
+          } else {
+            setOutOfRange(false);
+            props.onChange(v);
+          }
         }}
+        onBlur={() => setOutOfRange(false)}
         style={{
           width: "100%",
           "box-sizing": "border-box",
           background: "rgba(255,255,255,0.08)",
-          border: "1px solid rgba(255,255,255,0.15)",
+          border: outOfRange() ? "1px solid #ff5252" : "1px solid rgba(255,255,255,0.15)",
           color: "#ddd",
           "border-radius": "3px",
           padding: "2px 5px",

@@ -15,7 +15,10 @@ pub fn push(mut snapshot: EncounterSnapshot) {
     snapshot.id = NEXT_ID.fetch_add(1, Ordering::Relaxed) as f64;
     let mut guard = match history().lock() {
         Ok(g) => g,
-        Err(p) => p.into_inner(),
+        Err(e) => {
+            log::error!("history::push: lock poisoned: {e}");
+            return;
+        }
     };
     guard.push_back(snapshot);
     let limit = HISTORY_LIMIT.load(Ordering::Relaxed);
@@ -27,7 +30,10 @@ pub fn push(mut snapshot: EncounterSnapshot) {
 pub fn snapshot_list() -> Vec<EncounterSnapshot> {
     let guard = match history().lock() {
         Ok(g) => g,
-        Err(p) => p.into_inner(),
+        Err(e) => {
+            log::error!("history::snapshot_list: lock poisoned: {e}");
+            return vec![];
+        }
     };
     guard.iter().rev().cloned().collect()
 }

@@ -4,12 +4,11 @@ pub mod tcp_reassembler;
 #[cfg(target_os = "windows")]
 pub mod windivert;
 
-use crate::engine::encounter::EncounterMutex;
 use crate::engine::processor;
 use crate::error::AppResult;
 use crate::protocol::opcodes::PktEnvelope;
 use log::{info, warn};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 pub async fn start(app_handle: AppHandle) -> AppResult<()> {
     #[cfg(target_os = "windows")]
@@ -36,16 +35,6 @@ async fn process_packets(
     rx: &mut tokio::sync::mpsc::Receiver<PktEnvelope>,
 ) {
     while let Some(env) = rx.recv().await {
-        // Check if paused
-        {
-            let state = app_handle.state::<EncounterMutex>();
-            if let Ok(encounter) = state.lock() {
-                if encounter.is_paused {
-                    continue;
-                }
-            }
-        }
-
         if let Err(e) = processor::process_opcode(app_handle, env) {
             warn!("Error processing packet: {e}");
         }

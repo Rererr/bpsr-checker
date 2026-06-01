@@ -98,42 +98,34 @@ pub fn update(
     };
     let entry = guard.entries.entry(uid).or_default();
 
-    let mut changed = false;
     if let Some(n) = name {
         if !n.is_empty() && entry.name != n {
             entry.name = n.to_string();
-            changed = true;
         }
     }
     if let Some(c) = class_id {
         if c != 0 && entry.class_id != Some(c) {
             entry.class_id = Some(c);
-            changed = true;
         }
     }
     if let Some(s) = ability_score {
         if s > 0 && entry.ability_score != Some(s) {
             entry.ability_score = Some(s);
-            changed = true;
         }
     }
     if let Some(lv) = season_level {
         if lv > 0 && entry.season_level != Some(lv) {
             entry.season_level = Some(lv);
-            changed = true;
         }
     }
     if let Some(st) = season_strength {
         if st > 0 && entry.season_strength != Some(st) {
             entry.season_strength = Some(st);
-            changed = true;
         }
     }
     entry.last_seen_ms = now_ms();
 
-    if changed {
-        save_locked(&guard);
-    }
+    save_locked(&guard);
 }
 
 /// Force write the cache to disk. Called on app exit so any pending

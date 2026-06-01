@@ -200,10 +200,13 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
         .text("quit", "終了")
         .build()?;
 
-    let _tray = TrayIconBuilder::new()
+    let mut tray_builder = TrayIconBuilder::new()
         .menu(&menu)
-        .show_menu_on_left_click(false)
-        .icon(app.default_window_icon().unwrap().clone())
+        .show_menu_on_left_click(false);
+    if let Some(icon) = app.default_window_icon() {
+        tray_builder = tray_builder.icon(icon.clone());
+    }
+    let _tray = tray_builder
         .on_menu_event(|tray_app, event| match event.id.as_ref() {
             "toggle-settings" => {
                 let handle = tray_app.app_handle();

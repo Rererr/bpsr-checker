@@ -60,10 +60,24 @@ pub fn set(uid: Option<i64>) {
 }
 
 pub fn flush() {
-    let Ok(guard) = state().read() else {
+    let (path, uid) = {
+        let Ok(guard) = state().read() else {
+            return;
+        };
+        (guard.path.clone(), guard.uid)
+    };
+    let Some(path) = path else { return };
+    let file = SelectedUidFile { uid };
+    let Ok(data) = serde_json::to_string(&file) else {
+        warn!("selected_uid: シリアライズ失敗");
         return;
     };
-    save_locked_read(&guard);
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Err(e) = std::fs::write(&path, data) {
+        warn!("selected_uid: 保存失敗 ({}): {e}", path.display());
+    }
 }
 
 fn save_locked(guard: &std::sync::RwLockWriteGuard<SelectedUidState>) {
@@ -81,17 +95,3 @@ fn save_locked(guard: &std::sync::RwLockWriteGuard<SelectedUidState>) {
     }
 }
 
-fn save_locked_read(guard: &std::sync::RwLockReadGuard<SelectedUidState>) {
-    let Some(path) = &guard.path else { return };
-    let file = SelectedUidFile { uid: guard.uid };
-    let Ok(data) = serde_json::to_string(&file) else {
-        warn!("selected_uid: シリアライズ失敗");
-        return;
-    };
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    if let Err(e) = std::fs::write(path, data) {
-        warn!("selected_uid: 保存失敗 ({}): {e}", path.display());
-    }
-}

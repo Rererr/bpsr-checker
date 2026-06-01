@@ -143,9 +143,11 @@ export function Header(props: HeaderProps) {
       data-tauri-drag-region
     >
       {/* Tabs */}
-      <div style={{ display: "flex", gap: "2px" }}>
+      <div role="tablist" style={{ display: "flex", gap: "2px" }}>
         {(["dps", "heal", "taken", "history"] as Tab[]).map((tab) => (
           <button
+            role="tab"
+            aria-selected={props.tab === tab}
             onClick={() => props.onTabChange(tab)}
             style={{
               padding: "2px 8px",
@@ -297,13 +299,13 @@ export function Header(props: HeaderProps) {
         >
           {(() => {
             const m = mode();
-            if (m.kind === "pending") return t("mode_3min_pending");
+            if (m.kind === "pending") return `⏳ ${t("mode_3min_pending")}`;
             if (m.kind === "active") {
               const rem = m.remainingMs ?? 0;
               const totalSec = Math.ceil(rem / 1000);
               const mm = String(Math.floor(totalSec / 60)).padStart(2, "0");
               const ss = String(totalSec % 60).padStart(2, "0");
-              return `${mm}:${ss}`;
+              return `▶ ${mm}:${ss}`;
             }
             return t("mode_3min_button");
           })()}
@@ -318,11 +320,12 @@ export function Header(props: HeaderProps) {
         <button
           onClick={async () => {
             const m = mode();
-            if ((m.kind === "pending" || m.kind === "active") && !window.confirm(t("mode_3min_cancel_confirm"))) {
-              return;
-            }
+            const hasData = h().totalDmg > 0;
             if (m.kind === "pending" || m.kind === "active") {
+              if (!window.confirm(t("mode_3min_cancel_confirm"))) return;
               await cancel3Min();
+            } else if (hasData && !window.confirm(t("reset_confirm"))) {
+              return;
             }
             resetEncounter();
           }}

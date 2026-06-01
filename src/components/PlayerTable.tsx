@@ -264,7 +264,10 @@ function PlayerRowItem(props: PlayerRowItemProps) {
   return (
     <div
       class="player-row"
+      role="button"
+      tabIndex={0}
       onClick={props.onClick}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); props.onClick(); } }}
       style={{
         position: "relative",
         display: "grid",
@@ -386,27 +389,28 @@ function PlayerRowItem(props: PlayerRowItemProps) {
             {props.row.abilityScore > 0 ? formatScore(props.row.abilityScore, abbreviateScores()) : "-"}
           </span>
         </Show>
-        {/* ウォッチボタン — グリッド末尾列に配置、ホバー時のみ表示 */}
+        {/* ウォッチボタン — グリッド末尾列に配置 */}
         <div
           style={{
             display: "flex",
             "align-items": "center",
             "justify-content": "center",
-            visibility: hovered() ? "visible" : "hidden",
             "z-index": "1",
           }}
         >
           <button
             onClick={(e) => { e.stopPropagation(); toggleWatch(props.row.uid); }}
-            title={watched() ? "ウォッチ解除" : "バフタイマーでウォッチ"}
+            title={watched() ? t("unwatch") : "バフタイマーでウォッチ"}
             style={{
               background: "none",
               border: "none",
               padding: "2px",
               cursor: "pointer",
               color: watched() ? "#4fc3f7" : "rgba(255,255,255,0.4)",
+              opacity: watched() ? 1 : (hovered() ? 1 : 0.3),
               display: "flex",
               "align-items": "center",
+              transition: "opacity 0.15s",
             }}
           >
             <WatchIcon pinned={watched()} />

@@ -1,6 +1,7 @@
 import { createSignal } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 import type { EncounterSnapshot } from "./encounter";
 import { resetPlayerWindows } from "./encounter";
 
@@ -40,10 +41,10 @@ export function closeThreeMinResult(): void {
   setThreeMinResult(null);
 }
 
-export function wireMeasureMode(): void {
-  listen<EncounterSnapshot>("3min-measure-finalized", (event) => {
+export async function wireMeasureMode(): Promise<UnlistenFn> {
+  return await listen<EncounterSnapshot>("3min-measure-finalized", (event) => {
     setMeasureModeStatus({ kind: "normal" });
     setThreeMinResult(event.payload);
     resetPlayerWindows();
-  }).catch((e) => console.error("listen 3min-measure-finalized failed:", e));
+  });
 }

@@ -1,4 +1,5 @@
-import { createSignal, Show } from "solid-js";
+import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 import { Header } from "./components/Header";
 import { PlayerTable } from "./components/PlayerTable";
 import { SkillTable } from "./components/SkillTable";
@@ -9,6 +10,8 @@ import { HistoryView } from "./components/HistoryView";
 import { ThreeMinResultModal } from "./components/ThreeMinResultModal";
 import { wireBackendSettings, fontSize, startupTab, opacity, imagineOnlyMode } from "./stores/settings";
 import { wireMeasureMode, threeMinResult } from "./stores/measureMode";
+import { wireEncounterReset } from "./stores/encounter";
+import { clearWatchlist } from "./stores/watchlist";
 import { t } from "./lib/i18n";
 
 export type Tab = "dps" | "heal" | "taken" | "history" | "skills";
@@ -16,8 +19,16 @@ export type Tab = "dps" | "heal" | "taken" | "history" | "skills";
 const VALID_STARTUP_TABS: Tab[] = ["dps", "heal", "taken", "history"];
 
 export default function App() {
-  wireBackendSettings();
-  wireMeasureMode();
+  clearWatchlist();
+  onMount(() => {
+    let unlisteners: UnlistenFn[] = [];
+    Promise.all([
+      wireBackendSettings(),
+      wireMeasureMode(),
+      wireEncounterReset(),
+    ]).then((us) => { unlisteners = us; });
+    onCleanup(() => unlisteners.forEach((u) => u()));
+  });
 
   const initialTab = VALID_STARTUP_TABS.includes(startupTab() as Tab)
     ? (startupTab() as Tab)

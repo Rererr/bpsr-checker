@@ -15,7 +15,7 @@ use log::{debug, info, warn};
 use prost::Message;
 use std::io::Cursor;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 /// Get-or-create an entity, pre-populating identity (name/class/score)
 /// from the persistent name cache when the entity is freshly created
@@ -208,7 +208,9 @@ pub fn process_opcode(app_handle: &AppHandle, env: PktEnvelope) -> AppResult<()>
                     else {
                         return Ok(());
                     };
-                    process_local_delta_batch(&mut encounter, msg);
+                    if process_local_delta_batch(&mut encounter, msg) {
+                        let _ = app_handle.emit("encounter-reset", ());
+                    }
                 }
 
                 Pkt::WorldDeltaBatch => {
@@ -216,8 +218,13 @@ pub fn process_opcode(app_handle: &AppHandle, env: PktEnvelope) -> AppResult<()>
                     else {
                         return Ok(());
                     };
+                    // リセット境界をまたぐ delta 混在を防ぐため、リセット検知時点で
+                    // 同一パケット内の残り delta は破棄する
                     for scene_delta in msg.delta_infos {
-                        process_scene_delta(&mut encounter, scene_delta);
+                        if process_scene_delta(&mut encounter, scene_delta) {
+                            let _ = app_handle.emit("encounter-reset", ());
+                            break;
+                        }
                     }
                 }
 
@@ -353,9 +360,9 @@ fn process_world_enter_snapshot(
     );
 }
 
-fn process_local_delta_batch(encounter: &mut Encounter, msg: pb::LocalDeltaBatch) {
+fn process_local_delta_batch(encounter: &mut Encounter, msg: pb::LocalDeltaBatch) -> bool {
     let Some(delta_info) = msg.delta_info else {
-        return;
+        return false;
     };
 
     // LocalSceneDelta.effects(field 3): 自プレイヤーへのバフ/デバフ効果リスト
@@ -368,15 +375,15 @@ fn process_local_delta_batch(encounter: &mut Encounter, msg: pb::LocalDeltaBatch
     }
 
     let Some(base_delta) = delta_info.base_delta else {
-        return;
+        return false;
     };
-    process_scene_delta(encounter, base_delta);
+    process_scene_delta(encounter, base_delta)
 }
 
-fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::SceneDelta) {
+fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::SceneDelta) -> bool {
     let target_uuid = scene_delta.uuid;
     if target_uuid == 0 {
-        return;
+        return false;
     }
     let target_uid = entity::get_player_uid(target_uuid);
     let target_entity_type = EntityKind::from(target_uuid);
@@ -430,11 +437,11 @@ fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::SceneDelta) {
 
     // 軽量モードでは以降のダメージ/ヒール/時系列集計を全て省略
     if imagine_only {
-        return;
+        return false;
     }
 
     let Some(skill_effect) = scene_delta.skill_effects else {
-        return; // no damage in this delta, that's fine
+        return false; // no damage in this delta, that's fine
     };
 
     if !skill_effect.damages.is_empty() {
@@ -459,6 +466,7 @@ fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::SceneDelta) {
                 crate::engine::history::push(snapshot);
             }
             encounter.clear_combat_stats();
+            return true;
         }
     }
 
@@ -661,6 +669,7 @@ fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::SceneDelta) {
             encounter.last_sample_total_dmg = encounter.dmg_stats.total;
         }
     }
+    false
 }
 
 fn process_player_attrs(uid: i64, player_entity: &mut Entity, attrs: Vec<pb::RawAttr>) {

@@ -1,4 +1,4 @@
-import { Show, For } from "solid-js";
+import { Show, For, onMount, onCleanup } from "solid-js";
 import { t } from "../lib/i18n";
 import { threeMinResult, closeThreeMinResult, start3Min } from "../stores/measureMode";
 import { threeMinDurationSec, copyTemplate } from "../stores/settings";
@@ -7,6 +7,8 @@ import { formatDps, formatNumber, formatElapsed, formatRowAsText } from "../util
 
 export function ThreeMinResultModal() {
   const snap = () => threeMinResult();
+
+  let closeButtonRef: HTMLButtonElement | undefined;
 
   const handleCopyResult = async () => {
     const s = snap();
@@ -23,6 +25,16 @@ export function ThreeMinResultModal() {
     closeThreeMinResult();
     await start3Min(threeMinDurationSec());
   };
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Escape") closeThreeMinResult();
+  };
+
+  onMount(() => {
+    closeButtonRef?.focus();
+    window.addEventListener("keydown", handleKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
+  });
 
   return (
     <Show when={snap()}>
@@ -61,6 +73,7 @@ export function ThreeMinResultModal() {
                 {t("mode_3min_result_title")}
               </span>
               <button
+                ref={closeButtonRef}
                 onClick={closeThreeMinResult}
                 style={{ background: "transparent", border: "none", color: "#888", cursor: "pointer", "font-size": "16px", padding: "0 4px" }}
               >
@@ -86,7 +99,7 @@ export function ThreeMinResultModal() {
 
             {/* Sparkline */}
             <Show when={s().timeSeries.length > 0}>
-              <Sparkline points={s().timeSeries} width={520} height={36} />
+              <Sparkline points={s().timeSeries} width={Math.min(520, window.innerWidth - 48)} height={36} />
             </Show>
 
             {/* Player rows */}

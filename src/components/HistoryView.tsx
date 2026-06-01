@@ -61,6 +61,9 @@ export function HistoryView() {
 
 function HistoryItem(props: { snap: EncounterSnapshot; expanded: boolean; onToggle: () => void }) {
   const snap = () => props.snap;
+  const [showAll, setShowAll] = createSignal(false);
+
+  const displayedRows = () => showAll() ? snap().playerRows : snap().playerRows.slice(0, 5);
 
   return (
     <div style={{ "border-bottom": "1px solid rgba(255,255,255,0.05)" }}>
@@ -86,12 +89,22 @@ function HistoryItem(props: { snap: EncounterSnapshot; expanded: boolean; onTogg
 
       <Show when={props.expanded}>
         <div style={{ padding: "0 8px 6px 8px", background: "rgba(0,0,0,0.15)" }}>
-          <For each={snap().playerRows.slice(0, 5)}>
+          <For each={displayedRows()}>
             {(row, i) => <SnapshotPlayerRow row={row} rank={i() + 1} topValue={snap().playerRows[0]?.totalValue ?? 1} />}
           </For>
           <Show when={snap().playerRows.length > 5}>
-            <div style={{ color: "#555", "font-size": "10px", padding: "2px 0" }}>
-              +{snap().playerRows.length - 5} {t("players_count")}
+            <div
+              onClick={(e) => { e.stopPropagation(); setShowAll(!showAll()); }}
+              style={{
+                color: "#4fc3f7",
+                "font-size": "10px",
+                padding: "2px 0",
+                cursor: "pointer",
+              }}
+            >
+              {showAll()
+                ? `▲ ${t("history_collapse")}`
+                : `+${snap().playerRows.length - 5} ${t("players_count")} ▼`}
             </div>
           </Show>
         </div>

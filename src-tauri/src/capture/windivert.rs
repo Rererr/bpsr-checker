@@ -209,8 +209,9 @@ async fn read_packets(
                                                     &mut known_server,
                                                     &mut game_subnet,
                                                     &mut tcp_reassembler,
-                                                    tcp_packet.sequence_number() as usize
-                                                        + tcp_payload_reader.len(),
+                                                    tcp_packet.sequence_number().wrapping_add(
+                                                        tcp_payload_reader.len() as u32,
+                                                    ),
                                                     &mut subnet_reassemblers,
                                                 );
                                                 emit_server_handover(packet_sender);
@@ -255,7 +256,9 @@ async fn read_packets(
                         &mut known_server,
                         &mut game_subnet,
                         &mut tcp_reassembler,
-                        tcp_packet.sequence_number() as usize + tcp_payload.len(),
+                        tcp_packet
+                            .sequence_number()
+                            .wrapping_add(tcp_payload.len() as u32),
                         &mut subnet_reassemblers,
                     );
                     emit_server_handover(packet_sender);
@@ -279,7 +282,8 @@ async fn read_packets(
                                 packet_sender,
                                 true,
                                 curr_server,
-                            );
+                            )
+                            .await;
                         }
                     }
                 }
@@ -294,7 +298,8 @@ async fn read_packets(
             packet_sender,
             false,
             curr_server,
-        );
+        )
+        .await;
 
         if *restart_receiver.borrow() {
             info!("WinDivert restart requested during packet processing, closing handle");
@@ -313,7 +318,7 @@ fn update_known_server(
     known_server: &mut Option<Server>,
     game_subnet: &mut Option<[u8; 2]>,
     reassembler: &mut TcpReassembler,
-    seq: usize,
+    seq: u32,
     subnet_reassemblers: &mut HashMap<Server, TcpReassembler>,
 ) {
     *known_server = Some(*server);
@@ -330,7 +335,7 @@ fn update_known_server(
     subnet_reassemblers.clear();
 }
 
-fn reassemble_and_process(
+async fn reassemble_and_process(
     reassembler: &mut TcpReassembler,
     tcp_packet: &etherparse::TcpSlice<'_>,
     packet_sender: &tokio::sync::mpsc::Sender<PktEnvelope>,
@@ -341,13 +346,15 @@ fn reassemble_and_process(
         return;
     }
     if reassembler.next_seq.is_none() {
-        reassembler.next_seq = Some(tcp_packet.sequence_number() as usize);
+        reassembler.next_seq = Some(tcp_packet.sequence_number());
     }
 
     // Only insert if this segment is not behind next_seq
     if let Some(next_seq) = reassembler.next_seq {
-        let pkt_seq = tcp_packet.sequence_number() as usize;
-        if next_seq.saturating_sub(pkt_seq) == 0 {
+        let pkt_seq = tcp_packet.sequence_number();
+        // pkt_seq >= next_seq in wrapping arithmetic: wrapping_sub == 0 when equal, or
+        // the difference is small (recent seq) vs large (stale seq that wrapped past)
+        if next_seq.wrapping_sub(pkt_seq) == 0 {
             reassembler
                 .cache
                 .insert(pkt_seq, Vec::from(tcp_packet.payload()));
@@ -373,11 +380,11 @@ fn reassemble_and_process(
         }
         let cached_tcp_data = reassembler.cache.remove(&next_seq).expect("just checked");
         reassembler.data.extend_from_slice(&cached_tcp_data);
-        reassembler.next_seq = Some(next_seq.wrapping_add(cached_tcp_data.len()));
+        reassembler.next_seq = Some(next_seq.wrapping_add(cached_tcp_data.len() as u32));
     }
 
     while reassembler.data.len() > 4 {
-        let packet_size = match BinaryReader::from(reassembler.data.clone()).read_u32() {
+        let packet_size = match reassembler.data[..4].try_into().map(u32::from_be_bytes) {
             Ok(sz) => sz,
             Err(e) => {
                 debug!("Malformed reassembled packet: failed to read_u32: {e}");
@@ -401,13 +408,8 @@ fn reassemble_and_process(
         if reassembler.data.len() < packet_size as usize {
             break;
         }
-        let (left, right) = reassembler.data.split_at(packet_size as usize);
-        let packet = left.to_vec();
-        reassembler.data = right.to_vec();
-        let sender = packet_sender.clone();
-        tauri::async_runtime::spawn(async move {
-            process_packet(BinaryReader::from(packet), sender, conn).await;
-        });
+        let packet: Vec<u8> = reassembler.data.drain(..packet_size as usize).collect();
+        process_packet(BinaryReader::from(packet), packet_sender, conn).await;
     }
 }
 

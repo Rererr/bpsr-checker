@@ -873,10 +873,10 @@ pub fn get_measure_mode_status(state: tauri::State<'_, EncounterMutex>) -> Measu
                 duration_ms,
             } => {
                 let elapsed = now_ms().saturating_sub(armed_at_ms);
-                let remaining = (duration_ms as i128) - (elapsed as i128);
+                let remaining = duration_ms.saturating_sub(elapsed) as f64;
                 MeasureModeStatus {
                     kind: "active".to_string(),
-                    remaining_ms: Some(remaining.max(0) as f64),
+                    remaining_ms: Some(remaining),
                     duration_ms: Some(duration_ms as f64),
                     armed_at_ms: Some(armed_at_ms as f64),
                 }

@@ -176,6 +176,10 @@ pub fn process_opcode(app_handle: &AppHandle, env: PktEnvelope) -> AppResult<()>
                 .lock()
                 .map_err(|e| AppError::LockPoisoned(e.to_string()))?;
 
+            if encounter.is_paused {
+                return Ok(());
+            }
+
             if !should_accept(&mut encounter, conn, &op) {
                 return Ok(());
             }
@@ -233,9 +237,7 @@ pub fn process_opcode(app_handle: &AppHandle, env: PktEnvelope) -> AppResult<()>
 
                     if let Ok(msg) = pb::BuffSnapshot::decode(data.as_slice()) {
                         encounter.buff_tracker.apply_full_info(&msg, ts);
-                    }
-
-                    if let Ok(msg) = pb::BuffTick::decode(data.as_slice()) {
+                    } else if let Ok(msg) = pb::BuffTick::decode(data.as_slice()) {
                         encounter.buff_tracker.apply_change(&msg, ts);
                     }
                 }
@@ -277,10 +279,10 @@ fn process_world_entity_batch(encounter: &mut Encounter, msg: pb::WorldEntityBat
         if let Some(attrs) = &pkt_entity.attrs {
             match target_entity_type {
                 EntityKind::Player => {
-                    process_player_attrs(target_uid, target_entity, attrs.attrs.clone());
+                    process_player_attrs(target_uid, target_entity, &attrs.attrs);
                 }
                 EntityKind::Monster => {
-                    process_monster_attrs(target_entity, attrs.attrs.clone());
+                    process_monster_attrs(target_entity, &attrs.attrs);
                 }
                 _ => {}
             }
@@ -396,10 +398,10 @@ fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::SceneDelta) -
         if let Some(attrs_collection) = scene_delta.attrs {
             match target_entity_type {
                 EntityKind::Player => {
-                    process_player_attrs(target_uid, target_entity, attrs_collection.attrs);
+                    process_player_attrs(target_uid, target_entity, &attrs_collection.attrs);
                 }
                 EntityKind::Monster => {
-                    process_monster_attrs(target_entity, attrs_collection.attrs);
+                    process_monster_attrs(target_entity, &attrs_collection.attrs);
                 }
                 _ => {}
             }
@@ -672,7 +674,7 @@ fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::SceneDelta) -
     false
 }
 
-fn process_player_attrs(uid: i64, player_entity: &mut Entity, attrs: Vec<pb::RawAttr>) {
+fn process_player_attrs(uid: i64, player_entity: &mut Entity, attrs: &[pb::RawAttr]) {
     use crate::capture::binary_reader::BinaryReader;
 
     let mut cache_name: Option<String> = None;
@@ -688,9 +690,8 @@ fn process_player_attrs(uid: i64, player_entity: &mut Entity, attrs: Vec<pb::Raw
 
         match attr.id {
             attr_type::ATTR_NAME => {
-                let mut raw_bytes = attr.raw_data;
                 // Skip the leading length byte
-                raw_bytes.remove(0);
+                let raw_bytes = attr.raw_data[1..].to_vec();
                 match BinaryReader::from(raw_bytes).read_string() {
                     Ok(player_name) => {
                         debug!("Found player name: {player_name}");
@@ -747,7 +748,7 @@ fn process_player_attrs(uid: i64, player_entity: &mut Entity, attrs: Vec<pb::Raw
     }
 }
 
-fn process_monster_attrs(monster_entity: &mut Entity, attrs: Vec<pb::RawAttr>) {
+fn process_monster_attrs(monster_entity: &mut Entity, attrs: &[pb::RawAttr]) {
     for attr in attrs {
         if attr.raw_data.is_empty() || attr.id == 0 {
             continue;

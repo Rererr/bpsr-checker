@@ -409,7 +409,7 @@ async fn reassemble_and_process(
             break;
         }
         let packet: Vec<u8> = reassembler.data.drain(..packet_size as usize).collect();
-        process_packet(BinaryReader::from(packet), packet_sender, conn).await;
+        process_packet(BinaryReader::from(packet), packet_sender.clone(), conn).await;
     }
 }
 

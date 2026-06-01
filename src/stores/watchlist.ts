@@ -15,6 +15,12 @@ function makePersisted(key: string) {
       localStorage.setItem(key, JSON.stringify(sig()));
     } catch {}
   });
+  // storage イベントを購読してウィンドウ間の変更をシグナルに反映する。
+  // persisted.ts は同一タブ内のシグナル書き込みのみを担うが、Tauriでは
+  // メインウィンドウとバフオーバーレイウィンドウが同じ localStorage を共有するため、
+  // 別ウィンドウからウォッチリストが変更された際にも即座に反映する必要がある。
+  // このリスナーはモジュール初期化時に一度だけ登録され、アプリのライフサイクル全体で
+  // 有効であることが前提のため removeEventListener による cleanup は不要。
   window.addEventListener("storage", (e) => {
     if (e.key === key && e.newValue !== null) {
       try {
@@ -24,6 +30,8 @@ function makePersisted(key: string) {
   });
   return [sig, set] as const;
 }
+
+const MAX_WATCHLIST = 20;
 
 // uid 追加順を保持するため配列で管理
 const [_watched, setWatched] = makePersisted("bpsr.watchlist");
@@ -38,13 +46,15 @@ export function toggleWatch(uid: number): void {
   );
 }
 
-// local player を先頭にシードする（未追加の場合のみ）
+// local player を先頭にシードする（未追加・上限未達の場合のみ）
 export function seedLocalPlayer(uid: number): void {
   if (uid === 0) return;
-  setWatched((prev) => (prev.includes(uid) ? prev : [uid, ...prev]));
+  setWatched((prev) => {
+    if (prev.includes(uid)) return prev;
+    if (prev.length >= MAX_WATCHLIST) return prev;
+    return [uid, ...prev];
+  });
 }
-
-const MAX_WATCHLIST = 20;
 
 export function clearWatchlist(): void {
   setWatched([]);

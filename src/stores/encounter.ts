@@ -166,7 +166,11 @@ export function resetPlayerWindows(): void {
 }
 
 export async function resetEncounter() {
-  await invoke("reset_encounter");
+  try {
+    await invoke("reset_encounter");
+  } catch (e) {
+    console.error("reset_encounter failed:", e);
+  }
   resetPlayerWindows();
 }
 
@@ -202,7 +206,11 @@ export async function fetchHistory() {
 }
 
 export async function clearHistory() {
-  await invoke("clear_history");
+  try {
+    await invoke("clear_history");
+  } catch (e) {
+    console.error("clear_history failed:", e);
+  }
   await fetchHistory();
 }
 

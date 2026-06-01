@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 import { createEffect, createSignal } from "solid-js";
 import { persisted } from "../lib/persisted";
 
@@ -79,7 +80,7 @@ export {
   compactSplitMode, setCompactSplitMode,
 };
 
-export function wireBackendSettings() {
+export async function wireBackendSettings(): Promise<UnlistenFn> {
   const [selectedUidReady, setSelectedUidReady] = createSignal(false);
   invoke<number | null>("get_selected_uid")
     .then((v) => {
@@ -104,8 +105,9 @@ export function wireBackendSettings() {
   createEffect(() => { invoke("set_click_through", { enabled: clickThrough() }).catch(() => {}); });
   // 軽量モード ON のとき backend の DPS/回復集計を停止する
   createEffect(() => { invoke("set_imagine_only_mode", { enabled: imagineOnlyMode() }).catch(() => {}); });
-  listen("click-through-disabled", () => setClickThrough(false));
+  const unlisten = await listen("click-through-disabled", () => setClickThrough(false));
 
   // 起動時の表示状態を Rust 側から確実に制御（WebView2 hidden 初期化問題の回避）
   invoke("set_buffs_window_visible", { visible: showBuffOverlay() || imagineOnlyMode() }).catch(() => {});
+  return unlisten;
 }

@@ -1,5 +1,7 @@
 import { createSignal } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 import { clearWatchlist, bulkAddPlayers } from "./watchlist";
 
 // Types matching Rust bridge/models.rs
@@ -212,4 +214,10 @@ export async function fetchTimeSeries() {
     const data = await invoke<TimeSeriesPoint[]>("get_time_series");
     setTimeSeries(data);
   } catch {}
+}
+
+export async function wireEncounterReset(): Promise<UnlistenFn> {
+  return await listen("encounter-reset", () => {
+    resetPlayerWindows();
+  });
 }

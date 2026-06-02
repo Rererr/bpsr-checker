@@ -16,6 +16,7 @@ export interface HeaderInfo {
 export interface PlayerRow {
   uid: number;
   name: string;
+  nameResolved: boolean;
   className: string;
   classSpecName: string;
   abilityScore: number;

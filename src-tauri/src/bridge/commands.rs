@@ -413,15 +413,17 @@ fn make_player_row(
     elapsed_secs: f64,
     time_series: &VecDeque<TimeSeriesPoint>,
 ) -> PlayerRow {
-    let display_name = if name.is_empty() {
-        format!("プレイヤー#{}", uid & 0xFFFF)
-    } else {
+    let name_resolved = !name.is_empty();
+    let display_name = if name_resolved {
         name.to_string()
+    } else {
+        format!("プレイヤー#{}", uid & 0xFFFF)
     };
 
     PlayerRow {
         uid: uid as f64,
         name: display_name,
+        name_resolved,
         class_name: class.unwrap_or(Class::Unknown).name_ja().to_string(),
         class_spec_name: class_spec
             .unwrap_or(ClassSpec::Unknown)

@@ -27,6 +27,7 @@ pub struct PlayersWindow {
 pub struct PlayerRow {
     pub uid: f64,
     pub name: String,
+    pub name_resolved: bool,
     pub class_name: String,
     pub class_spec_name: String,
     pub ability_score: f64,

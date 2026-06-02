@@ -309,11 +309,15 @@ function PlayerRowItem(props: PlayerRowItemProps) {
             "flex-shrink": "0",
           }}
         />
-        <span style={{
-          overflow: "hidden",
-          "text-overflow": "ellipsis",
-          "white-space": "nowrap",
-        }}>
+        <span
+          style={{
+            overflow: "hidden",
+            "text-overflow": "ellipsis",
+            "white-space": "nowrap",
+            color: !privacyMaskNames() && !props.row.nameResolved ? "#777" : undefined,
+          }}
+          title={!privacyMaskNames() && !props.row.nameResolved ? "名前未取得 — ゾーン移動で再取得できます" : undefined}
+        >
           {formatRowAsText(
             privacyMaskNames()
               ? { ...props.row, name: maskPlayerName(props.row.name, props.row.uid) }

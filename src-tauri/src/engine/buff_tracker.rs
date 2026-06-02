@@ -93,6 +93,12 @@ impl BuffTracker {
             source_config_id: 0,
         });
 
+        // 再付与後に遅延した旧バフのティックが届いた場合は無視。
+        // create_time が減少する場合のみ古いティックと判断できる。
+        if change.create_time < entry.create_time_server {
+            return;
+        }
+
         entry.received_at_local_ms = now_ms;
         entry.duration_ms = change.duration;
         entry.layer = change.layer;
@@ -101,7 +107,8 @@ impl BuffTracker {
     }
 
     /// SceneDelta.buff_list から取得した BuffPayloadDetail を追跡。
-    /// duration_ms > 0 のデバフのみ保存。apply_time が同一なら周期同期なのでリセットしない。
+    /// duration_ms > 0 のデバフのみ保存。apply_time が同一 かつ duration_ms も同一なら周期同期スキップ。
+    /// apply_time が同じでも duration_ms が増加した場合は延長・再付与と判断して更新する。
     pub fn apply_buff_detail(&mut self, detail: &pb::BuffPayloadDetail, now_ms: u128, target_uid: i64) {
         if detail.duration_ms <= 0 {
             return;
@@ -109,7 +116,7 @@ impl BuffTracker {
         let id = detail.buff_config_id as i32;
         let player_buffs = self.buffs.entry(target_uid).or_default();
         if let Some(existing) = player_buffs.get(&id) {
-            if existing.create_time_server == detail.apply_time {
+            if existing.create_time_server == detail.apply_time && detail.duration_ms <= existing.duration_ms {
                 return;
             }
         }
@@ -129,7 +136,8 @@ impl BuffTracker {
 
     /// LocalSceneDelta.effects から取得した TimedEffect を追跡（常に local player 宛）。
     /// duration_ms <= 0 は無期限扱いでスキップ。
-    /// 同じ activated_at なら周期同期なので時刻をリセットしない。
+    /// activated_at が同一 かつ duration_ms も同一なら周期同期スキップ。
+    /// activated_at が同じでも duration_ms が増加した場合は延長・再付与と判断して更新する。
     pub fn apply_effect(&mut self, effect: &pb::TimedEffect, now_ms: u128, local_uid: i64) {
         if effect.duration_ms <= 0 {
             return;
@@ -137,7 +145,7 @@ impl BuffTracker {
         let id = effect.id as i32;
         let player_buffs = self.buffs.entry(local_uid).or_default();
         if let Some(existing) = player_buffs.get(&id) {
-            if existing.create_time_server == effect.activated_at {
+            if existing.create_time_server == effect.activated_at && effect.duration_ms <= existing.duration_ms {
                 return;
             }
         }

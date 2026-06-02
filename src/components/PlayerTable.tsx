@@ -1,7 +1,7 @@
 import { createSignal, For, Show } from "solid-js";
 import { t } from "../lib/i18n";
 import { dpsPlayers, healPlayers, bossPlayers, takenPlayers } from "../stores/encounter";
-import { isWatched, toggleWatch } from "../stores/watchlist";
+import { isWatched, toggleWatch, removeFromWatchlist } from "../stores/watchlist";
 import {
   showCrit, showLucky, showHpm, showScore,
   showCritValue, showLuckyValue, showHits,
@@ -399,7 +399,7 @@ function PlayerRowItem(props: PlayerRowItemProps) {
           }}
         >
           <button
-            onClick={(e) => { e.stopPropagation(); toggleWatch(props.row.uid); }}
+            onClick={(e) => { e.stopPropagation(); watched() ? removeFromWatchlist(props.row.uid) : toggleWatch(props.row.uid); }}
             title={watched() ? t("unwatch") : "バフタイマーでウォッチ"}
             style={{
               background: "none",

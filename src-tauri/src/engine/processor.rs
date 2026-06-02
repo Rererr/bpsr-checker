@@ -235,9 +235,15 @@ pub fn process_opcode(app_handle: &AppHandle, env: PktEnvelope) -> AppResult<()>
                 Pkt::BuffTick => {
                     let ts = now_ms();
 
+                    // BuffSnapshot と BuffTick は同一 op で届き、フィールドが全て varint で
+                    // 番号も重なるため protobuf 上どちらの decode も常に成功してしまう。
+                    // よって型では判別できず、両方を試す必要がある。誤った型で decode された
+                    // 側は host_uuid が Player にならず apply_* 内で無視されるため害はない。
+                    // ここを else-if にすると BuffTick 形式のデバフ更新が落ちる（regression 注意）。
                     if let Ok(msg) = pb::BuffSnapshot::decode(data.as_slice()) {
                         encounter.buff_tracker.apply_full_info(&msg, ts);
-                    } else if let Ok(msg) = pb::BuffTick::decode(data.as_slice()) {
+                    }
+                    if let Ok(msg) = pb::BuffTick::decode(data.as_slice()) {
                         encounter.buff_tracker.apply_change(&msg, ts);
                     }
                 }

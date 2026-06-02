@@ -1,4 +1,5 @@
-import { createSignal, createEffect, For, Show, onCleanup } from "solid-js";
+import { createEffect, For, Show, onCleanup } from "solid-js";
+import { createStore, reconcile } from "solid-js/store";
 import { t } from "../lib/i18n";
 import { fetchTakenAttackers } from "../stores/encounter";
 import { showCrit, showLucky, showHpm, showCritValue, showLuckyValue, showHits, pollIntervalMs } from "../stores/settings";
@@ -12,13 +13,17 @@ interface TakenAttackersViewProps {
 }
 
 export function TakenAttackersView(props: TakenAttackersViewProps) {
-  const [data, setData] = createSignal<SkillsWindow | null>(null);
+  // ポーリング毎に丸ごと差し替えると <For> が全行 DOM を作り直し、クリックの
+  // mousedown→mouseup の間にノードが消えて行クリックが発火しない。reconcile(uid)
+  // で行の同一性を維持する。
+  const [state, setState] = createStore<{ data: SkillsWindow | null }>({ data: null });
+  const data = () => state.data;
 
   createEffect(() => {
     const uid = props.playerUid;
     const fetchLoop = async () => {
       const result = await fetchTakenAttackers(uid);
-      if (result) setData(result);
+      if (result) setState("data", reconcile(result, { key: "uid" }));
     };
     fetchLoop();
     const interval = setInterval(fetchLoop, pollIntervalMs());

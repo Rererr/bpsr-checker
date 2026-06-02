@@ -387,13 +387,13 @@ export function SettingsPanel() {
           </div>
 
           {/* 候補 */}
-          <Show when={dpsPlayers().playerRows.length > 0}>
+          <Show when={dpsPlayers.playerRows.length > 0}>
             <div style={{ display: "flex", "align-items": "flex-start", gap: "6px" }}>
               <span style={{ color: "#777", "font-size": "10px", "white-space": "nowrap", "padding-top": "2px" }}>
                 {t("selected_uid_candidates_label")}
               </span>
               <div style={{ display: "flex", "flex-wrap": "wrap", gap: "4px" }}>
-                {dpsPlayers().playerRows.map((row) => {
+                {dpsPlayers.playerRows.map((row) => {
                   const isSelected = () => row.uid === selectedUid();
                   const uid4 = String(row.uid).slice(-4);
                   return (

@@ -212,9 +212,7 @@ pub fn process_opcode(app_handle: &AppHandle, env: PktEnvelope) -> AppResult<()>
                     else {
                         return Ok(());
                     };
-                    if process_local_delta_batch(&mut encounter, msg) {
-                        let _ = app_handle.emit("encounter-reset", ());
-                    }
+                    process_local_delta_batch(&mut encounter, msg);
                 }
 
                 Pkt::WorldDeltaBatch => {
@@ -222,13 +220,8 @@ pub fn process_opcode(app_handle: &AppHandle, env: PktEnvelope) -> AppResult<()>
                     else {
                         return Ok(());
                     };
-                    // リセット境界をまたぐ delta 混在を防ぐため、リセット検知時点で
-                    // 同一パケット内の残り delta は破棄する
                     for scene_delta in msg.delta_infos {
-                        if process_scene_delta(&mut encounter, scene_delta) {
-                            let _ = app_handle.emit("encounter-reset", ());
-                            break;
-                        }
+                        process_scene_delta(&mut encounter, scene_delta);
                     }
                 }
 
@@ -368,9 +361,9 @@ fn process_world_enter_snapshot(
     );
 }
 
-fn process_local_delta_batch(encounter: &mut Encounter, msg: pb::LocalDeltaBatch) -> bool {
+fn process_local_delta_batch(encounter: &mut Encounter, msg: pb::LocalDeltaBatch) {
     let Some(delta_info) = msg.delta_info else {
-        return false;
+        return;
     };
 
     // LocalSceneDelta.effects(field 3): 自プレイヤーへのバフ/デバフ効果リスト
@@ -383,15 +376,15 @@ fn process_local_delta_batch(encounter: &mut Encounter, msg: pb::LocalDeltaBatch
     }
 
     let Some(base_delta) = delta_info.base_delta else {
-        return false;
+        return;
     };
-    process_scene_delta(encounter, base_delta)
+    process_scene_delta(encounter, base_delta);
 }
 
-fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::SceneDelta) -> bool {
+fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::SceneDelta) {
     let target_uuid = scene_delta.uuid;
     if target_uuid == 0 {
-        return false;
+        return;
     }
     let target_uid = entity::get_player_uid(target_uuid);
     let target_entity_type = EntityKind::from(target_uuid);
@@ -445,11 +438,11 @@ fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::SceneDelta) -
 
     // 軽量モードでは以降のダメージ/ヒール/時系列集計を全て省略
     if imagine_only {
-        return false;
+        return;
     }
 
     let Some(skill_effect) = scene_delta.skill_effects else {
-        return false; // no damage in this delta, that's fine
+        return; // no damage in this delta, that's fine
     };
 
     if !skill_effect.damages.is_empty() {
@@ -473,8 +466,9 @@ fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::SceneDelta) -
             if should_push {
                 crate::engine::history::push(snapshot);
             }
+            // v0.8.3 以前と同様 clear 後もフォールスルーして当該フレームのダメージを集計する。
+            // emit("encounter-reset") は廃止。フロントは次のポーリングで自然に更新される。
             encounter.clear_combat_stats();
-            return true;
         }
     }
 
@@ -677,7 +671,6 @@ fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::SceneDelta) -
             encounter.last_sample_total_dmg = encounter.dmg_stats.total;
         }
     }
-    false
 }
 
 fn process_player_attrs(uid: i64, player_entity: &mut Entity, attrs: &[pb::RawAttr]) {

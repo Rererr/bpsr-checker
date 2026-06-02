@@ -762,12 +762,16 @@ fn aggregate_player_buffs(
     uid: f64,
     name: String,
 ) -> PlayerBuffSnapshot {
-    use crate::engine::buff_source::classify_buff;
+    use crate::engine::buff_source::{classify, classify_buff};
     use std::collections::HashMap;
 
     let mut by_kind: HashMap<String, SelfBuffSnapshot> = HashMap::new();
     for snap in &snapshots {
-        let kind = classify_buff(snap.base_id as i64);
+        // 免疫デバフ(buff_config_id 211xxxx)優先。なければリキャスト(effect_id 39xxxx等)で分類。
+        let kind = {
+            let k = classify_buff(snap.base_id as i64);
+            if k != BuffSourceKind::Other { k } else { classify(snap.base_id) }
+        };
         if kind == BuffSourceKind::Other {
             continue;
         }

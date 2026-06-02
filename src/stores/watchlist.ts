@@ -49,6 +49,7 @@ export function toggleWatch(uid: number): void {
 // local player を先頭にシードする（未追加・上限未達の場合のみ）
 export function seedLocalPlayer(uid: number): void {
   if (uid === 0) return;
+  if (_excluded().includes(uid)) return;
   setWatched((prev) => {
     if (prev.includes(uid)) return prev;
     if (prev.length >= MAX_WATCHLIST) return prev;

@@ -81,7 +81,10 @@ export function TakenSkillsView(props: TakenSkillsViewProps) {
                 />
                 <span style={{ color: "#e67e22" }}>{props.attackerName}</span>
                 <span style={{ color: "#888" }}>→</span>
-                <span>{p().name}</span>
+                <span
+                  style={{ color: !p().nameResolved ? "#777" : undefined }}
+                  title={!p().nameResolved ? "名前未取得 — ゾーン移動で再取得できます" : undefined}
+                >{p().name}</span>
                 <span style={{ color: "#888", "font-size": "10px" }}>{t("skill")}</span>
               </div>
             );

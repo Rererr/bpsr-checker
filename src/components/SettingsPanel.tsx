@@ -50,8 +50,9 @@ interface NameCacheEntry {
 const SAMPLE_ROW: PlayerRow = {
   uid: 0,
   name: "Sample",
+  nameResolved: true,
   className: "ストームブレイド",
-  classSpecName: "炎",
+  classSpecName: "雷刃型",
   abilityScore: 12345,
   seasonLevel: 38,
   seasonStrength: 8200,

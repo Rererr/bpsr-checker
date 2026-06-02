@@ -93,12 +93,9 @@ impl BuffTracker {
             source_config_id: 0,
         });
 
-        // 再付与後に遅延した旧バフのティックが届いた場合は無視。
-        // create_time が減少する場合のみ古いティックと判断できる。
-        if change.create_time < entry.create_time_server {
-            return;
-        }
-
+        // v0.8.3 以前と同様、create_time のガードなしで無条件更新。
+        // サーバが BuffTick に create_time を付与しない実装の場合（0 で到来）、
+        // 旧ガードは全 tick をスキップし残り秒数が凍結していた。
         entry.received_at_local_ms = now_ms;
         entry.duration_ms = change.duration;
         entry.layer = change.layer;

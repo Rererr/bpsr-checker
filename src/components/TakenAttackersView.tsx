@@ -80,7 +80,10 @@ export function TakenAttackersView(props: TakenAttackersViewProps) {
                     background: getClassColor(p().className),
                   }}
                 />
-                <span>{p().name}</span>
+                <span
+                  style={{ color: !p().nameResolved ? "#777" : undefined }}
+                  title={!p().nameResolved ? "名前未取得 — ゾーン移動で再取得できます" : undefined}
+                >{p().name}</span>
                 <span style={{ color: "#e67e22" }}>{formatNumber(p().totalValue)}</span>
                 <span style={{ color: "#aaa" }}>{formatDps(p().valuePerSec)}/s</span>
                 <span style={{ color: "#888", "font-size": "10px" }}>{t("attacker")}</span>

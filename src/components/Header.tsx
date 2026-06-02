@@ -114,10 +114,10 @@ export function Header(props: HeaderProps) {
   const [copiedAll, setCopiedAll] = createSignal(false);
   const handleCopyAll = async () => {
     const rows = props.tab === "heal"
-      ? healPlayers().playerRows
+      ? healPlayers.playerRows
       : props.tab === "taken"
-      ? takenPlayers().playerRows
-      : dpsPlayers().playerRows;
+      ? takenPlayers.playerRows
+      : dpsPlayers.playerRows;
     if (rows.length === 0) return;
     const tpl = copyTemplate();
     const text = rows.map((r, i) => formatRowAsText(r, i + 1, tpl)).join("\n");

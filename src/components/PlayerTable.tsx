@@ -22,9 +22,9 @@ interface PlayerTableProps {
 export function PlayerTable(props: PlayerTableProps) {
   const data = (): PlayersWindow => {
     switch (props.tab) {
-      case "heal": return healPlayers();
-      case "taken": return takenPlayers();
-      default: return dpsPlayers();
+      case "heal": return healPlayers;
+      case "taken": return takenPlayers;
+      default: return dpsPlayers;
     }
   };
 

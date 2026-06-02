@@ -27,9 +27,9 @@ macro_rules! try_read {
     };
 }
 
-pub async fn process_packet(
+pub fn process_packet(
     initial: BinaryReader,
-    out: mpsc::Sender<PktEnvelope>,
+    out: &mpsc::Sender<PktEnvelope>,
     conn: Server,
 ) {
     let mut stream = initial;
@@ -48,14 +48,11 @@ pub async fn process_packet(
 
         match outcome {
             FrameOutcome::Forward { op, payload } => {
-                if let Err(err) = out
-                    .send(PktEnvelope {
-                        op,
-                        data: payload,
-                        conn: Some(conn),
-                    })
-                    .await
-                {
+                if let Err(err) = out.blocking_send(PktEnvelope {
+                    op,
+                    data: payload,
+                    conn: Some(conn),
+                }) {
                     debug!("dispatch dropped: {err}");
                 }
             }
@@ -160,11 +157,11 @@ mod tests {
     use crate::capture::binary_reader::BinaryReader;
     use crate::capture::server::Server;
 
-    #[tokio::test]
-    async fn empty_stream_terminates() {
+    #[test]
+    fn empty_stream_terminates() {
         let (tx, _rx) = mpsc::channel::<PktEnvelope>(1);
         let reader = BinaryReader::from(vec![]);
         let conn = Server::new([0, 0, 0, 0], 0, [0, 0, 0, 0], 0);
-        process_packet(reader, tx, conn).await;
+        process_packet(reader, &tx, conn);
     }
 }

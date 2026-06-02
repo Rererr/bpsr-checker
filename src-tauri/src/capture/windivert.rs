@@ -95,28 +95,31 @@ const HANDLE_CLEANUP_DELAY_MS: u64 = 500;
 const MAX_SUBNET_CONNECTIONS: usize = 16;
 
 pub fn start_capture() -> tokio::sync::mpsc::Receiver<PktEnvelope> {
-    const PACKET_CHANNEL_CAPACITY: usize = 256;
+    // 戦闘開始時のパケット波を吸収するため大きめに確保
+    const PACKET_CHANNEL_CAPACITY: usize = 4096;
     let (packet_sender, packet_receiver) =
         tokio::sync::mpsc::channel::<PktEnvelope>(PACKET_CHANNEL_CAPACITY);
     let (restart_sender, mut restart_receiver) = watch::channel(false);
     RESTART_SENDER.set(restart_sender.clone()).ok();
-    tauri::async_runtime::spawn(async move {
+    // WinDivert::recv() は同期ブロッキング呼び出しのため専用スレッドで動かす。
+    // tokio ランタイムスレッドを占有せず、チャネル満杯時も recv が止まらない。
+    std::thread::spawn(move || {
         loop {
-            read_packets(&packet_sender, &mut restart_receiver).await;
+            read_packets_blocking(&packet_sender, &mut restart_receiver);
             // Wait for restart signal
             while !*restart_receiver.borrow() {
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                std::thread::sleep(std::time::Duration::from_millis(100));
             }
             // Reset signal to false before next loop
             let _ = restart_sender.send(false);
             // Delay to allow kernel to fully release the old handle
-            tokio::time::sleep(std::time::Duration::from_millis(HANDLE_CLEANUP_DELAY_MS)).await;
+            std::thread::sleep(std::time::Duration::from_millis(HANDLE_CLEANUP_DELAY_MS));
         }
     });
     packet_receiver
 }
 
-async fn read_packets(
+fn read_packets_blocking(
     packet_sender: &tokio::sync::mpsc::Sender<PktEnvelope>,
     restart_receiver: &mut watch::Receiver<bool>,
 ) {
@@ -282,8 +285,7 @@ async fn read_packets(
                                 packet_sender,
                                 true,
                                 curr_server,
-                            )
-                            .await;
+                            );
                         }
                     }
                 }
@@ -298,8 +300,7 @@ async fn read_packets(
             packet_sender,
             false,
             curr_server,
-        )
-        .await;
+        );
 
         if *restart_receiver.borrow() {
             info!("WinDivert restart requested during packet processing, closing handle");
@@ -335,7 +336,7 @@ fn update_known_server(
     subnet_reassemblers.clear();
 }
 
-async fn reassemble_and_process(
+fn reassemble_and_process(
     reassembler: &mut TcpReassembler,
     tcp_packet: &etherparse::TcpSlice<'_>,
     packet_sender: &tokio::sync::mpsc::Sender<PktEnvelope>,
@@ -409,7 +410,7 @@ async fn reassemble_and_process(
             break;
         }
         let packet: Vec<u8> = reassembler.data.drain(..packet_size as usize).collect();
-        process_packet(BinaryReader::from(packet), packet_sender.clone(), conn).await;
+        process_packet(BinaryReader::from(packet), packet_sender, conn);
     }
 }
 

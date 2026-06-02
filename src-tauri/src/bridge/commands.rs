@@ -136,53 +136,57 @@ pub fn get_header_info(state: tauri::State<'_, EncounterMutex>) -> HeaderInfo {
 #[tauri::command]
 #[specta::specta]
 pub fn get_dps_players(state: tauri::State<'_, EncounterMutex>) -> PlayersWindow {
-    let encounter = match state.lock() {
-        Ok(e) => e,
+    let mut window = match state.lock() {
+        Ok(e) => build_players_window_unsorted(&*e, StatType::Dmg),
         Err(e) => {
             log::error!("Lock poisoned in get_dps_players: {e}");
             return PlayersWindow::default();
         }
     };
-    build_players_window(&*encounter, StatType::Dmg)
+    window.player_rows.sort_by(|a, b| b.total_value.partial_cmp(&a.total_value).unwrap_or(std::cmp::Ordering::Equal));
+    window
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn get_dps_boss_players(state: tauri::State<'_, EncounterMutex>) -> PlayersWindow {
-    let encounter = match state.lock() {
-        Ok(e) => e,
+    let mut window = match state.lock() {
+        Ok(e) => build_players_window_unsorted(&*e, StatType::DmgBossOnly),
         Err(e) => {
             log::error!("Lock poisoned in get_dps_boss_players: {e}");
             return PlayersWindow::default();
         }
     };
-    build_players_window(&*encounter, StatType::DmgBossOnly)
+    window.player_rows.sort_by(|a, b| b.total_value.partial_cmp(&a.total_value).unwrap_or(std::cmp::Ordering::Equal));
+    window
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn get_heal_players(state: tauri::State<'_, EncounterMutex>) -> PlayersWindow {
-    let encounter = match state.lock() {
-        Ok(e) => e,
+    let mut window = match state.lock() {
+        Ok(e) => build_players_window_unsorted(&*e, StatType::Heal),
         Err(e) => {
             log::error!("Lock poisoned in get_heal_players: {e}");
             return PlayersWindow::default();
         }
     };
-    build_players_window(&*encounter, StatType::Heal)
+    window.player_rows.sort_by(|a, b| b.total_value.partial_cmp(&a.total_value).unwrap_or(std::cmp::Ordering::Equal));
+    window
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn get_dmg_taken_players(state: tauri::State<'_, EncounterMutex>) -> PlayersWindow {
-    let encounter = match state.lock() {
-        Ok(e) => e,
+    let mut window = match state.lock() {
+        Ok(e) => build_players_window_unsorted(&*e, StatType::DmgTaken),
         Err(e) => {
             log::error!("Lock poisoned in get_dmg_taken_players: {e}");
             return PlayersWindow::default();
         }
     };
-    build_players_window(&*encounter, StatType::DmgTaken)
+    window.player_rows.sort_by(|a, b| b.total_value.partial_cmp(&a.total_value).unwrap_or(std::cmp::Ordering::Equal));
+    window
 }
 
 #[tauri::command]
@@ -338,7 +342,8 @@ fn attacker_display_name(encounter: &Encounter, attacker_uid: i64) -> String {
     format!("#{}", attacker_uid & 0xFFFF)
 }
 
-fn build_players_window(encounter: &Encounter, stat_type: StatType) -> PlayersWindow {
+/// ロック保持中に呼ぶ。ソートはロック解放後に呼び出し元で行う。
+fn build_players_window_unsorted(encounter: &Encounter, stat_type: StatType) -> PlayersWindow {
     let selected = selected_uid::get();
     if selected.is_some() && !encounter.has_selected_participant {
         return PlayersWindow::default();
@@ -391,12 +396,6 @@ fn build_players_window(encounter: &Encounter, stat_type: StatType) -> PlayersWi
         );
         window.player_rows.push(row);
     }
-
-    window.player_rows.sort_by(|a, b| {
-        b.total_value
-            .partial_cmp(&a.total_value)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
 
     window
 }
@@ -555,7 +554,12 @@ pub fn build_encounter_snapshot(encounter: &Encounter) -> EncounterSnapshot {
         0.0
     };
 
-    let window = build_players_window(encounter, StatType::Dmg);
+    let mut window = build_players_window_unsorted(encounter, StatType::Dmg);
+    window.player_rows.sort_by(|a, b| {
+        b.total_value
+            .partial_cmp(&a.total_value)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     EncounterSnapshot {
         id: 0.0,
@@ -805,23 +809,33 @@ pub fn get_tracked_buffs(
 ) -> TrackedBuffsData {
     use crate::engine::processor::now_ms;
 
-    let mut enc = match state.lock() {
-        Ok(e) => e,
-        Err(e) => {
-            log::error!("Lock poisoned in get_tracked_buffs: {e}");
-            return TrackedBuffsData::default();
-        }
-    };
+    // ロック内: gc と snapshot のみ実施
+    let (raw_snapshots, now_ms, local_uid) = {
+        let mut enc = match state.lock() {
+            Ok(e) => e,
+            Err(e) => {
+                log::error!("Lock poisoned in get_tracked_buffs: {e}");
+                return TrackedBuffsData::default();
+            }
+        };
+        let now_ms = now_ms();
+        let local_uid = enc.local_player_uid;
+        enc.buff_tracker.gc(now_ms);
+        let raw: Vec<(f64, i64, _)> = uids
+            .iter()
+            .map(|&uid_f64| {
+                let uid_i64 = uid_f64 as i64;
+                let snapshots = enc.buff_tracker.snapshot_for(uid_i64, now_ms);
+                (uid_f64, uid_i64, snapshots)
+            })
+            .collect();
+        (raw, now_ms, local_uid)
+    }; // ロック解放
 
-    let now_ms = now_ms();
-    let local_uid = enc.local_player_uid;
-    enc.buff_tracker.gc(now_ms);
-
-    let players = uids
-        .iter()
-        .map(|&uid_f64| {
-            let uid_i64 = uid_f64 as i64;
-            let snapshots = enc.buff_tracker.snapshot_for(uid_i64, now_ms);
+    // ロック外: name_cache 参照・kind 分類・HashMap 構築
+    let players = raw_snapshots
+        .into_iter()
+        .map(|(uid_f64, uid_i64, snapshots)| {
             let name = name_cache::lookup(uid_i64)
                 .map(|c| c.name)
                 .unwrap_or_default();

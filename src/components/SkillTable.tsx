@@ -77,7 +77,10 @@ export function SkillTable(props: SkillTableProps) {
                     background: getClassColor(p().className),
                   }}
                 />
-                <span>{privacyMaskNames() ? maskPlayerName(p().name, p().uid) : p().name}</span>
+                <span
+                  style={{ color: !privacyMaskNames() && !p().nameResolved ? "#777" : undefined }}
+                  title={!privacyMaskNames() && !p().nameResolved ? "名前未取得 — ゾーン移動で再取得できます" : undefined}
+                >{privacyMaskNames() ? maskPlayerName(p().name, p().uid) : p().name}</span>
                 <span style={{ color: "#4fc3f7" }}>{formatDps(p().valuePerSec)} DPS</span>
                 <span style={{ color: "#aaa" }}>{formatPct(p().valuePct)}</span>
               </div>

@@ -1,4 +1,5 @@
 import { createSignal } from "solid-js";
+import { createStore, reconcile } from "solid-js/store";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
@@ -69,29 +70,16 @@ const [header, setHeader] = createSignal<HeaderInfo>({
   timeLastCombatPacketMs: 0,
 });
 
-const [dpsPlayers, setDpsPlayers] = createSignal<PlayersWindow>({
-  playerRows: [],
-  localPlayerUid: 0,
-  topValue: 0,
-});
+// プレイヤー一覧はポーリング毎に丸ごと差し替えると <For> が全行の DOM を破棄・
+// 再生成し、クリックの mousedown→mouseup の間にノードが消えてクリックが行へ
+// 届かなくなる。reconcile(uid キー) で既存行オブジェクトの同一性を維持し、
+// DOM ノードを使い回す（クリック発火の安定化・再描画コスト削減）。
+const emptyWindow = (): PlayersWindow => ({ playerRows: [], localPlayerUid: 0, topValue: 0 });
 
-const [healPlayers, setHealPlayers] = createSignal<PlayersWindow>({
-  playerRows: [],
-  localPlayerUid: 0,
-  topValue: 0,
-});
-
-const [bossPlayers, setBossPlayers] = createSignal<PlayersWindow>({
-  playerRows: [],
-  localPlayerUid: 0,
-  topValue: 0,
-});
-
-const [takenPlayers, setTakenPlayers] = createSignal<PlayersWindow>({
-  playerRows: [],
-  localPlayerUid: 0,
-  topValue: 0,
-});
+const [dpsPlayers, setDpsPlayers] = createStore<PlayersWindow>(emptyWindow());
+const [healPlayers, setHealPlayers] = createStore<PlayersWindow>(emptyWindow());
+const [bossPlayers, setBossPlayers] = createStore<PlayersWindow>(emptyWindow());
+const [takenPlayers, setTakenPlayers] = createStore<PlayersWindow>(emptyWindow());
 
 export { header, dpsPlayers, healPlayers, bossPlayers, takenPlayers };
 
@@ -102,7 +90,7 @@ export async function fetchDpsData() {
       invoke<PlayersWindow>("get_dps_players"),
     ]);
     setHeader(h);
-    setDpsPlayers(d);
+    setDpsPlayers(reconcile(d, { key: "uid" }));
     if (d.playerRows.length > 0) {
       bulkAddPlayers(d.playerRows.map((r) => r.uid));
     }
@@ -114,21 +102,21 @@ export async function fetchDpsData() {
 export async function fetchHealData() {
   try {
     const data = await invoke<PlayersWindow>("get_heal_players");
-    setHealPlayers(data);
+    setHealPlayers(reconcile(data, { key: "uid" }));
   } catch {}
 }
 
 export async function fetchBossData() {
   try {
     const data = await invoke<PlayersWindow>("get_dps_boss_players");
-    setBossPlayers(data);
+    setBossPlayers(reconcile(data, { key: "uid" }));
   } catch {}
 }
 
 export async function fetchTakenData() {
   try {
     const data = await invoke<PlayersWindow>("get_dmg_taken_players");
-    setTakenPlayers(data);
+    setTakenPlayers(reconcile(data, { key: "uid" }));
   } catch {}
 }
 
@@ -158,10 +146,10 @@ export async function fetchSkills(playerUid: number): Promise<SkillsWindow | nul
 
 export function resetPlayerWindows(): void {
   setHeader({ totalDps: 0, totalDmg: 0, elapsedMs: 0, timeLastCombatPacketMs: 0 });
-  setDpsPlayers({ playerRows: [], localPlayerUid: 0, topValue: 0 });
-  setHealPlayers({ playerRows: [], localPlayerUid: 0, topValue: 0 });
-  setBossPlayers({ playerRows: [], localPlayerUid: 0, topValue: 0 });
-  setTakenPlayers({ playerRows: [], localPlayerUid: 0, topValue: 0 });
+  setDpsPlayers(reconcile(emptyWindow(), { key: "uid" }));
+  setHealPlayers(reconcile(emptyWindow(), { key: "uid" }));
+  setBossPlayers(reconcile(emptyWindow(), { key: "uid" }));
+  setTakenPlayers(reconcile(emptyWindow(), { key: "uid" }));
   clearWatchlist();
 }
 

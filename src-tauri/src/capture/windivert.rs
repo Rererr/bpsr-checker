@@ -350,67 +350,88 @@ fn reassemble_and_process(
         reassembler.next_seq = Some(tcp_packet.sequence_number());
     }
 
-    // Only insert if this segment is not behind next_seq
+    // next_seq より「これ以上先」の seq は巻き戻り（再送・古いセグメント）とみなし無視する境界。
+    const SEQ_FORWARD_WINDOW: u32 = 16 * 1024 * 1024;
+    // 欠損セグメントで next_seq が止まったまま、先読みデータがこのバイト数以上滞留したら、
+    // 捕捉漏れ（再送されない）と判断してストリームを最小 seq へ再同期する。
+    const REASSEMBLY_RESYNC_BYTES: usize = 32 * 1024;
+
+    // next_seq 以降（巻き戻りでない）のセグメントを順序バッファに保持する。
+    // 旧実装は next_seq と完全一致の seq しか受理しなかったため、1 セグメントでも
+    // 捕捉漏れすると next_seq が永久に進まず、以降の戦闘データが全て落ちて恒久フリーズした。
     if let Some(next_seq) = reassembler.next_seq {
         let pkt_seq = tcp_packet.sequence_number();
-        // pkt_seq >= next_seq in wrapping arithmetic: wrapping_sub == 0 when equal, or
-        // the difference is small (recent seq) vs large (stale seq that wrapped past)
-        if next_seq.wrapping_sub(pkt_seq) == 0 {
+        if pkt_seq.wrapping_sub(next_seq) < SEQ_FORWARD_WINDOW {
             reassembler
                 .cache
                 .insert(pkt_seq, Vec::from(tcp_packet.payload()));
         }
     }
 
-    let mut i = 0usize;
     loop {
-        let next_seq = match reassembler.next_seq {
-            Some(s) => s,
-            None => break,
-        };
-        if !reassembler.cache.contains_key(&next_seq) {
-            break;
+        // 1) 連続しているセグメントを data へ連結
+        let mut guard = 0usize;
+        while let Some(next_seq) = reassembler.next_seq {
+            let Some(cached_tcp_data) = reassembler.cache.remove(&next_seq) else {
+                break;
+            };
+            reassembler.next_seq = Some(next_seq.wrapping_add(cached_tcp_data.len() as u32));
+            reassembler.data.extend_from_slice(&cached_tcp_data);
+            guard += 1;
+            if guard % 1000 == 0 {
+                warn!(
+                    "reassembly drain long: iter={guard}, cache_size={}, data_len={}",
+                    reassembler.cache.len(),
+                    reassembler.data.len()
+                );
+            }
         }
-        i += 1;
-        if i % 1000 == 0 {
-            warn!(
-                "Potential infinite loop in cache processing: iteration={i}, next_seq={next_seq}, cache_size={}, data_len={}",
-                reassembler.cache.len(),
-                reassembler.data.len()
-            );
-        }
-        let cached_tcp_data = reassembler.cache.remove(&next_seq).expect("just checked");
-        reassembler.data.extend_from_slice(&cached_tcp_data);
-        reassembler.next_seq = Some(next_seq.wrapping_add(cached_tcp_data.len() as u32));
-    }
 
-    while reassembler.data.len() > 4 {
-        let packet_size = match reassembler.data[..4].try_into().map(u32::from_be_bytes) {
-            Ok(sz) => sz,
-            Err(e) => {
-                debug!("Malformed reassembled packet: failed to read_u32: {e}");
+        // 2) data から完全なフレームを取り出して処理
+        while reassembler.data.len() > 4 {
+            let packet_size = match reassembler.data[..4].try_into().map(u32::from_be_bytes) {
+                Ok(sz) => sz,
+                Err(e) => {
+                    debug!("Malformed reassembled packet: failed to read_u32: {e}");
+                    break;
+                }
+            };
+            const MIN_PACKET_SIZE: u32 = 6;
+            const MAX_PACKET_SIZE: u32 = 10 * 1024 * 1024;
+            if packet_size < MIN_PACKET_SIZE || packet_size > MAX_PACKET_SIZE {
+                if clear_on_malformed {
+                    reassembler.data.clear();
+                    break;
+                }
+                warn!(
+                    "Malformed reassembled packet: invalid packet_size={packet_size}, data_len={}",
+                    reassembler.data.len()
+                );
+                reassembler.data.drain(0..1);
+                continue;
+            }
+            if reassembler.data.len() < packet_size as usize {
                 break;
             }
-        };
-        const MIN_PACKET_SIZE: u32 = 6;
-        const MAX_PACKET_SIZE: u32 = 10 * 1024 * 1024;
-        if packet_size < MIN_PACKET_SIZE || packet_size > MAX_PACKET_SIZE {
-            if clear_on_malformed {
-                reassembler.data.clear();
-                break;
-            }
-            warn!(
-                "Malformed reassembled packet: invalid packet_size={packet_size}, data_len={}",
-                reassembler.data.len()
-            );
-            reassembler.data.drain(0..1);
-            continue;
+            let packet: Vec<u8> = reassembler.data.drain(..packet_size as usize).collect();
+            process_packet(BinaryReader::from(packet), packet_sender, conn);
         }
-        if reassembler.data.len() < packet_size as usize {
+
+        // 3) next_seq が欠損したまま先読みが閾値以上滞留 → 捕捉漏れと判断し最小 seq へ再同期。
+        //    （旧データと先頭の不完全フレームは破棄。再同期点以降は次フレーム境界に自然整合する）
+        let buffered: usize = reassembler.cache.values().map(Vec::len).sum();
+        if buffered < REASSEMBLY_RESYNC_BYTES {
             break;
         }
-        let packet: Vec<u8> = reassembler.data.drain(..packet_size as usize).collect();
-        process_packet(BinaryReader::from(packet), packet_sender, conn);
+        let Some((&resync_seq, _)) = reassembler.cache.iter().next() else {
+            break;
+        };
+        warn!(
+            "TCP reassembly gap: next_seq={:?} 欠損, {buffered} bytes 滞留 → seq={resync_seq} へ再同期（戦闘データ一部欠落）",
+            reassembler.next_seq
+        );
+        reassembler.data.clear();
+        reassembler.next_seq = Some(resync_seq);
     }
 }
 

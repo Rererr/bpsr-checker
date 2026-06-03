@@ -767,18 +767,20 @@ fn aggregate_player_buffs(
     use crate::engine::buff_source::{classify, classify_buff};
     use std::collections::HashMap;
 
-    let mut by_kind: HashMap<String, SelfBuffSnapshot> = HashMap::new();
+    // 値は (代表スナップショット, 免疫デバフ由来か) の組。
+    // 免疫デバフ(classify_buff)はリキャスト等(classify フォールバック)より常に優先する。
+    let mut by_kind: HashMap<String, (SelfBuffSnapshot, bool)> = HashMap::new();
     for snap in &snapshots {
         // 免疫デバフ(buff_config_id 211xxxx)優先。なければリキャスト(effect_id 39xxxx等)で分類。
-        let kind = {
+        let (kind, is_debuff) = {
             let k = classify_buff(snap.base_id as i64);
-            if k != BuffSourceKind::Other { k } else { classify(snap.base_id) }
+            if k != BuffSourceKind::Other { (k, true) } else { (classify(snap.base_id), false) }
         };
         if kind == BuffSourceKind::Other {
             continue;
         }
         let kind_str = kind.as_str().to_string();
-        let entry = by_kind.entry(kind_str.clone()).or_insert_with(|| SelfBuffSnapshot {
+        let candidate = SelfBuffSnapshot {
             kind: kind_str.clone(),
             base_id: snap.base_id,
             buff_uuid: snap.buff_uuid,
@@ -786,24 +788,31 @@ fn aggregate_player_buffs(
             remaining_ms: snap.remaining_ms,
             duration_ms: snap.duration_ms,
             received_at_ms: snap.received_at_local_ms as f64,
-        });
-        if snap.remaining_ms > entry.remaining_ms {
-            *entry = SelfBuffSnapshot {
-                kind: kind_str,
-                base_id: snap.base_id,
-                buff_uuid: snap.buff_uuid,
-                layer: snap.layer,
-                remaining_ms: snap.remaining_ms,
-                duration_ms: snap.duration_ms,
-                received_at_ms: snap.received_at_local_ms as f64,
-            };
+        };
+        match by_kind.get_mut(&kind_str) {
+            None => {
+                by_kind.insert(kind_str, (candidate, is_debuff));
+            }
+            Some((entry, entry_is_debuff)) => {
+                // 免疫デバフはフォールバックに常に勝つ。逆は置換しない。
+                // 同種同士なら残時間が長い方を採用（従来挙動）。
+                let replace = match (is_debuff, *entry_is_debuff) {
+                    (true, false) => true,
+                    (false, true) => false,
+                    _ => snap.remaining_ms > entry.remaining_ms,
+                };
+                if replace {
+                    *entry = candidate;
+                    *entry_is_debuff = is_debuff;
+                }
+            }
         }
     }
 
     PlayerBuffSnapshot {
         uid,
         name,
-        buffs: by_kind.into_values().collect(),
+        buffs: by_kind.into_values().map(|(snap, _)| snap).collect(),
     }
 }
 
@@ -911,5 +920,68 @@ pub fn get_measure_mode_status(state: tauri::State<'_, EncounterMutex>) -> Measu
                 armed_at_ms: None,
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::buff_tracker::BuffStateSnapshot;
+
+    fn snap(base_id: i32, remaining_ms: i64) -> BuffStateSnapshot {
+        BuffStateSnapshot {
+            buff_uuid: base_id,
+            base_id,
+            fire_uuid: 0,
+            received_at_local_ms: 0,
+            duration_ms: remaining_ms,
+            remaining_ms,
+            layer: 1,
+            count: 1,
+        }
+    }
+
+    // 本人がティナ発動時、免疫デバフ(2110056)とリキャスト(392101, 150s)が同 kind=Tina に集まる。
+    // 残時間はリキャストの方が長いが、免疫デバフを優先採用しなければならない。
+    #[test]
+    fn debuff_preferred_over_recast_regardless_of_order() {
+        for snaps in [
+            vec![snap(392101, 150_000), snap(2110056, 60_000)],
+            vec![snap(2110056, 60_000), snap(392101, 150_000)],
+        ] {
+            let result = aggregate_player_buffs(snaps, 1.0, "self".into());
+            assert_eq!(result.buffs.len(), 1);
+            let b = &result.buffs[0];
+            assert_eq!(b.kind, "Tina");
+            assert_eq!(b.base_id, 2110056, "リキャストではなく免疫デバフが採用されるべき");
+            assert_eq!(b.remaining_ms, 60_000);
+        }
+    }
+
+    // 免疫デバフが届いていない場合のみ、リキャストをフォールバック表示する。
+    #[test]
+    fn recast_used_as_fallback_when_no_debuff() {
+        let result = aggregate_player_buffs(vec![snap(392101, 150_000)], 1.0, "self".into());
+        assert_eq!(result.buffs.len(), 1);
+        assert_eq!(result.buffs[0].base_id, 392101);
+    }
+
+    #[test]
+    fn debuff_only_is_kept() {
+        let result = aggregate_player_buffs(vec![snap(2110056, 45_000)], 1.0, "self".into());
+        assert_eq!(result.buffs.len(), 1);
+        assert_eq!(result.buffs[0].base_id, 2110056);
+    }
+
+    // 同一系統(免疫デバフ同士)では従来どおり残時間が長い方を採用。
+    #[test]
+    fn longest_remaining_wins_within_same_source() {
+        let result = aggregate_player_buffs(
+            vec![snap(2110056, 30_000), snap(2110056, 50_000)],
+            1.0,
+            "self".into(),
+        );
+        assert_eq!(result.buffs.len(), 1);
+        assert_eq!(result.buffs[0].remaining_ms, 50_000);
     }
 }

@@ -4,7 +4,7 @@ use crate::protocol::constants::{
     self, SERVICE_UUID, SOCIAL_NTF_NOTIFY_METHOD_ID, SOCIAL_NTF_SERVICE_ID,
 };
 use crate::protocol::opcodes::{FragmentType, Pkt, PktEnvelope};
-use log::debug;
+use log::{debug, warn};
 use tokio::sync::mpsc;
 
 const FRAME_HEADER_MIN: u32 = 6;
@@ -48,12 +48,22 @@ pub fn process_packet(
 
         match outcome {
             FrameOutcome::Forward { op, payload } => {
-                if let Err(err) = out.blocking_send(PktEnvelope {
+                use tokio::sync::mpsc::error::TrySendError;
+                // recv スレッドはブロックさせない。blocking_send で止めると WinDivert recv が
+                // 回らず kernel キュー溢れ→TCP 取りこぼし→再組立ストールを誘発するため、
+                // 満杯時はメッセージを破棄して recv を継続する（通常運用では発生しない）。
+                match out.try_send(PktEnvelope {
                     op,
                     data: payload,
                     conn: Some(conn),
                 }) {
-                    debug!("dispatch dropped: {err}");
+                    Ok(()) => {}
+                    Err(TrySendError::Full(env)) => {
+                        warn!("dispatch channel full: メッセージ破棄 op={:?}", env.op);
+                    }
+                    Err(TrySendError::Closed(_)) => {
+                        debug!("dispatch closed");
+                    }
                 }
             }
             FrameOutcome::Skip => continue,

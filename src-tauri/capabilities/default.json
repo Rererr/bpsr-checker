@@ -1,7 +1,7 @@
 {
   "identifier": "default",
   "description": "Default capability",
-  "windows": ["main", "buffs"],
+  "windows": ["main", "buffs", "self_status"],
   "permissions": [
     "core:default",
     "core:window:default",

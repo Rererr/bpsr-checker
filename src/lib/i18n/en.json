@@ -118,5 +118,10 @@
   "char_tina": "Tina",
   "char_aluna": "Aluna",
   "char_tarta": "Tarta",
-  "char_basilisk": "Basilisk"
+  "char_basilisk": "Basilisk",
+  "self_status_overlay": "Self Buff/Debuff Display",
+  "self_buffs_section": "Buffs",
+  "self_debuffs_section": "Debuffs",
+  "self_status_empty_hint": "No active buffs/debuffs",
+  "self_status_waiting": "Detecting character..."
 }

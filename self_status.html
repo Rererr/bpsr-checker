@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>自キャラステータス</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        background: transparent;
+        font-family: "Segoe UI", "Meiryo", sans-serif;
+        font-size: 13px;
+        color: #e0e0e0;
+        overflow: hidden;
+      }
+      #root { min-height: 100vh; }
+      @keyframes status-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.4; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="/src/self_status/index.tsx" type="module"></script>
+  </body>
+</html>

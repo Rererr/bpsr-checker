@@ -1,6 +1,7 @@
 use crate::bridge::models::{
     EncounterSnapshot, HeaderInfo, MeasureModeStatus, PlayerBuffSnapshot, PlayerRow, PlayersWindow,
-    SelfBuffSnapshot, SkillRow, SkillsWindow, TimeSeriesPoint, TrackedBuffsData,
+    SelfBuffSnapshot, SelfStatusData, SelfStatusEntry, SkillRow, SkillsWindow, TimeSeriesPoint,
+    TrackedBuffsData,
 };
 use crate::engine::buff_source::BuffSourceKind;
 use crate::engine::class::{Class, ClassSpec};
@@ -680,6 +681,97 @@ pub fn set_buffs_window_visible(app: tauri::AppHandle, visible: bool) -> Result<
         win.show().map_err(|e| e.to_string())
     } else {
         win.hide().map_err(|e| e.to_string())
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn set_self_status_window_visible(app: tauri::AppHandle, visible: bool) -> Result<(), String> {
+    let win = app
+        .get_webview_window("self_status")
+        .ok_or_else(|| "self_status window not found".to_string())?;
+    if visible {
+        win.show().map_err(|e| e.to_string())
+    } else {
+        win.hide().map_err(|e| e.to_string())
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_self_buff_status(state: tauri::State<'_, EncounterMutex>) -> SelfStatusData {
+    use crate::engine::buff_dictionary::{self, DisplayPriority};
+    use crate::engine::processor::now_ms;
+
+    let (snapshots, now_ms, local_uid) = {
+        let mut enc = match state.lock() {
+            Ok(e) => e,
+            Err(e) => {
+                log::error!("Lock poisoned in get_self_buff_status: {e}");
+                return SelfStatusData::default();
+            }
+        };
+        let now = now_ms();
+        let uid = enc.local_player_uid;
+        if uid == 0 {
+            return SelfStatusData::default();
+        }
+        enc.buff_tracker.gc(now);
+        let snaps = enc.buff_tracker.snapshot_for(uid, now);
+        (snaps, now, uid)
+    };
+
+    let mut buffs = Vec::new();
+    let mut debuffs = Vec::new();
+
+    for snap in snapshots {
+        if !buff_dictionary::is_visible(snap.base_id) {
+            continue;
+        }
+        let (category_str, priority_str) = match buff_dictionary::lookup(snap.base_id) {
+            Some(meta) => {
+                let cat = meta.category.as_str().to_string();
+                let pri = match meta.priority {
+                    DisplayPriority::Hidden => "hidden",
+                    DisplayPriority::Low => "low",
+                    DisplayPriority::Normal => "normal",
+                    DisplayPriority::High => "high",
+                    DisplayPriority::Alert => "alert",
+                };
+                (cat, pri.to_string())
+            }
+            None => ("unknown".to_string(), "normal".to_string()),
+        };
+
+        let remaining = snap.remaining_ms.max(0);
+        let is_debuff = category_str == "debuff";
+        let entry = SelfStatusEntry {
+            instance_id: snap.buff_uuid as i64,
+            base_id: snap.base_id,
+            category: category_str,
+            priority: priority_str,
+            remaining_ms: remaining,
+            duration_ms: snap.duration_ms,
+            layer: snap.layer,
+            source_config_id: 0,
+        };
+
+        if is_debuff {
+            debuffs.push(entry);
+        } else {
+            buffs.push(entry);
+        }
+    }
+
+    // 残り時間の降順で並べる（残り多い順）
+    buffs.sort_by(|a, b| b.remaining_ms.cmp(&a.remaining_ms));
+    debuffs.sort_by(|a, b| b.remaining_ms.cmp(&a.remaining_ms));
+
+    SelfStatusData {
+        buffs,
+        debuffs,
+        now_ms: now_ms as f64,
+        local_player_uid: local_uid as f64,
     }
 }
 

@@ -316,10 +316,10 @@ pub fn lookup(base_id: i32) -> Option<&'static BuffMeta> {
     DICT.get(&base_id)
 }
 
-/// 表示対象かどうか。Hidden なら false。未登録なら true (不明バフとして表示)。
+/// 表示対象かどうか。Hidden または未登録なら false。
 pub fn is_visible(base_id: i32) -> bool {
     match DICT.get(&base_id) {
         Some(meta) => meta.priority != DisplayPriority::Hidden,
-        None => true,
+        None => false,
     }
 }

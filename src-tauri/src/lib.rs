@@ -15,7 +15,7 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Position, Size, Window, WindowEvent};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
-use tauri_plugin_window_state::{AppHandleExt, StateFlags};
+use tauri_plugin_window_state::{AppHandleExt, Builder as WindowStateBuilder, StateFlags};
 use tauri_specta::{Builder, collect_commands};
 
 pub const WINDOW_MAIN_LABEL: &str = "main";
@@ -81,7 +81,15 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|_app, _argv, _cwd| {}))
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(
+            WindowStateBuilder::default()
+                .with_state_flags(
+                    StateFlags::POSITION
+                        .union(StateFlags::SIZE)
+                        .union(StateFlags::MAXIMIZED),
+                )
+                .build(),
+        )
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(builder.invoke_handler())
         .setup(|app| {
@@ -262,7 +270,11 @@ fn on_window_event(window: &Window, event: &WindowEvent) {
             }
         }
         WindowEvent::Focused(false) => {
-            let _ = window.app_handle().save_window_state(StateFlags::all());
+            let _ = window.app_handle().save_window_state(
+                StateFlags::POSITION
+                    .union(StateFlags::SIZE)
+                    .union(StateFlags::MAXIMIZED),
+            );
         }
         _ => {}
     }

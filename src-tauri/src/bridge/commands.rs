@@ -700,7 +700,7 @@ pub fn set_self_status_window_visible(app: tauri::AppHandle, visible: bool) -> R
 #[tauri::command]
 #[specta::specta]
 pub fn get_self_buff_status(state: tauri::State<'_, EncounterMutex>) -> SelfStatusData {
-    use crate::engine::buff_dictionary::{self, BuffCategory, BuffMeta, DisplayPriority};
+    use crate::engine::buff_dictionary::{self, DisplayPriority};
     use crate::engine::processor::now_ms;
 
     let (snapshots, now_ms, local_uid) = {
@@ -728,9 +728,10 @@ pub fn get_self_buff_status(state: tauri::State<'_, EncounterMutex>) -> SelfStat
         if !buff_dictionary::is_visible(snap.base_id) {
             continue;
         }
-        let meta = buff_dictionary::lookup(snap.base_id).copied().unwrap_or(
-            BuffMeta::new(BuffCategory::Buff, DisplayPriority::Normal)
-        );
+        let meta = match buff_dictionary::lookup(snap.base_id) {
+            Some(m) => *m,
+            None => continue,
+        };
         let category_str = meta.category.as_str().to_string();
         let priority_str = match meta.priority {
             DisplayPriority::Hidden => "hidden",

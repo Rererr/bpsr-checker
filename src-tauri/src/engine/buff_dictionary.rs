@@ -61,8 +61,8 @@ static DICT: LazyLock<HashMap<i32, BuffMeta>> = LazyLock::new(|| {
         (32201,   BuffMeta::new(Debuff, Normal)),  // 重傷
         (44501,   BuffMeta::new(Debuff, Normal)),  // 重傷 (別ID)
         (55239,   BuffMeta::new(Debuff, Low)),     // 閃心停滞
-        (55412,   BuffMeta::new(Debuff, Normal)),  // コンクエスト
-        (55417,   BuffMeta::new(Debuff, Normal)),  // コンクエスト (別ID)
+        (55412,   BuffMeta::new(Debuff, Hidden)),  // コンクエスト (内部フラグ、非表示)
+        (55417,   BuffMeta::new(Debuff, Hidden)),  // コンクエスト (別ID、非表示)
         (55425,   BuffMeta::new(Debuff, Normal)),  // 目くらまし
         (55426,   BuffMeta::new(Debuff, Normal)),  // 沈黙
 

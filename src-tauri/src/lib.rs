@@ -141,6 +141,16 @@ pub fn run() {
                 }
             });
 
+            // window-state プラグインの座標復元後に、main が画面外へはみ出していたら
+            // プライマリモニタ内へ収め直す（マルチモニタ構成変更で「消えた/細くなった」対策）
+            let app_handle_for_geom = app_handle.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+                if let Some(w) = app_handle_for_geom.get_webview_window(WINDOW_MAIN_LABEL) {
+                    ensure_on_screen(&w);
+                }
+            });
+
             Ok(())
         })
         .on_window_event(on_window_event)
@@ -260,6 +270,71 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
         })
         .build(app)?;
     Ok(())
+}
+
+/// ウインドウの過半が画面外に出ている場合、プライマリモニタ内へ収め直す。
+///
+/// マルチモニタ構成の変更（サブモニタの取り外し・配置変更）後に、保存済み座標の
+/// ままだとウインドウが画面外の細い帯になり「消えた」ように見える問題への安全網。
+/// 起動時の main と、オーバーレイ表示ON時に呼ぶ。
+pub fn ensure_on_screen(window: &tauri::WebviewWindow) {
+    use tauri::{PhysicalPosition, PhysicalSize};
+
+    let (Ok(pos), Ok(size)) = (window.outer_position(), window.outer_size()) else {
+        return;
+    };
+    let Ok(monitors) = window.available_monitors() else {
+        return;
+    };
+    if monitors.is_empty() {
+        return;
+    }
+
+    let win_area = i64::from(size.width) * i64::from(size.height);
+    if win_area <= 0 {
+        return;
+    }
+    let win_left = pos.x;
+    let win_top = pos.y;
+    let win_right = pos.x + size.width as i32;
+    let win_bottom = pos.y + size.height as i32;
+
+    // 全モニタと重なる可視面積を合算
+    let mut visible: i64 = 0;
+    for m in &monitors {
+        let mp = m.position();
+        let ms = m.size();
+        let ix = (win_right.min(mp.x + ms.width as i32) - win_left.max(mp.x)).max(0);
+        let iy = (win_bottom.min(mp.y + ms.height as i32) - win_top.max(mp.y)).max(0);
+        visible += i64::from(ix) * i64::from(iy);
+    }
+
+    // 過半数が画面内に収まっていれば触らない
+    if visible * 2 >= win_area {
+        return;
+    }
+
+    let Some(mon) = window
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| monitors.first().cloned())
+    else {
+        return;
+    };
+    let mp = mon.position();
+    let ms = mon.size();
+    let w = size.width.min(ms.width.saturating_sub(80)).max(1);
+    let h = size.height.min(ms.height.saturating_sub(80)).max(1);
+    let _ = window.set_size(PhysicalSize { width: w, height: h });
+    let _ = window.set_position(PhysicalPosition {
+        x: mp.x + 40,
+        y: mp.y + 40,
+    });
+    warn!(
+        "{} ウインドウが画面外でした (可視 {visible}/{win_area} px)。プライマリモニタ内へ移動しました",
+        window.label()
+    );
 }
 
 fn on_window_event(window: &Window, event: &WindowEvent) {

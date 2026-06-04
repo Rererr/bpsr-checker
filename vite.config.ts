@@ -14,6 +14,10 @@ export default defineConfig({
     hmr: host
       ? { protocol: "ws", host, port: 1421 }
       : undefined,
+    // Rust のビルド成果物を vite の監視対象から除外（target 内 DLL ロックによる EBUSY 回避）
+    watch: {
+      ignored: ["**/src-tauri/**"],
+    },
   },
   build: {
     rollupOptions: {

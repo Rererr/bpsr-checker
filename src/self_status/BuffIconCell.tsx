@@ -3,16 +3,6 @@ import type { JSX } from "solid-js";
 import type { StatusEntry, BuffNameEntry } from "./types";
 import { tick, pollReceivedAt } from "./store";
 
-// バフ種別ごとのカラーチップ色
-const CATEGORY_COLOR: Record<string, string> = {
-  buff:     "#4fc3f7",
-  debuff:   "#ef5350",
-  recovery: "#66bb6a",
-  item:     "#ffa726",
-  unknown:  "#78909c",
-};
-
-// 優先度ごとのセル枠線色
 const PRIORITY_BORDER: Record<string, string> = {
   alert:  "#ffd54f",
   high:   "rgba(255,255,255,0.25)",
@@ -41,7 +31,7 @@ interface Props {
 
 export function BuffIconCell(props: Props): JSX.Element {
   const interpolatedRemaining = () => {
-    void tick(); // 50ms 補間トリガー
+    void tick();
     const elapsed = performance.now() - pollReceivedAt();
     return Math.max(0, props.entry.remainingMs - elapsed);
   };
@@ -51,50 +41,33 @@ export function BuffIconCell(props: Props): JSX.Element {
   const nameEntry = () => props.nameDict[String(props.entry.baseId)];
   const label = () => nameEntry()?.name ?? `不明 #${props.entry.baseId}`;
 
-  const chipColor = CATEGORY_COLOR[props.entry.category] ?? CATEGORY_COLOR.unknown;
   const borderColor = PRIORITY_BORDER[props.entry.priority] ?? PRIORITY_BORDER.normal;
-
   const barColor = props.entry.category === "debuff" ? "#ef5350" : "#4fc3f7";
 
   return (
     <div
       style={{
         display: "flex",
-        "flex-direction": "column",
+        "flex-direction": "row",
         "align-items": "center",
-        width: "56px",
-        padding: "3px 2px",
-        background: "rgba(0,0,0,0.45)",
+        gap: "5px",
+        padding: "2px 5px",
+        background: "rgba(0,0,0,0.35)",
         border: `1px solid ${borderColor}`,
-        "border-radius": "4px",
-        gap: "2px",
-        "flex-shrink": "0",
-        opacity: isLow() ? undefined : "1",
+        "border-radius": "3px",
         animation: isLow() ? "status-pulse 0.6s ease-in-out infinite" : "none",
       }}
     >
-      {/* カラーチップ（アイコン代替） */}
-      <div
-        style={{
-          width: "28px",
-          height: "28px",
-          "border-radius": "4px",
-          background: chipColor,
-          opacity: "0.85",
-        }}
-      />
-
       {/* 名前 */}
       <div
         style={{
-          "font-size": "8px",
-          color: "rgba(255,255,255,0.75)",
-          "text-align": "center",
-          "line-height": "1.1",
-          width: "100%",
+          flex: "1",
+          "font-size": "9px",
+          color: "rgba(255,255,255,0.85)",
           "overflow": "hidden",
           "text-overflow": "ellipsis",
           "white-space": "nowrap",
+          "min-width": "0",
         }}
         title={label()}
       >
@@ -104,11 +77,12 @@ export function BuffIconCell(props: Props): JSX.Element {
       {/* 残時間バー */}
       <div
         style={{
-          width: "100%",
-          height: "3px",
+          width: "64px",
+          height: "4px",
           background: "rgba(255,255,255,0.12)",
           "border-radius": "2px",
           overflow: "hidden",
+          "flex-shrink": "0",
         }}
       >
         <div
@@ -122,29 +96,33 @@ export function BuffIconCell(props: Props): JSX.Element {
         />
       </div>
 
+      {/* レイヤー数（2以上の場合のみ） */}
+      <Show when={props.entry.layer > 1}>
+        <div
+          style={{
+            "font-size": "8px",
+            color: "rgba(255,255,255,0.45)",
+            "flex-shrink": "0",
+          }}
+        >
+          ×{props.entry.layer}
+        </div>
+      </Show>
+
       {/* 残秒数 */}
       <div
         style={{
           "font-size": "9px",
           "font-weight": "600",
           color: isLow() ? "#ff7043" : "rgba(255,255,255,0.9)",
-          "line-height": "1",
+          "text-align": "right",
+          width: "36px",
+          "flex-shrink": "0",
+          "font-variant-numeric": "tabular-nums",
         }}
       >
         {formatRemaining(displayRemaining(), props.entry.durationMs)}
       </div>
-
-      {/* レイヤー数（2以上の場合のみ） */}
-      <Show when={props.entry.layer > 1}>
-        <div
-          style={{
-            "font-size": "8px",
-            color: "rgba(255,255,255,0.5)",
-          }}
-        >
-          ×{props.entry.layer}
-        </div>
-      </Show>
     </div>
   );
 }

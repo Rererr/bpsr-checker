@@ -728,20 +728,19 @@ pub fn get_self_buff_status(state: tauri::State<'_, EncounterMutex>) -> SelfStat
         if !buff_dictionary::is_visible(snap.base_id) {
             continue;
         }
-        let (category_str, priority_str) = match buff_dictionary::lookup(snap.base_id) {
-            Some(meta) => {
-                let cat = meta.category.as_str().to_string();
-                let pri = match meta.priority {
-                    DisplayPriority::Hidden => "hidden",
-                    DisplayPriority::Low => "low",
-                    DisplayPriority::Normal => "normal",
-                    DisplayPriority::High => "high",
-                    DisplayPriority::Alert => "alert",
-                };
-                (cat, pri.to_string())
-            }
-            None => ("unknown".to_string(), "normal".to_string()),
+        let meta = match buff_dictionary::lookup(snap.base_id) {
+            Some(m) => m,
+            None => continue,
         };
+        let category_str = meta.category.as_str().to_string();
+        let priority_str = match meta.priority {
+            DisplayPriority::Hidden => "hidden",
+            DisplayPriority::Low => "low",
+            DisplayPriority::Normal => "normal",
+            DisplayPriority::High => "high",
+            DisplayPriority::Alert => "alert",
+        }
+        .to_string();
 
         let remaining = snap.remaining_ms.max(0);
         let is_debuff = category_str == "debuff";

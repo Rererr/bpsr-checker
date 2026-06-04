@@ -31,8 +31,8 @@ const sectionLabelStyle: JSX.CSSProperties = {
 
 const rowStyle: JSX.CSSProperties = {
   display: "flex",
-  "flex-wrap": "wrap",
-  gap: "4px",
+  "flex-direction": "column",
+  gap: "2px",
   "margin-bottom": "6px",
 };
 

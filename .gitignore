@@ -2,6 +2,8 @@ node_modules/
 target/
 dist/
 .DS_Store
-.claude/
+.claude/settings.local.json
+.claude/settings.local.json.bak.*
+.claude/worktrees/
 src-tauri/gen/
 translation_work/

@@ -31,13 +31,14 @@ pub enum DisplayPriority {
     Alert = 4,
 }
 
+#[derive(Clone, Copy)]
 pub struct BuffMeta {
     pub category: BuffCategory,
     pub priority: DisplayPriority,
 }
 
 impl BuffMeta {
-    const fn new(category: BuffCategory, priority: DisplayPriority) -> Self {
+    pub const fn new(category: BuffCategory, priority: DisplayPriority) -> Self {
         Self { category, priority }
     }
 }
@@ -163,6 +164,149 @@ static DICT: LazyLock<HashMap<i32, BuffMeta>> = LazyLock::new(|| {
         (2205211, BuffMeta::new(Buff, Normal)),    // 追撃身法
         (2206031, BuffMeta::new(Buff, Normal)),    // 光力の恩惠
         (2206551, BuffMeta::new(Buff, Alert)),     // 光核
+
+        // ── 共通ステータス・属性球・イマジン本 ──────────────────
+        (510022,  BuffMeta::new(Buff,     Normal)), // 幸運アップ
+        (510031,  BuffMeta::new(Buff,     High)),   // ファストアップ (属性球)
+        (510032,  BuffMeta::new(Buff,     Normal)), // ファストアップ (イマジン本)
+        (510041,  BuffMeta::new(Buff,     Normal)), // 器用さアップ (属性球)
+        (510042,  BuffMeta::new(Buff,     High)),   // 器用さアップ (イマジン本)
+        (510045,  BuffMeta::new(Buff,     High)),   // 決意
+        (510099,  BuffMeta::new(Buff,     Normal)), // マスターガーディアン
+        (997020,  BuffMeta::new(Buff,     Normal)), // メインステータス+100
+        (997021,  BuffMeta::new(Buff,     Normal)), // 防御+300
+        (997022,  BuffMeta::new(Buff,     Normal)), // 会心+300
+        (997023,  BuffMeta::new(Buff,     Normal)), // ファスト+300
+        (997024,  BuffMeta::new(Buff,     Normal)), // 器用さ+300
+        (997025,  BuffMeta::new(Buff,     Normal)), // 幸運+300
+
+        // ── 汎用状態異常 A〜E類 ──────────────────────────────────
+        (510501,  BuffMeta::new(Debuff,   High)),   // スタン
+        (510511,  BuffMeta::new(Debuff,   High)),   // 凍結
+        (510521,  BuffMeta::new(Debuff,   High)),   // 目くらまし
+        (510541,  BuffMeta::new(Debuff,   Normal)), // 沈黙
+        (510542,  BuffMeta::new(Debuff,   Normal)), // スロウ
+        (510543,  BuffMeta::new(Debuff,   Normal)), // 静止
+        (510571,  BuffMeta::new(Debuff,   Normal)), // 重傷
+
+        // ── 光盾 (シールドファイター 光盾型) ────────────────────
+        (2206011, BuffMeta::new(Buff,     Normal)), // 光明の盾
+        (2206111, BuffMeta::new(Buff,     High)),   // 審判
+        (2206381, BuffMeta::new(Buff,     Normal)), // 清算炎盾
+        (2206421, BuffMeta::new(Buff,     Normal)), // 灼熱
+        (2206451, BuffMeta::new(Buff,     Normal)), // 防御の極意
+        (2206481, BuffMeta::new(Buff,     Normal)), // 神聖攻撃の極意
+        (2206540, BuffMeta::new(Buff,     High)),   // 剛勇無畏 (報告対象)
+        (2206542, BuffMeta::new(Buff,     High)),   // 剛勇無畏 (別ID)
+
+        // ── ヘビーガード / 砕岩士 (岩盾型) ─────────────────────
+        (50029,   BuffMeta::new(Buff,     High)),   // ロックコート
+        (50046,   BuffMeta::new(Buff,     High)),   // 岩の加護
+        (50050,   BuffMeta::new(Buff,     Normal)), // 護刃の衝撃
+        (50052,   BuffMeta::new(Buff,     High)),   // 魔法バリア
+        (50057,   BuffMeta::new(Buff,     High)),   // 巨岩躯体
+        (50058,   BuffMeta::new(Buff,     High)),   // 勇壮砦壁
+        (50062,   BuffMeta::new(Buff,     High)),   // 岩塊撃
+        (2201021, BuffMeta::new(Buff,     Normal)), // 砕石の吸引
+        (2201191, BuffMeta::new(Buff,     Normal)), // 砂岩の加護
+        (2201201, BuffMeta::new(Buff,     Normal)), // 盾連撃
+        (2201241, BuffMeta::new(Buff,     Normal)), // 盾残響
+        (2201252, BuffMeta::new(Buff,     Normal)), // 破砕怒撃
+        (2201271, BuffMeta::new(Buff,     Normal)), // 絶境逢生
+        (2201361, BuffMeta::new(Buff,     Normal)), // レジスト意識
+        (2201461, BuffMeta::new(Buff,     Normal)), // 剛身強化
+        (2201491, BuffMeta::new(Recovery, Normal)), // 回復
+        (2201651, BuffMeta::new(Buff,     Normal)), // 堅固な壁
+
+        // ── 風騎士 / ウィンドナイト ──────────────────────────────
+        (2203161, BuffMeta::new(Buff,     High)),   // 迅速
+        (2205121, BuffMeta::new(Buff,     High)),   // 追風逐影
+        (2205131, BuffMeta::new(Buff,     Normal)), // 風螺旋
+        (2205161, BuffMeta::new(Buff,     High)),   // 風怒
+        (2205261, BuffMeta::new(Buff,     High)),   // 破壊の風雷
+        (2205481, BuffMeta::new(Buff,     High)),   // 風起
+
+        // ── フロストレイ / 氷雷 ──────────────────────────────────
+        (2204151, BuffMeta::new(Buff,     Normal)), // 連弾
+        (2204171, BuffMeta::new(Buff,     Normal)), // 嵐の交会
+        (2204191, BuffMeta::new(Buff,     High)),   // 氷河の怒濤
+        (2204261, BuffMeta::new(Buff,     Normal)), // 静かなる氷
+
+        // ── ヒーラー (フラワー/自然) ─────────────────────────────
+        (2202081, BuffMeta::new(Buff,     Normal)), // 緑の爆発
+        (2202131, BuffMeta::new(Buff,     Normal)), // 二重注入
+        (2202142, BuffMeta::new(Recovery, Normal)), // ヒーリング
+        (2202241, BuffMeta::new(Buff,     Normal)), // 自然の精
+        (2202321, BuffMeta::new(Buff,     Normal)), // マジェスティック付与
+        (2202322, BuffMeta::new(Buff,     Normal)), // マジェスティック保持
+        (2202331, BuffMeta::new(Buff,     Normal)), // 花界昇華
+        (2202441, BuffMeta::new(Buff,     Normal)), // 庇護
+        (2202561, BuffMeta::new(Buff,     Normal)), // 波動残響
+        (2202621, BuffMeta::new(Buff,     Normal)), // 生命開花
+        (2202651, BuffMeta::new(Buff,     High)),   // 開花循環
+        (2202671, BuffMeta::new(Buff,     High)),   // 無心
+
+        // ── バード / ハーモニックアンセム ────────────────────────
+        (55313,   BuffMeta::new(Buff,     Normal)), // ハーモニックアンセム2倍化
+        (55327,   BuffMeta::new(Buff,     Normal)), // ラッシュパッション
+        (2207461, BuffMeta::new(Buff,     High)),   // ハードディストーション増傷
+        (2207462, BuffMeta::new(Buff,     High)),   // ハーモニックアンセム増傷
+        (2207521, BuffMeta::new(Buff,     Normal)), // 壮大サウンドウェーブ
+
+        // ── レンジャー / ガンスリンガー ──────────────────────────
+        (2203231, BuffMeta::new(Buff,     Normal)), // 集中射撃
+        (2203292, BuffMeta::new(Buff,     Normal)), // 閃心強化
+        (2203371, BuffMeta::new(Buff,     Normal)), // 怒涛の臣獣
+        (2203591, BuffMeta::new(Buff,     Normal)), // 鷹の目
+
+        // ── 雷影 / サンダーストライカー ──────────────────────────
+        (2200051, BuffMeta::new(Buff,     High)),   // 彼岸
+        (2200111, BuffMeta::new(Buff,     High)),   // 雷燕の印
+        (2200112, BuffMeta::new(Buff,     Normal)), // 雷燕
+        (2200221, BuffMeta::new(Buff,     High)),   // 雷の力
+        (2200241, BuffMeta::new(Buff,     Normal)), // 荒れ狂う光
+        (2200342, BuffMeta::new(Buff,     High)),   // 強撃
+        (2200401, BuffMeta::new(Buff,     Normal)), // 雷印刀意ダメージ軽減
+        (2200602, BuffMeta::new(Buff,     Normal)), // 審罰鎌
+
+        // ── シャーマン / ダークサイド ─────────────────────────────
+        (2203031, BuffMeta::new(Debuff,   Normal)), // 傷呪の印
+        (2203051, BuffMeta::new(Buff,     Normal)), // 霊能激流
+        (2203061, BuffMeta::new(Buff,     Normal)), // 魔狼の咆哮
+        (2205031, BuffMeta::new(Debuff,   Normal)), // 傷呪の印 (別ID)
+
+        // ── ナイフダンサー / 格闘 ────────────────────────────────
+        (2205081, BuffMeta::new(Buff,     Normal)), // 千瘡百孔
+        (2205221, BuffMeta::new(Buff,     Normal)), // 戦闘熟練
+        (2205241, BuffMeta::new(Buff,     Normal)), // 怒涛
+        (2205371, BuffMeta::new(Buff,     Normal)), // 破追[強化]
+        (2205391, BuffMeta::new(Buff,     Normal)), // 気勁加持
+        (2205501, BuffMeta::new(Buff,     Normal)), // 螺旋爆炎
+        (2205591, BuffMeta::new(Buff,     Normal)), // 追撃之力
+
+        // ── 共通ボス系警告 ────────────────────────────────────────
+        (881547,  BuffMeta::new(Debuff,   Alert)),  // 誅雷の烙印
+        (881076,  BuffMeta::new(Debuff,   Alert)),  // 魂分裂寸前
+        (881080,  BuffMeta::new(Debuff,   High)),   // 魂の夭折
+        (800026,  BuffMeta::new(Debuff,   High)),   // 大型爆弾カウントダウン
+
+        // ── ボス由来デバフ ────────────────────────────────────────
+        (800010,  BuffMeta::new(Debuff,   Normal)), // ツインマキナの火種
+        (802911,  BuffMeta::new(Debuff,   Normal)), // 脆弱
+        (803057,  BuffMeta::new(Debuff,   Normal)), // 風属性脆弱
+        (803063,  BuffMeta::new(Debuff,   Normal)), // ミーン毒
+        (683311,  BuffMeta::new(Debuff,   High)),   // アーマーブレイク
+        (821051,  BuffMeta::new(Debuff,   High)),   // 磁化傷
+
+        // ── その他 ────────────────────────────────────────────────
+        (683115,  BuffMeta::new(Buff,     High)),   // 団結の力
+        (683624,  BuffMeta::new(Recovery, High)),   // HP持続回復
+        (3200010, BuffMeta::new(Buff,     High)),   // 剣士マスタリー
+        (3200018, BuffMeta::new(Buff,     High)),   // マインドバースト
+        (3200023, BuffMeta::new(Buff,     High)),   // 閃心祝福
+        (3200024, BuffMeta::new(Buff,     High)),   // 嵐の祝福
+        (3210071, BuffMeta::new(Buff,     High)),   // スペシャリスト
+        (3210111, BuffMeta::new(Buff,     Normal)), // 暗霧剣士のマスタリー
     ]
     .into_iter()
     .collect()

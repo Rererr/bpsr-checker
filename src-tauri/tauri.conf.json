@@ -55,7 +55,7 @@
         "minHeight": 80,
         "alwaysOnTop": true,
         "skipTaskbar": true,
-        "visible": false,
+        "visible": true,
         "resizable": true,
         "focus": false
       }

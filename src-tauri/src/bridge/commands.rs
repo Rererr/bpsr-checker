@@ -764,18 +764,12 @@ fn aggregate_player_buffs(
     uid: f64,
     name: String,
 ) -> PlayerBuffSnapshot {
-    use crate::engine::buff_source::{classify, classify_buff};
+    use crate::engine::buff_source::classify_buff;
     use std::collections::HashMap;
 
-    // 値は (代表スナップショット, 免疫デバフ由来か) の組。
-    // 免疫デバフ(classify_buff)はリキャスト等(classify フォールバック)より常に優先する。
-    let mut by_kind: HashMap<String, (SelfBuffSnapshot, bool)> = HashMap::new();
+    let mut by_kind: HashMap<String, SelfBuffSnapshot> = HashMap::new();
     for snap in &snapshots {
-        // 免疫デバフ(buff_config_id 211xxxx)優先。なければリキャスト(effect_id 39xxxx等)で分類。
-        let (kind, is_debuff) = {
-            let k = classify_buff(snap.base_id as i64);
-            if k != BuffSourceKind::Other { (k, true) } else { (classify(snap.base_id), false) }
-        };
+        let kind = classify_buff(snap.base_id as i64);
         if kind == BuffSourceKind::Other {
             continue;
         }
@@ -791,19 +785,11 @@ fn aggregate_player_buffs(
         };
         match by_kind.get_mut(&kind_str) {
             None => {
-                by_kind.insert(kind_str, (candidate, is_debuff));
+                by_kind.insert(kind_str, candidate);
             }
-            Some((entry, entry_is_debuff)) => {
-                // 免疫デバフはフォールバックに常に勝つ。逆は置換しない。
-                // 同種同士なら残時間が長い方を採用（従来挙動）。
-                let replace = match (is_debuff, *entry_is_debuff) {
-                    (true, false) => true,
-                    (false, true) => false,
-                    _ => snap.remaining_ms > entry.remaining_ms,
-                };
-                if replace {
+            Some(entry) => {
+                if snap.remaining_ms > entry.remaining_ms {
                     *entry = candidate;
-                    *entry_is_debuff = is_debuff;
                 }
             }
         }
@@ -812,7 +798,7 @@ fn aggregate_player_buffs(
     PlayerBuffSnapshot {
         uid,
         name,
-        buffs: by_kind.into_values().map(|(snap, _)| snap).collect(),
+        buffs: by_kind.into_values().collect(),
     }
 }
 
@@ -941,10 +927,9 @@ mod tests {
         }
     }
 
-    // 本人がティナ発動時、免疫デバフ(2110056)とリキャスト(392101, 150s)が同 kind=Tina に集まる。
-    // 残時間はリキャストの方が長いが、免疫デバフを優先採用しなければならない。
+    // リキャスト ID (392101 等) が混入していても無視され、免疫デバフのみが残る。
     #[test]
-    fn debuff_preferred_over_recast_regardless_of_order() {
+    fn recast_id_is_ignored_even_when_mixed_with_debuff() {
         for snaps in [
             vec![snap(392101, 150_000), snap(2110056, 60_000)],
             vec![snap(2110056, 60_000), snap(392101, 150_000)],
@@ -953,17 +938,16 @@ mod tests {
             assert_eq!(result.buffs.len(), 1);
             let b = &result.buffs[0];
             assert_eq!(b.kind, "Tina");
-            assert_eq!(b.base_id, 2110056, "リキャストではなく免疫デバフが採用されるべき");
+            assert_eq!(b.base_id, 2110056);
             assert_eq!(b.remaining_ms, 60_000);
         }
     }
 
-    // 免疫デバフが届いていない場合のみ、リキャストをフォールバック表示する。
+    // 免疫デバフが届いていない場合はリキャスト ID も無視して何も表示しない。
     #[test]
-    fn recast_used_as_fallback_when_no_debuff() {
+    fn recast_id_alone_shows_nothing() {
         let result = aggregate_player_buffs(vec![snap(392101, 150_000)], 1.0, "self".into());
-        assert_eq!(result.buffs.len(), 1);
-        assert_eq!(result.buffs[0].base_id, 392101);
+        assert_eq!(result.buffs.len(), 0);
     }
 
     #[test]

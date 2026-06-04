@@ -1,6 +1,3 @@
-use crate::engine::buff_tracker::BuffStateSnapshot;
-use std::collections::HashMap;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, specta::Type)]
 pub enum BuffSourceKind {
     Tina,
@@ -32,22 +29,6 @@ impl BuffSourceKind {
     }
 }
 
-/// base_id からどのバトルイマジンのバフか判定する。
-/// バジリスクの buff_id は実機ログ収集後に追加予定。
-pub fn classify(base_id: i32) -> BuffSourceKind {
-    match base_id {
-        // ティナ (蒂娜/Tina): Skill 3921, effect_id=392101 (150s recast)
-        30001..=31101 | 140001..=141000 | 5001921 | 392101 => BuffSourceKind::Tina,
-        // アルーナ (艾露娜/Airona): Skill 3920, effect_id=392001 (60s immunity)
-        15001..=16000 | 392001 => BuffSourceKind::Aluna,
-        // タータ (塔塔/Tatta): Skill 3911, effect_id=391101 (60s immunity, 盾)
-        4801 | 8801..=8901 | 35101..=36101 | 391101 => BuffSourceKind::Tarta,
-        // バジリスク: Skill 3957, effect_id=395701 (120s recast, 実機確認済み)
-        390301 | 392601 | 395701 => BuffSourceKind::Basilisk,
-        _ => BuffSourceKind::Other,
-    }
-}
-
 /// SceneDelta.buff_list の buff_config_id から重複使用無効デバフのキャラを判定。
 /// BuffTable.json と実機ログの両方で確認済み。
 pub fn classify_buff(buff_config_id: i64) -> BuffSourceKind {
@@ -60,24 +41,3 @@ pub fn classify_buff(buff_config_id: i64) -> BuffSourceKind {
     }
 }
 
-/// 同キャラの複数バフから代表（最長残時間）を選んで返す。
-pub fn aggregate_by_kind(
-    snapshots: &[BuffStateSnapshot],
-    _now_ms: u128,
-) -> HashMap<BuffSourceKind, BuffStateSnapshot> {
-    let mut result: HashMap<BuffSourceKind, BuffStateSnapshot> = HashMap::new();
-
-    for snap in snapshots {
-        let kind = classify(snap.base_id);
-        if kind == BuffSourceKind::Other {
-            continue;
-        }
-
-        let entry = result.entry(kind).or_insert_with(|| snap.clone());
-        if snap.remaining_ms > entry.remaining_ms {
-            *entry = snap.clone();
-        }
-    }
-
-    result
-}

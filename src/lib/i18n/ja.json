@@ -118,5 +118,10 @@
   "char_tina": "ティナ",
   "char_aluna": "アルーナ",
   "char_tarta": "タータ",
-  "char_basilisk": "バジリスク"
+  "char_basilisk": "バジリスク",
+  "self_status_overlay": "自キャラ バフ/デバフ表示",
+  "self_buffs_section": "バフ",
+  "self_debuffs_section": "デバフ",
+  "self_status_empty_hint": "バフ/デバフなし",
+  "self_status_waiting": "自キャラ判定中..."
 }

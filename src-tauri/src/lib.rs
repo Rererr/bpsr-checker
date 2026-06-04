@@ -58,6 +58,8 @@ pub fn run() {
         commands::get_tracked_buffs,
         commands::set_imagine_only_mode,
         commands::set_buffs_window_visible,
+        commands::get_self_buff_status,
+        commands::set_self_status_window_visible,
     ]);
 
     #[cfg(debug_assertions)]

@@ -97,6 +97,28 @@ pub struct TrackedBuffsData {
     pub local_player_uid: f64,
 }
 
+#[derive(specta::Type, serde::Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SelfStatusEntry {
+    pub instance_id: i64,
+    pub base_id: i32,
+    pub category: String,  // "buff" | "debuff" | "recovery" | "item" | "unknown"
+    pub priority: String,  // "hidden" | "low" | "normal" | "high" | "alert"
+    pub remaining_ms: i64,
+    pub duration_ms: i64,
+    pub layer: i32,
+    pub source_config_id: i32,
+}
+
+#[derive(specta::Type, serde::Serialize, Default, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SelfStatusData {
+    pub buffs: Vec<SelfStatusEntry>,
+    pub debuffs: Vec<SelfStatusEntry>,
+    pub now_ms: f64,
+    pub local_player_uid: f64,
+}
+
 #[derive(serde::Serialize, specta::Type, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct MeasureModeStatus {

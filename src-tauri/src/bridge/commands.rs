@@ -678,7 +678,9 @@ pub fn set_buffs_window_visible(app: tauri::AppHandle, visible: bool) -> Result<
         .get_webview_window("buffs")
         .ok_or_else(|| "buffs window not found".to_string())?;
     if visible {
-        win.show().map_err(|e| e.to_string())
+        win.show().map_err(|e| e.to_string())?;
+        crate::ensure_on_screen(&win);
+        Ok(())
     } else {
         win.hide().map_err(|e| e.to_string())
     }
@@ -691,7 +693,9 @@ pub fn set_self_status_window_visible(app: tauri::AppHandle, visible: bool) -> R
         .get_webview_window("self_status")
         .ok_or_else(|| "self_status window not found".to_string())?;
     if visible {
-        win.show().map_err(|e| e.to_string())
+        win.show().map_err(|e| e.to_string())?;
+        crate::ensure_on_screen(&win);
+        Ok(())
     } else {
         win.hide().map_err(|e| e.to_string())
     }

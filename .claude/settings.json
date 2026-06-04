@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo check *)",
+      "Bash(cargo build *)",
+      "Bash(cargo test *)",
+      "Bash(cargo tree *)",
+      "Bash(cargo fetch *)",
+      "Bash(cargo doc *)",
+      "Bash(cargo update *)",
+      "Bash(npm run *)",
+      "Bash(npm list *)",
+      "Bash(npx tsc *)",
+      "Bash(npx vite *)",
+      "Bash(rustfmt *)",
+      "Bash(git log *)",
+      "Bash(git diff *)",
+      "Bash(git status *)",
+      "Bash(git config *)",
+      "Bash(git remote *)",
+      "Bash(git stash *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git tag *)",
+      "Bash(git push *)",
+      "Bash(git checkout *)",
+      "Bash(gh run *)",
+      "Bash(gh release *)",
+      "Bash(gh api *)"
+    ]
+  }
+}

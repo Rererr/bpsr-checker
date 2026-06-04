@@ -13,7 +13,7 @@ export const KIND_COLORS: Record<CharKind, string> = {
   Basilisk: "#d9a05b",
 };
 
-const SIZE = 32;
+const SIZE = 28;
 const STROKE = 3;
 const R = SIZE / 2 - STROKE / 2; // 14.5
 const CIRCUMFERENCE = 2 * Math.PI * R; // ≈ 91.11

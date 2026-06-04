@@ -38,6 +38,7 @@ const [threeMinAutoOpen, setThreeMinAutoOpen] = persisted<boolean>("threeMinAuto
 const [abbreviateScores, setAbbreviateScores] = persisted<boolean>("abbreviateScores", false);
 const [showBuffOverlay, setShowBuffOverlay] = persisted<boolean>("showBuffOverlay", false);
 const [imagineOnlyMode, setImagineOnlyMode] = persisted<boolean>("imagineOnlyMode", false);
+const [showSelfStatusOverlay, setShowSelfStatusOverlay] = persisted<boolean>("showSelfStatusOverlay", false);
 const [showElement, setShowElement] = persisted<boolean>("showElement", true);
 const [showDamageMode, setShowDamageMode] = persisted<boolean>("showDamageMode", true);
 const [compactSplitMode, setCompactSplitMode] = persisted<boolean>("compactSplitMode", false);
@@ -75,6 +76,7 @@ export {
   abbreviateScores, setAbbreviateScores,
   showBuffOverlay, setShowBuffOverlay,
   imagineOnlyMode, setImagineOnlyMode,
+  showSelfStatusOverlay, setShowSelfStatusOverlay,
   showElement, setShowElement,
   showDamageMode, setShowDamageMode,
   compactSplitMode, setCompactSplitMode,
@@ -109,5 +111,6 @@ export async function wireBackendSettings(): Promise<UnlistenFn> {
 
   // 起動時の表示状態を Rust 側から確実に制御（WebView2 hidden 初期化問題の回避）
   invoke("set_buffs_window_visible", { visible: showBuffOverlay() || imagineOnlyMode() }).catch(() => {});
+  invoke("set_self_status_window_visible", { visible: showSelfStatusOverlay() }).catch(() => {});
   return unlisten;
 }

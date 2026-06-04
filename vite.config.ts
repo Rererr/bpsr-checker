@@ -20,6 +20,7 @@ export default defineConfig({
       input: {
         main: path.resolve(__dirname, "index.html"),
         buffs: path.resolve(__dirname, "buffs.html"),
+        self_status: path.resolve(__dirname, "self_status.html"),
       },
     },
   },

@@ -36,6 +36,7 @@ import {
   showBuffOverlay, setShowBuffOverlay,
   imagineOnlyMode, setImagineOnlyMode,
   compactSplitMode, setCompactSplitMode,
+  showSelfStatusOverlay, setShowSelfStatusOverlay,
 } from "../stores/settings";
 import { clearHistory, dpsPlayers, header } from "../stores/encounter";
 import { formatRowAsText } from "../utils";
@@ -756,6 +757,16 @@ export function SettingsPanel() {
           <div style={{ color: "#555", "font-size": "9px" }}>
             {t("imagine_only_mode_hint")}
           </div>
+
+          {/* 自キャラ バフ/デバフ表示 */}
+          <ToggleChip
+            label={t("self_status_overlay")}
+            value={showSelfStatusOverlay()}
+            onChange={(v) => {
+              setShowSelfStatusOverlay(v);
+              invoke("set_self_status_window_visible", { visible: v }).catch(() => {});
+            }}
+          />
 
           {/* クリックスルー */}
           <ToggleChip

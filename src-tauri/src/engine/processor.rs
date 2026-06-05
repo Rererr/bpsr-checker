@@ -407,12 +407,27 @@ fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::SceneDelta) {
         }
     }
 
-    // SceneDelta.buff_list: 免疫デバフを含むバフイベントリスト（全プレイヤー対象）
-    // buff_type ごとに detail 構造が異なるため body/detail を手動デコード
+    // SceneDelta.buff_list: バフイベント (BuffEffect) リスト。
+    // 各イベントは BuffEffect.BuffUuid (= buff_uuid, インスタンスキー) で対象バフを識別し、
+    // Type (EBuffEventType) と LogicEffect.EffectType (EBuffEffectLogicPbType) で処理を分岐する。
+    //   Type==2 (BuffEventRemove): 解除
+    //   EffectType==18 (BuffEffectAddBuff): RawData=BuffInfo(=BuffSnapshot) → 付与/再付与
+    //   EffectType==19 (BuffEffectBuffChange): RawData=BuffChange{layer,duration,createTime}
+    //       → スタック増加・タイマーリフレッシュ（同一 BuffUuid を更新し received_at を再ベース）
     if target_entity_type == EntityKind::Player {
         if let Some(buff_list) = &scene_delta.buff_list {
+            const BUFF_EVENT_REMOVE: i32 = 2;
+            const LOGIC_EFFECT_ADD_BUFF: i32 = 18;
+            const LOGIC_EFFECT_BUFF_CHANGE: i32 = 19;
             let ts = now_ms();
             for buff in &buff_list.buffs {
+                let buff_uuid = buff.buff_uuid; // BuffEffect.BuffUuid（インスタンスキー）
+
+                if buff.event_type == BUFF_EVENT_REMOVE {
+                    encounter.buff_tracker.remove(target_uid, buff_uuid);
+                    continue;
+                }
+
                 if buff.body_raw.is_empty() {
                     continue;
                 }
@@ -420,18 +435,28 @@ fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::SceneDelta) {
                     Ok(b) => b,
                     Err(_) => continue,
                 };
-                // buff_type=18 が免疫デバフ系の構造を持つ。他は別構造なのでスキップ。
-                if body.buff_type != 18 || body.detail_raw.is_empty() {
+                if body.detail_raw.is_empty() {
                     continue;
                 }
-                let detail = match pb::BuffPayloadDetail::decode(body.detail_raw.as_slice()) {
-                    Ok(d) => d,
-                    Err(_) => continue,
-                };
-                if detail.duration_ms <= 0 {
-                    continue;
+                match body.buff_type {
+                    LOGIC_EFFECT_ADD_BUFF => {
+                        let Ok(info) = pb::BuffSnapshot::decode(body.detail_raw.as_slice()) else {
+                            continue;
+                        };
+                        encounter
+                            .buff_tracker
+                            .apply_buff_add(buff_uuid, &info, ts, target_uid);
+                    }
+                    LOGIC_EFFECT_BUFF_CHANGE => {
+                        let Ok(change) = pb::BuffChange::decode(body.detail_raw.as_slice()) else {
+                            continue;
+                        };
+                        encounter
+                            .buff_tracker
+                            .apply_buff_change(target_uid, buff_uuid, &change, ts);
+                    }
+                    _ => {}
                 }
-                encounter.buff_tracker.apply_buff_detail(&detail, ts, target_uid);
             }
         }
     }

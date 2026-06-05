@@ -25,21 +25,28 @@ export function BuffOverlay(): JSX.Element {
     trackedBuffs().players.find((p) => p.uid === uid);
 
   return (
+    // 外周 15px は常にドラッグ可能なフレーム。内側はスクロール領域。
     <div
       data-tauri-drag-region
       style={{
         background: "rgba(10, 10, 18, 0.82)",
         "border-radius": "6px",
-        padding: "10px 8px 4px",
+        padding: "15px",
         "min-height": "100vh",
         "max-height": "100vh",
-        "overflow-y": "auto",
-        "font-family": '"Segoe UI", "Meiryo", sans-serif',
-        "scrollbar-width": "thin",
-        "scrollbar-color": "rgba(255,255,255,0.15) transparent",
       }}
     >
-      <Show
+      <div
+        data-tauri-drag-region
+        style={{
+          height: "100%",
+          "overflow-y": "auto",
+          "font-family": '"Segoe UI", "Meiryo", sans-serif',
+          "scrollbar-width": "thin",
+          "scrollbar-color": "rgba(255,255,255,0.15) transparent",
+        }}
+      >
+        <Show
         when={watchedUids().length > 0}
         fallback={
           <div
@@ -101,7 +108,8 @@ export function BuffOverlay(): JSX.Element {
             );
           }}
         </For>
-      </Show>
+        </Show>
+      </div>
     </div>
   );
 }

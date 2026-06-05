@@ -96,18 +96,18 @@ export function BuffIconCell(props: Props): JSX.Element {
         />
       </div>
 
-      {/* レイヤー数（2以上の場合のみ） */}
-      <Show when={props.entry.layer > 1}>
-        <div
-          style={{
-            "font-size": "8px",
-            color: "rgba(255,255,255,0.45)",
-            "flex-shrink": "0",
-          }}
-        >
-          ×{props.entry.layer}
-        </div>
-      </Show>
+      {/* レイヤー数: 常に固定幅スロットを確保して残時間バーの左端を揃える（2以上のみ表示） */}
+      <div
+        style={{
+          "font-size": "8px",
+          color: "rgba(255,255,255,0.45)",
+          "flex-shrink": "0",
+          width: "22px",
+          "text-align": "left",
+        }}
+      >
+        <Show when={props.entry.layer > 1}>×{props.entry.layer}</Show>
+      </div>
 
       {/* 残秒数 */}
       <div

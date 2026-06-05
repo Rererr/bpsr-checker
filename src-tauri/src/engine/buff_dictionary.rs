@@ -62,8 +62,8 @@ static DICT: LazyLock<HashMap<i32, BuffMeta>> = LazyLock::new(|| {
         (32201,   BuffMeta::new(Debuff, Normal)),  // 重傷
         (44501,   BuffMeta::new(Debuff, Normal)),  // 重傷 (別ID)
         (55239,   BuffMeta::new(Debuff, Low)),     // 閃心停滞
-        (55412,   BuffMeta::new(Debuff, Hidden)),  // コンクエスト (内部フラグ、非表示)
-        (55417,   BuffMeta::new(Debuff, Hidden)),  // コンクエスト (別ID、非表示)
+        (55412,   BuffMeta::new(Buff,   Normal)),  // コンクエスト Zeal Crusade Lv12 (自オーラ。BuffTable準拠でバフ表示)
+        (55417,   BuffMeta::new(Buff,   Normal)),  // コンクエスト Zeal Crusade Lv17 (自オーラ。BuffTable準拠でバフ表示)
         (55425,   BuffMeta::new(Debuff, Normal)),  // 目くらまし
         (55426,   BuffMeta::new(Debuff, Normal)),  // 沈黙
 
@@ -79,7 +79,7 @@ static DICT: LazyLock<HashMap<i32, BuffMeta>> = LazyLock::new(|| {
         (2110070, BuffMeta::new(Debuff, Normal)),  // ドレッドロア
         (2110078, BuffMeta::new(Debuff, Normal)),  // ショック防御破壊
         (2110100, BuffMeta::new(Debuff, Normal)),  // 回復禁止
-        (2110111, BuffMeta::new(Debuff, Normal)),  // 呪術
+        (2110111, BuffMeta::new(Buff,   High)),    // 付与 Enchantment (BuffTable: Buff/High)
         (2110099, BuffMeta::new(Debuff, Hidden)),  // 気刃突刺計数 (内部カウンタ、非表示)
 
         // ── 回復・防御バフ ───────────────────────────────────
@@ -96,7 +96,7 @@ static DICT: LazyLock<HashMap<i32, BuffMeta>> = LazyLock::new(|| {
         (55414,   BuffMeta::new(Buff, High)),      // セイクリッドオース (別ID)
         (55416,   BuffMeta::new(Buff, High)),      // 光盾障壁
         (55422,   BuffMeta::new(Buff, High)),      // レジストブースト
-        (500113,  BuffMeta::new(Buff, Normal)),    // 無敵復活
+        (500113,  BuffMeta::new(Buff, Low)),       // 無敵復活 Revive invincibility (BuffTable: Low)
 
         // ── 攻撃・強化バフ ───────────────────────────────────
         (21404,   BuffMeta::new(Buff, High)),      // HP持続回復
@@ -196,8 +196,8 @@ static DICT: LazyLock<HashMap<i32, BuffMeta>> = LazyLock::new(|| {
         (2206421, BuffMeta::new(Buff,     Normal)), // 灼熱
         (2206451, BuffMeta::new(Buff,     Normal)), // 防御の極意
         (2206481, BuffMeta::new(Buff,     Normal)), // 神聖攻撃の極意
-        (2206540, BuffMeta::new(Buff,     High)),   // 剛勇無畏 (報告対象)
-        (2206542, BuffMeta::new(Buff,     High)),   // 剛勇無畏 (別ID)
+        (2206540, BuffMeta::new(Buff,     Hidden)), // 剛勇無畏 (永続の内部保持バフ・非表示。表示は2206542)
+        (2206542, BuffMeta::new(Buff,     High)),   // 剛勇無畏 (10秒タイマー＋スタック。これを表示)
 
         // ── ヘビーガード / 砕岩士 (岩盾型) ─────────────────────
         (50029,   BuffMeta::new(Buff,     High)),   // ロックコート
@@ -212,7 +212,7 @@ static DICT: LazyLock<HashMap<i32, BuffMeta>> = LazyLock::new(|| {
         (2201201, BuffMeta::new(Buff,     Normal)), // 盾連撃
         (2201241, BuffMeta::new(Buff,     Normal)), // 盾残響
         (2201252, BuffMeta::new(Buff,     Normal)), // 破砕怒撃
-        (2201271, BuffMeta::new(Buff,     Normal)), // 絶境逢生
+        (2201271, BuffMeta::new(Buff,     High)),   // 絶境逢生 Survival Instinct (BuffTable: High)
         (2201361, BuffMeta::new(Buff,     Normal)), // レジスト意識
         (2201461, BuffMeta::new(Buff,     Normal)), // 剛身強化
         (2201491, BuffMeta::new(Recovery, Normal)), // 回復
@@ -220,7 +220,7 @@ static DICT: LazyLock<HashMap<i32, BuffMeta>> = LazyLock::new(|| {
 
         // ── 風騎士 / ウィンドナイト ──────────────────────────────
         (2203161, BuffMeta::new(Buff,     High)),   // 迅速
-        (2205121, BuffMeta::new(Buff,     High)),   // 追風逐影
+        (2205121, BuffMeta::new(Buff,     Normal)), // 追風逐影 Wind Chaser (BuffTable: Normal)
         (2205131, BuffMeta::new(Buff,     Normal)), // 風螺旋
         (2205161, BuffMeta::new(Buff,     High)),   // 風怒
         (2205261, BuffMeta::new(Buff,     High)),   // 破壊の風雷

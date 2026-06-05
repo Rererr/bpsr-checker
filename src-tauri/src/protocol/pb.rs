@@ -31,49 +31,18 @@ pub struct TimedEffect {
     #[prost(int64, tag = "5")]
     pub extra: i64,
 }
-/// SceneDelta.buff_list に格納されるバフ通知の中身。
-/// payload の中身はバフタイプによって構造が変わるので、payload と
-/// detail は bytes でラップし、必要な型だけアプリ側でデコードする。
-#[derive(specta::Type)]
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct BuffPayloadDetail {
-    /// buff_type == 18: 免疫系デバフ等で使用される構造
-    #[prost(int32, tag = "1")]
-    pub slot_id: i32,
-    #[prost(int64, tag = "2")]
-    pub buff_config_id: i64,
-    #[prost(int32, tag = "3")]
-    pub level: i32,
-    #[prost(int64, tag = "5")]
-    pub base_buff_id: i64,
-    #[prost(int64, tag = "6")]
-    pub apply_time: i64,
-    #[prost(int64, tag = "7")]
-    pub target_uuid: i64,
-    #[prost(int32, tag = "8")]
-    pub is_active: i32,
-    #[prost(int64, tag = "10")]
-    pub permanent_flag: i64,
-    #[prost(int64, tag = "11")]
-    pub duration_ms: i64,
-}
-#[derive(specta::Type)]
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct BuffPayload {
-    #[prost(int32, tag = "1")]
-    pub buff_type: i32,
-    #[prost(bytes = "vec", tag = "2")]
-    pub detail_raw: ::prost::alloc::vec::Vec<u8>,
-}
+/// buff_list の 1 要素 (= ZDPS の BuffEffect)。
+/// event_type は EBuffEventType (1=AddTo, 2=Remove, 4=Timer, 5=StackLayer …)、
+/// buff_uuid は対象バフのインスタンスキー、body_raw は LogicEffect (= BuffPayload) の bytes。
 #[derive(specta::Type)]
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct BuffEvent {
     #[prost(int32, tag = "1")]
     pub event_type: i32,
     #[prost(int32, tag = "2")]
-    pub skill_slot: i32,
+    pub buff_uuid: i32,
     #[prost(int64, tag = "3")]
-    pub actor_uuid: i64,
+    pub host_uuid: i64,
     #[prost(bytes = "vec", tag = "5")]
     pub body_raw: ::prost::alloc::vec::Vec<u8>,
 }
@@ -82,6 +51,29 @@ pub struct BuffEvent {
 pub struct BuffEventBatch {
     #[prost(message, repeated, tag = "2")]
     pub buffs: ::prost::alloc::vec::Vec<BuffEvent>,
+}
+/// BuffEvent.body_raw をラップ (= BuffEffectLogicInfo)。
+/// buff_type は EffectType (18=AddBuff→BuffSnapshot / 19=BuffChange)。
+/// detail_raw は型ごとにアプリ側でデコードする。
+#[derive(specta::Type)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct BuffPayload {
+    #[prost(int32, tag = "1")]
+    pub buff_type: i32,
+    #[prost(bytes = "vec", tag = "2")]
+    pub detail_raw: ::prost::alloc::vec::Vec<u8>,
+}
+/// LogicEffect.EffectType==19 (BuffChange) の RawData。スタック増加/タイマー更新を表す。
+/// base_id を持たず、対象は BuffEvent.buff_uuid で識別する。
+#[derive(specta::Type)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct BuffChange {
+    #[prost(int32, tag = "1")]
+    pub layer: i32,
+    #[prost(int64, tag = "2")]
+    pub duration: i64,
+    #[prost(int64, tag = "3")]
+    pub create_time: i64,
 }
 #[derive(specta::Type)]
 #[derive(Clone, PartialEq, ::prost::Message)]

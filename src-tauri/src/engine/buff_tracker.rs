@@ -103,32 +103,61 @@ impl BuffTracker {
         entry.create_time_server = change.create_time;
     }
 
-    /// SceneDelta.buff_list から取得した BuffPayloadDetail を追跡。
-    /// duration_ms > 0 のデバフのみ保存。apply_time が同一 かつ duration_ms も同一なら周期同期スキップ。
-    /// apply_time が同じでも duration_ms が増加した場合は延長・再付与と判断して更新する。
-    pub fn apply_buff_detail(&mut self, detail: &pb::BuffPayloadDetail, now_ms: u128, target_uid: i64) {
-        if detail.duration_ms <= 0 {
-            return;
-        }
-        let id = detail.buff_config_id as i32;
+    /// buff_list (BuffEffect) の AddBuff (LogicEffect.EffectType == 18) を追跡。
+    /// RawData は BuffInfo (= pb::BuffSnapshot)。BuffEffect.BuffUuid（インスタンスキー）で保存する。
+    /// duration <= 0 は永続扱い（duration_ms=0 に正規化）。
+    pub fn apply_buff_add(&mut self, buff_uuid: i32, info: &pb::BuffSnapshot, now_ms: u128, target_uid: i64) {
+        let source_config_id = info
+            .fight_source_info
+            .as_ref()
+            .map(|s| s.source_config_id)
+            .unwrap_or(0);
+        let duration_ms = if info.duration <= 0 { 0 } else { info.duration as i64 };
         let player_buffs = self.buffs.entry(target_uid).or_default();
-        if let Some(existing) = player_buffs.get(&id) {
-            if existing.create_time_server == detail.apply_time && detail.duration_ms <= existing.duration_ms {
-                return;
-            }
+        player_buffs.insert(
+            buff_uuid,
+            BuffState {
+                buff_uuid,
+                base_id: info.base_id,
+                host_uuid: info.host_uuid,
+                fire_uuid: info.fire_uuid,
+                create_time_server: info.create_time,
+                received_at_local_ms: now_ms,
+                duration_ms,
+                layer: info.layer,
+                count: info.count,
+                source_config_id,
+            },
+        );
+    }
+
+    /// buff_list (BuffEffect) の BuffChange (LogicEffect.EffectType == 19) を追跡。
+    /// RawData は BuffChange{layer, duration, create_time}。base_id を持たないため、
+    /// 同一 BuffUuid の既存バフの duration/layer を更新し received_at を再ベースする
+    /// （スタック増加・タイマーリフレッシュ ＝ ウィンドウから消えない）。未追跡 BuffUuid は無視。
+    pub fn apply_buff_change(
+        &mut self,
+        target_uid: i64,
+        buff_uuid: i32,
+        change: &pb::BuffChange,
+        now_ms: u128,
+    ) {
+        let Some(player_buffs) = self.buffs.get_mut(&target_uid) else {
+            return;
+        };
+        let Some(state) = player_buffs.get_mut(&buff_uuid) else {
+            return;
+        };
+        state.received_at_local_ms = now_ms;
+        if change.duration != 0 {
+            state.duration_ms = if change.duration < 0 { 0 } else { change.duration };
         }
-        player_buffs.insert(id, BuffState {
-            buff_uuid: id,
-            base_id: id,
-            host_uuid: detail.target_uuid,
-            fire_uuid: 0,
-            create_time_server: detail.apply_time,
-            received_at_local_ms: now_ms,
-            duration_ms: detail.duration_ms,
-            layer: 1,
-            count: 1,
-            source_config_id: 0,
-        });
+        if change.layer != 0 {
+            state.layer = change.layer;
+        }
+        if change.create_time != 0 {
+            state.create_time_server = change.create_time;
+        }
     }
 
     /// LocalSceneDelta.effects から取得した TimedEffect を追跡（常に local player 宛）。
@@ -142,7 +171,9 @@ impl BuffTracker {
         let id = effect.id as i32;
         let player_buffs = self.buffs.entry(local_uid).or_default();
         if let Some(existing) = player_buffs.get(&id) {
-            if existing.create_time_server == effect.activated_at && effect.duration_ms <= existing.duration_ms {
+            if existing.create_time_server == effect.activated_at
+                && effect.duration_ms <= existing.duration_ms
+            {
                 return;
             }
         }
@@ -357,5 +388,62 @@ mod tests {
         let snap_b = tracker.snapshot_for(uid_b, 0);
         assert_eq!(snap_a[0].duration_ms, 5000);
         assert_eq!(snap_b[0].duration_ms, 2000);
+    }
+
+    // buff_list (BuffEffect) 経路: AddBuff で BuffUuid キーに保存し、
+    // BuffChange (EffectType 19) で duration/layer を更新し received_at を再ベースする
+    // ＝期限間際の再付与でも消えずに延長され、スタック数が反映される。
+    #[test]
+    fn test_buff_change_refreshes_and_stacks() {
+        let mut tracker = BuffTracker::new();
+        let uid = 5000;
+
+        // AddBuff: buff_uuid=77（インスタンスキー）, base_id=30001, duration=1000
+        tracker.apply_buff_add(77, &make_buff_info(1, player_uuid(1), 1000), 0, uid);
+
+        // 期限間際(900ms)に BuffChange: duration=1000, layer=3（スタック3）
+        let change = pb::BuffChange { layer: 3, duration: 1000, create_time: 0 };
+        tracker.apply_buff_change(uid, 77, &change, 900);
+
+        // 再ベースされていれば期限は 900+1000=1900ms。1500ms 時点で残り 400ms（消えない）。
+        let snaps = tracker.snapshot_for(uid, 1500);
+        assert_eq!(snaps.len(), 1);
+        assert_eq!(snaps[0].remaining_ms, 400);
+        assert_eq!(snaps[0].layer, 3);
+        assert_eq!(snaps[0].base_id, 30001);
+    }
+
+    // 未追跡 BuffUuid への BuffChange は無視する（base_id 不明で表示できないため）。
+    #[test]
+    fn test_buff_change_unknown_uuid_ignored() {
+        let mut tracker = BuffTracker::new();
+        let uid = 5000;
+        let change = pb::BuffChange { layer: 2, duration: 1000, create_time: 0 };
+        tracker.apply_buff_change(uid, 999, &change, 0);
+        assert!(tracker.snapshot_for(uid, 0).is_empty());
+    }
+
+    // Remove イベントは BuffUuid キーで削除する。
+    #[test]
+    fn test_buff_remove_by_uuid() {
+        let mut tracker = BuffTracker::new();
+        let uid = 5000;
+        tracker.apply_buff_add(42, &make_buff_info(1, player_uuid(1), 5000), 0, uid);
+        assert_eq!(tracker.snapshot_for(uid, 0).len(), 1);
+        tracker.remove(uid, 42);
+        assert!(tracker.snapshot_for(uid, 0).is_empty());
+    }
+
+    // AddBuff の duration <= 0 は永続（duration_ms=0 に正規化）として gc で消えない。
+    #[test]
+    fn test_buff_add_negative_duration_is_permanent() {
+        let mut tracker = BuffTracker::new();
+        let uid = 5000;
+        tracker.apply_buff_add(42, &make_buff_info(1, player_uuid(1), -1), 0, uid);
+
+        tracker.gc(u128::MAX / 2);
+        let snaps = tracker.snapshot_for(uid, u128::MAX / 2);
+        assert_eq!(snaps.len(), 1);
+        assert_eq!(snaps[0].duration_ms, 0);
     }
 }

@@ -8,12 +8,18 @@ import type { BuffNameEntry, StatusEntry } from "./types";
 
 const nameDict = buffDict as Record<string, BuffNameEntry>;
 
-const containerStyle: JSX.CSSProperties = {
+// 外周 15px は常にドラッグ可能なフレーム。
+const frameStyle: JSX.CSSProperties = {
   background: "rgba(10, 10, 18, 0.82)",
   "border-radius": "6px",
-  padding: "6px 8px",
+  padding: "15px",
   "min-height": "100vh",
   "max-height": "100vh",
+};
+
+// フレーム内側のスクロール領域。
+const contentStyle: JSX.CSSProperties = {
+  height: "100%",
   "overflow-y": "auto",
   "font-family": '"Segoe UI", "Meiryo", sans-serif',
   "scrollbar-width": "thin",
@@ -62,9 +68,10 @@ export function SelfStatusOverlay(): JSX.Element {
   const isWaiting = () => status().localPlayerUid === 0;
 
   return (
-    <div data-tauri-drag-region style={containerStyle}>
-      <Show
-        when={!isWaiting()}
+    <div data-tauri-drag-region style={frameStyle}>
+      <div data-tauri-drag-region style={contentStyle}>
+        <Show
+          when={!isWaiting()}
         fallback={
           <div style={{ "font-size": "10px", color: "rgba(255,255,255,0.3)", "text-align": "center", padding: "8px 0" }}>
             {t("self_status_waiting")}
@@ -82,7 +89,8 @@ export function SelfStatusOverlay(): JSX.Element {
           <Section label={t("self_buffs_section")} entries={status().buffs} nameDict={nameDict} />
           <Section label={t("self_debuffs_section")} entries={status().debuffs} nameDict={nameDict} />
         </Show>
-      </Show>
+        </Show>
+      </div>
     </div>
   );
 }

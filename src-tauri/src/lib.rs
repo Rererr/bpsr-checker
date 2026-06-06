@@ -60,6 +60,7 @@ pub fn run() {
         commands::set_buffs_window_visible,
         commands::get_self_buff_status,
         commands::set_self_status_window_visible,
+        commands::set_main_opacity,
     ]);
 
     #[cfg(debug_assertions)]
@@ -148,7 +149,22 @@ pub fn run() {
                 tokio::time::sleep(std::time::Duration::from_millis(800)).await;
                 if let Some(w) = app_handle_for_geom.get_webview_window(WINDOW_MAIN_LABEL) {
                     ensure_on_screen(&w);
+                    // window-state が旧い最小高さ未満のサイズを復元することがある。
+                    // 混在DPIではトグル後リロードの描画ズレが低い窓で出るため、
+                    // 最小高さ(論理300)を下回っていたら既定値へ底上げする。
+                    if let (Ok(sz), Ok(sf)) = (w.inner_size(), w.scale_factor()) {
+                        let logical_h = f64::from(sz.height) / sf;
+                        if logical_h < 300.0 {
+                            let logical_w = f64::from(sz.width) / sf;
+                            let _ = w.set_size(LogicalSize {
+                                width: logical_w,
+                                height: 350.0,
+                            });
+                            warn!("main 高さが最小未満({logical_h:.0}<300)のため 350 へ底上げ");
+                        }
+                    }
                 }
+                log_windows(&app_handle_for_geom, "startup");
             });
 
             Ok(())
@@ -206,6 +222,7 @@ fn setup_logs(app: &tauri::AppHandle) -> tauri::Result<()> {
 
 fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     fn show_window(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+        ensure_on_screen(window);
         window.show()?;
         window.unminimize()?;
         window.set_focus()?;
@@ -309,6 +326,35 @@ pub fn ensure_on_screen(window: &tauri::WebviewWindow) {
         visible += i64::from(ix) * i64::from(iy);
     }
 
+    // 診断ログ: ウインドウ実座標・各モニタ配置・可視率。混在DPI/画面外切り分け用。
+    let mon_dump: Vec<String> = monitors
+        .iter()
+        .map(|m| {
+            let p = m.position();
+            let s = m.size();
+            format!(
+                "[{},{} {}x{} sf={:.2}]",
+                p.x,
+                p.y,
+                s.width,
+                s.height,
+                m.scale_factor()
+            )
+        })
+        .collect();
+    info!(
+        "ensure_on_screen[{}]: pos=({},{}) size=({}x{}) 可視={}/{} ({}%) monitors={}",
+        window.label(),
+        win_left,
+        win_top,
+        size.width,
+        size.height,
+        visible,
+        win_area,
+        if win_area > 0 { visible * 100 / win_area } else { 0 },
+        mon_dump.join(" "),
+    );
+
     // 過半数が画面内に収まっていれば触らない
     if visible * 2 >= win_area {
         return;
@@ -335,6 +381,62 @@ pub fn ensure_on_screen(window: &tauri::WebviewWindow) {
         "{} ウインドウが画面外でした (可視 {visible}/{win_area} px)。プライマリモニタ内へ移動しました",
         window.label()
     );
+}
+
+/// main の半透明(ゲーム透過)を OS のレイヤードウィンドウで実現する。
+///
+/// main を `transparent: true`(WS_EX_NOREDIRECTIONBITMAP/DirectComposition)に
+/// すると、混在DPIマルチモニタで兄弟ウインドウの合成変化のたびに main の合成面が
+/// 不可逆に壊れて不可視化する。そこで main は非透明にし、ウインドウ全体の
+/// 一様アルファ(`WS_EX_LAYERED` + `SetLayeredWindowAttributes`)で透過を出す。
+/// この方式は redirection bitmap 経由で堅牢。
+#[cfg(target_os = "windows")]
+pub fn set_window_alpha(window: &tauri::WebviewWindow, opacity: f64) {
+    use windows::Win32::Foundation::{COLORREF, HWND};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GWL_EXSTYLE, GetWindowLongPtrW, LWA_ALPHA, SetLayeredWindowAttributes, SetWindowLongPtrW,
+        WS_EX_LAYERED,
+    };
+
+    let raw = match window.hwnd() {
+        Ok(h) => h.0 as isize,
+        Err(e) => {
+            warn!("set_window_alpha: hwnd 取得失敗: {e}");
+            return;
+        }
+    };
+    let hwnd = HWND(raw);
+    let alpha = (opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
+    unsafe {
+        let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        let want = ex | WS_EX_LAYERED.0 as isize;
+        if ex != want {
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, want);
+        }
+        if !SetLayeredWindowAttributes(hwnd, COLORREF(0), alpha, LWA_ALPHA).as_bool() {
+            warn!("set_window_alpha: SetLayeredWindowAttributes 失敗");
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn set_window_alpha(_window: &tauri::WebviewWindow, _opacity: f64) {}
+
+/// 全ウインドウの可視状態・座標・サイズをログ出力する診断用ヘルパ。
+/// 「main が消える」系の調査で、各操作の前後に呼んで状態を残す。
+pub fn log_windows(app: &tauri::AppHandle, ctx: &str) {
+    for label in [WINDOW_MAIN_LABEL, "buffs", "self_status"] {
+        match app.get_webview_window(label) {
+            Some(w) => {
+                let vis = w.is_visible().unwrap_or(false);
+                let min = w.is_minimized().unwrap_or(false);
+                let pos = w.outer_position().ok();
+                let size = w.outer_size().ok();
+                info!("[win:{ctx}] {label}: visible={vis} minimized={min} pos={pos:?} size={size:?}");
+            }
+            None => info!("[win:{ctx}] {label}: <not found>"),
+        }
+    }
 }
 
 fn on_window_event(window: &Window, event: &WindowEvent) {

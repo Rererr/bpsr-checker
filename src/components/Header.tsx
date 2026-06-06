@@ -139,6 +139,8 @@ export function Header(props: HeaderProps) {
         "font-size": "12px",
         "user-select": "none",
         cursor: "default",
+        // 設定パネル等が縦に伸びても flex 縮小でヘッダーが潰れないよう固定する
+        "flex-shrink": "0",
       }}
       data-tauri-drag-region
     >

@@ -1,5 +1,6 @@
 import { Show, createResource, createSignal } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
+import { persisted } from "../lib/persisted";
 import { t, locale, setLocale } from "../lib/i18n";
 import type { Locale } from "../lib/i18n";
 import {
@@ -274,9 +275,31 @@ const pairGrid = {
   gap: "4px",
 } as const;
 
+// 混在DPIのマルチモニタで、別ウィンドウ(オーバーレイ)の表示状態を変えると
+// main の WebView2 が白紙化(描画停止)する不具合がある。ランタイムの再描画
+// (リサイズ等)では戻らないため、ユーザーがトグルした時だけ main 自身を
+// リロードして全描画し直す。起動時の同期では呼ばない(無限ループ防止)。
+function reloadMainAfterOverlayToggle() {
+  // 白紙化が起きてからリロードする必要がある（早すぎると白紙化が後追いで再発する）。
+  // 背景色をダークにしてあるので、この間は白でなく暗転で目立ちにくい。
+  // マーカーを立て、リロード後に App 側でタブ/設定パネル表示を復元させる。
+  try { sessionStorage.setItem("bpsr.view.pendingReload", "1"); } catch {}
+  setTimeout(() => {
+    try { window.location.reload(); } catch {}
+  }, 200);
+}
+
 // ─── メインコンポーネント ─────────────────────────────────────
 export function SettingsPanel() {
   const [uidInputValue, setUidInputValue] = createSignal(selectedUid()?.toString() ?? "");
+
+  // 各小分類(details)の開閉状態を記憶・復元する（リロード/再起動どちらでも保持）
+  const [secChar, setSecChar] = persisted<boolean>("section.character", true);
+  const [secDisplay, setSecDisplay] = persisted<boolean>("section.display", true);
+  const [secCopy, setSecCopy] = persisted<boolean>("section.copy", false);
+  const [secCombat, setSecCombat] = persisted<boolean>("section.combat", false);
+  const [secHistory, setSecHistory] = persisted<boolean>("section.history", false);
+  const [secOverlay, setSecOverlay] = persisted<boolean>("section.overlay", false);
 
   const [nameCache] = createResource<NameCacheEntry | null, number | null>(
     selectedUid,
@@ -333,13 +356,17 @@ export function SettingsPanel() {
         "flex-direction": "column",
         gap: "8px",
         "font-size": "11px",
+        "flex-shrink": "1",
+        "flex-grow": "0",
         "min-height": "0",
+        // 高さ上限を与えて初めて overflow-y:auto が枠内スクロールとして機能する
+        "max-height": "60vh",
         "overflow-y": "auto",
       }}
     >
 
       {/* ── キャラクター ── */}
-      <details open>
+      <details open={secChar()} onToggle={(e) => setSecChar(e.currentTarget.open)}>
         <summary style={sectionHeaderStyle}>{t("settings_character")}</summary>
         <div style={{ ...sectionStyle, "margin-top": "6px" }}>
 
@@ -431,7 +458,7 @@ export function SettingsPanel() {
       </details>
 
       {/* ── 表示 ── */}
-      <details open>
+      <details open={secDisplay()} onToggle={(e) => setSecDisplay(e.currentTarget.open)}>
         <summary style={sectionHeaderStyle}>{t("settings_display")}</summary>
         <div style={{ ...sectionStyle, "margin-top": "6px" }}>
 
@@ -585,7 +612,7 @@ export function SettingsPanel() {
       </details>
 
       {/* ── コピー ── */}
-      <details>
+      <details open={secCopy()} onToggle={(e) => setSecCopy(e.currentTarget.open)}>
         <summary style={sectionHeaderStyle}>{t("settings_copy")}</summary>
         <div style={{ ...sectionStyle, "margin-top": "6px" }}>
 
@@ -634,7 +661,7 @@ export function SettingsPanel() {
       </details>
 
       {/* ── 戦闘 ── */}
-      <details>
+      <details open={secCombat()} onToggle={(e) => setSecCombat(e.currentTarget.open)}>
         <summary style={sectionHeaderStyle}>{t("settings_combat")}</summary>
         <div style={{ ...sectionStyle, "margin-top": "6px" }}>
 
@@ -674,7 +701,7 @@ export function SettingsPanel() {
       </details>
 
       {/* ── 履歴 ── */}
-      <details>
+      <details open={secHistory()} onToggle={(e) => setSecHistory(e.currentTarget.open)}>
         <summary style={sectionHeaderStyle}>{t("settings_history")}</summary>
         <div style={{ ...sectionStyle, "margin-top": "6px" }}>
 
@@ -724,7 +751,7 @@ export function SettingsPanel() {
       </details>
 
       {/* ── オーバーレイ ── */}
-      <details>
+      <details open={secOverlay()} onToggle={(e) => setSecOverlay(e.currentTarget.open)}>
         <summary style={sectionHeaderStyle}>{t("settings_overlay")}</summary>
         <div style={{ ...sectionStyle, "margin-top": "6px" }}>
 
@@ -738,6 +765,7 @@ export function SettingsPanel() {
                 if (!v && imagineOnlyMode()) return;
                 setShowBuffOverlay(v);
                 invoke("set_buffs_window_visible", { visible: v }).catch(() => {});
+                reloadMainAfterOverlayToggle();
               }}
             />
             <ToggleChip
@@ -751,6 +779,7 @@ export function SettingsPanel() {
                 if (v) {
                   invoke("set_buffs_window_visible", { visible: true }).catch(() => {});
                 }
+                reloadMainAfterOverlayToggle();
               }}
             />
           </div>
@@ -765,6 +794,7 @@ export function SettingsPanel() {
             onChange={(v) => {
               setShowSelfStatusOverlay(v);
               invoke("set_self_status_window_visible", { visible: v }).catch(() => {});
+              reloadMainAfterOverlayToggle();
             }}
           />
 

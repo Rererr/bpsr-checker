@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "bpsr-checker",
-  "version": "0.8.19",
+  "version": "0.8.20",
   "identifier": "com.rererr.bpsr-checker",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -17,13 +17,15 @@
         "url": "/",
         "shadow": false,
         "decorations": false,
-        "transparent": true,
+        "transparent": false,
+        "backgroundColor": "#14141E",
         "width": 520,
         "height": 350,
         "minWidth": 400,
-        "minHeight": 120,
+        "minHeight": 300,
         "alwaysOnTop": true,
-        "skipTaskbar": true
+        "skipTaskbar": true,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion"
       },
       {
         "title": "Imagine debuff timer",
@@ -40,7 +42,8 @@
         "skipTaskbar": true,
         "visible": true,
         "resizable": true,
-        "focus": false
+        "focus": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion"
       },
       {
         "title": "自キャラステータス",
@@ -55,9 +58,10 @@
         "minHeight": 80,
         "alwaysOnTop": true,
         "skipTaskbar": true,
-        "visible": false,
+        "visible": true,
         "resizable": true,
-        "focus": false
+        "focus": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion"
       }
     ],
     "security": {

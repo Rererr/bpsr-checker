@@ -674,31 +674,41 @@ pub fn set_click_through(window: tauri::WebviewWindow, enabled: bool) -> Result<
 #[tauri::command]
 #[specta::specta]
 pub fn set_buffs_window_visible(app: tauri::AppHandle, visible: bool) -> Result<(), String> {
-    let win = app
-        .get_webview_window("buffs")
-        .ok_or_else(|| "buffs window not found".to_string())?;
-    if visible {
-        win.show().map_err(|e| e.to_string())?;
-        crate::ensure_on_screen(&win);
-        Ok(())
-    } else {
-        win.hide().map_err(|e| e.to_string())
-    }
+    set_overlay_active(&app, "buffs", visible)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn set_self_status_window_visible(app: tauri::AppHandle, visible: bool) -> Result<(), String> {
+    set_overlay_active(&app, "self_status", visible)
+}
+
+/// オーバーレイの表示/非表示切替。
+///
+/// 重要: `hide()`/`show()` (ShowWindow) は使わない。混在DPIのモニタ上では、
+/// 兄弟ウィンドウに対する ShowWindow が main(透明)の合成面を不可逆に破壊し
+/// 不可視化させるため。ウィンドウは常時表示のまま、表示内容はフロント側が
+/// localStorage を購読して出し分け、ここでは当たり判定(クリックスルー)の
+/// 切替と、表示ON時の画面内収めだけを行う。
+fn set_overlay_active(app: &tauri::AppHandle, label: &str, visible: bool) -> Result<(), String> {
     let win = app
-        .get_webview_window("self_status")
-        .ok_or_else(|| "self_status window not found".to_string())?;
+        .get_webview_window(label)
+        .ok_or_else(|| format!("{label} window not found"))?;
+    // OFF時はクリックスルーにして背後(ゲーム/main)へ操作を通す
+    win.set_ignore_cursor_events(!visible)
+        .map_err(|e| e.to_string())?;
     if visible {
-        win.show().map_err(|e| e.to_string())?;
         crate::ensure_on_screen(&win);
-        Ok(())
-    } else {
-        win.hide().map_err(|e| e.to_string())
     }
+    Ok(())
+}
+
+/// main の不透明度(0.3〜1.0)を OS のレイヤードウィンドウ・アルファで適用する。
+/// （main は非透明ウインドウ。混在DPIでの透明合成破綻を避けるための方式）
+#[tauri::command]
+#[specta::specta]
+pub fn set_main_opacity(window: tauri::WebviewWindow, opacity: f64) {
+    crate::set_window_alpha(&window, opacity);
 }
 
 #[tauri::command]

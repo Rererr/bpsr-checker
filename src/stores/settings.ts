@@ -104,6 +104,8 @@ export async function wireBackendSettings(): Promise<UnlistenFn> {
     }).catch(() => {});
   });
   createEffect(() => { invoke("set_always_on_top", { enabled: alwaysOnTop() }).catch(() => {}); });
+  // main の透過は OS レイヤードウィンドウのアルファで適用（透明ウインドウの合成破綻回避）
+  createEffect(() => { invoke("set_main_opacity", { opacity: opacity() }).catch(() => {}); });
   createEffect(() => { invoke("set_click_through", { enabled: clickThrough() }).catch(() => {}); });
   // 軽量モード ON のとき backend の DPS/回復集計を停止する
   createEffect(() => { invoke("set_imagine_only_mode", { enabled: imagineOnlyMode() }).catch(() => {}); });

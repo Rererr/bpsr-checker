@@ -1,8 +1,9 @@
-// メイン窓（S2: タブ + プレイヤーテーブル）。
-// 列の settings 連動・スキル内訳・被ダメドリルダウンは後続の増分で拡充する。
+// メイン窓（S2: タブ + プレイヤーテーブル + スキル内訳ドリルダウン）。
+// 条件付き列・被ダメドリルダウンは後続増分。
 
 struct Row {
     rank: int,
+    uid-str: string,   // f64 uid を精度落ちさせず Rust へ返すため文字列で持つ
     name: string,
     class-color: color,
     dmg-text: string,
@@ -10,6 +11,16 @@ struct Row {
     pct-text: string,
     pct: float,        // 0..100（割合バー幅。topValue 基準）
     is-local: bool,
+}
+
+struct SkillRowUi {
+    name: string,
+    elem-text: string,
+    elem-color: color,
+    total-text: string,
+    dps-text: string,
+    pct-text: string,
+    pct: float,
 }
 
 component TabButton inherits TouchArea {
@@ -34,9 +45,11 @@ component TabButton inherits TouchArea {
 component PlayerRowItem inherits Rectangle {
     in property <Row> entry;
     in property <bool> highlight-local;
+    callback activate(string);
     height: 20px;
-    // 自分は行を薄く金色に着色（左の色縦線はクラス色ティックのみ＝二重線を解消）
-    background: (root.entry.is-local && root.highlight-local) ? #ffd7001f : transparent;
+    background: ta.has-hover
+        ? #ffffff12
+        : ((root.entry.is-local && root.highlight-local) ? #ffd7001f : transparent);
 
     // 割合バー（クラス色グラデーション）
     Rectangle {
@@ -53,7 +66,6 @@ component PlayerRowItem inherits Rectangle {
         padding-left: 8px;
         padding-right: 8px;
         spacing: 6px;
-        // 名前セル（クラス色ティック + 名前）
         HorizontalLayout {
             horizontal-stretch: 1;
             spacing: 5px;
@@ -75,6 +87,39 @@ component PlayerRowItem inherits Rectangle {
         Text { text: root.entry.dps-text; color: #4fc3f7; font-size: 12px; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
         Text { text: root.entry.pct-text; color: #cfcfe0; font-size: 11px; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
     }
+
+    ta := TouchArea {
+        clicked => { root.activate(root.entry.uid-str); }
+    }
+}
+
+component SkillRowItem inherits Rectangle {
+    in property <SkillRowUi> entry;
+    height: 20px;
+
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width * (root.entry.pct / 100.0);
+        height: 100%;
+        background: @linear-gradient(90deg, root.entry.elem-color.with-alpha(0.20) 0%, transparent 100%);
+    }
+    HorizontalLayout {
+        width: 100%;
+        height: 100%;
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 6px;
+        HorizontalLayout {
+            horizontal-stretch: 1;
+            spacing: 4px;
+            Text { text: root.entry.elem-text; color: root.entry.elem-color; font-size: 11px; width: 14px; horizontal-alignment: center; vertical-alignment: center; }
+            Text { text: root.entry.name; color: white; font-size: 12px; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; }
+        }
+        Text { text: root.entry.total-text; color: #e6e6f0; font-size: 12px; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.entry.dps-text; color: #4fc3f7; font-size: 12px; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.entry.pct-text; color: #cfcfe0; font-size: 11px; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
+    }
 }
 
 // no-frame 窓の縁/角リサイズ用ハンドル。
@@ -90,14 +135,19 @@ component ResizeHandle inherits TouchArea {
 
 export component MainWindow inherits Window {
     in property <[Row]> rows;
+    in property <[SkillRowUi]> skill-rows;
     in property <string> total-text: "0";
     in property <string> elapsed-text: "0:00";
+    in property <string> inspected-name;
     in property <bool> highlight-local: true;
-    in property <int> tab: 0; // 0=dps 1=heal 2=taken 3=history（Rust が set）
+    in property <int> tab: 0;  // 0=dps 1=heal 2=taken 3=history（Rust が set）
+    in property <int> view: 0; // 0=一覧 1=スキル内訳（Rust が set）
     callback quit();
     callback start-drag();
     callback start-resize(int);
     callback select-tab(int);
+    callback open-skills(string);
+    callback back();
 
     title: @tr("DPSメーター");
     no-frame: true;
@@ -147,52 +197,104 @@ export component MainWindow inherits Window {
             }
         }
 
-        // ── 列見出し ──
-        Rectangle {
-            height: 16px;
-            HorizontalLayout {
-                padding-left: 8px;
-                padding-right: 8px;
-                spacing: 6px;
-                Text { text: @tr("プレイヤー"); color: #888; font-size: 10px; horizontal-stretch: 1; vertical-alignment: center; }
-                Text {
-                    text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ"));
-                    color: #888;
-                    font-size: 10px;
-                    width: 64px;
-                    horizontal-alignment: right;
-                    vertical-alignment: center;
+        // ── 一覧ビュー ──
+        if root.view == 0: VerticalLayout {
+            vertical-stretch: 1;
+            Rectangle {
+                height: 16px;
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    spacing: 6px;
+                    Text { text: @tr("プレイヤー"); color: #888; font-size: 10px; horizontal-stretch: 1; vertical-alignment: center; }
+                    Text {
+                        text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ"));
+                        color: #888;
+                        font-size: 10px;
+                        width: 64px;
+                        horizontal-alignment: right;
+                        vertical-alignment: center;
+                    }
+                    Text { text: @tr("DPS"); color: #888; font-size: 10px; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
+                    Text { text: @tr("%"); color: #888; font-size: 10px; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
                 }
-                Text { text: @tr("DPS"); color: #888; font-size: 10px; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
-                Text { text: @tr("%"); color: #888; font-size: 10px; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
+            }
+            Flickable {
+                vertical-stretch: 1;
+                max-height: 100000px;
+                viewport-height: rowbox.preferred-height;
+                rowbox := VerticalLayout {
+                    for row in root.rows: PlayerRowItem {
+                        entry: row;
+                        highlight-local: root.highlight-local;
+                        activate(u) => { root.open-skills(u); }
+                    }
+                    if root.rows.length == 0: Text {
+                        text: @tr("データなし");
+                        color: #666;
+                        font-size: 12px;
+                        height: 40px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
             }
         }
 
-        // ── 行（スクロール）──
-        Flickable {
+        // ── スキル内訳ビュー ──
+        if root.view == 1: VerticalLayout {
             vertical-stretch: 1;
-            // 行数に関わらず窓を縦に伸ばせるよう最大高を大きく取る
-            // （未指定だと窓の最大高が中身の高さに張り付き、空のとき縦リサイズ不可になる）
-            max-height: 100000px;
-            viewport-height: rowbox.preferred-height;
-            rowbox := VerticalLayout {
-                for row in root.rows: PlayerRowItem {
-                    entry: row;
-                    highlight-local: root.highlight-local;
+            Rectangle {
+                height: 20px;
+                background: #20202e;
+                HorizontalLayout {
+                    padding-left: 4px;
+                    padding-right: 8px;
+                    spacing: 6px;
+                    back-btn := TouchArea {
+                        width: 56px;
+                        clicked => { root.back(); }
+                        Rectangle {
+                            background: back-btn.has-hover ? #ffffff20 : transparent;
+                            border-radius: 4px;
+                            Text { text: "← " + @tr("戻る"); color: #cdd; font-size: 11px; }
+                        }
+                    }
+                    Text { text: root.inspected-name; color: #e6e6f0; font-size: 12px; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
                 }
-                if root.rows.length == 0: Text {
-                    text: @tr("データなし");
-                    color: #666;
-                    font-size: 12px;
-                    height: 40px;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
+            }
+            Rectangle {
+                height: 16px;
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    spacing: 6px;
+                    Text { text: @tr("スキル"); color: #888; font-size: 10px; horizontal-stretch: 1; vertical-alignment: center; }
+                    Text { text: @tr("ダメージ"); color: #888; font-size: 10px; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
+                    Text { text: @tr("DPS"); color: #888; font-size: 10px; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
+                    Text { text: @tr("%"); color: #888; font-size: 10px; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
+                }
+            }
+            Flickable {
+                vertical-stretch: 1;
+                max-height: 100000px;
+                viewport-height: skillbox.preferred-height;
+                skillbox := VerticalLayout {
+                    for s in root.skill-rows: SkillRowItem { entry: s; }
+                    if root.skill-rows.length == 0: Text {
+                        text: @tr("データなし");
+                        color: #666;
+                        font-size: 12px;
+                        height: 40px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
                 }
             }
         }
     }
 
-    // ── リサイズハンドル（縁/角ドラッグでサイズ変更）。縁6px・角14px で掴みやすく ──
+    // ── リサイズハンドル（縁/角ドラッグでサイズ変更）。縁6px・角14px ──
     ResizeHandle { dir: 0; mouse-cursor: ns-resize; resize(d) => { root.start-resize(d); } x: 14px; y: 0; width: root.width - 28px; height: 6px; }
     ResizeHandle { dir: 1; mouse-cursor: ns-resize; resize(d) => { root.start-resize(d); } x: 14px; y: root.height - 6px; width: root.width - 28px; height: 6px; }
     ResizeHandle { dir: 2; mouse-cursor: ew-resize; resize(d) => { root.start-resize(d); } x: root.width - 6px; y: 14px; width: 6px; height: root.height - 28px; }

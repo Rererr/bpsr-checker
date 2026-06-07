@@ -86,3 +86,9 @@ msgstr "Abbrev. scores (K/M)"
 
 msgid "常に最前面"
 msgstr "Always on top"
+
+msgid "不透明度"
+msgstr "Opacity"
+
+msgid "名前マスク"
+msgstr "Privacy mask"

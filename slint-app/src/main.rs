@@ -8,6 +8,7 @@ slint::include_modules!();
 mod capture;
 mod format;
 mod overlay;
+mod settings;
 mod window_state;
 
 use bpsr_core::compute;
@@ -62,9 +63,6 @@ fn data_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(base).join("bpsr-checker")
 }
 
-// 名前列テンプレート（既定）。将来は設定から差し替える。
-const NAME_TEMPLATE: &str = "{name} {spec}({score} - {seasonLv} - {seasonStr})";
-
 /// タブ(0=dps 1=heal 2=taken 3=history)に応じてプレイヤー一覧を取得。
 /// history(3) は S5 実装まで dps を表示する暫定。
 fn fetch_players(enc: &EncounterMutex, tab: i32) -> bpsr_core::models::PlayersWindow {
@@ -75,7 +73,7 @@ fn fetch_players(enc: &EncounterMutex, tab: i32) -> bpsr_core::models::PlayersWi
     }
 }
 
-fn build_rows(pw: &bpsr_core::models::PlayersWindow) -> Vec<Row> {
+fn build_rows(pw: &bpsr_core::models::PlayersWindow, template: &str, abbreviate: bool) -> Vec<Row> {
     let top = pw.top_value.max(1.0);
     let local = pw.local_player_uid;
     pw.player_rows
@@ -94,8 +92,8 @@ fn build_rows(pw: &bpsr_core::models::PlayersWindow) -> Vec<Row> {
                     p.season_level,
                     p.season_strength,
                     rank,
-                    NAME_TEMPLATE,
-                    false,
+                    template,
+                    abbreviate,
                 )
                 .into(),
                 class_color: format::class_color(&p.class_name),
@@ -111,7 +109,7 @@ fn build_rows(pw: &bpsr_core::models::PlayersWindow) -> Vec<Row> {
                 hits_text: format!("{}", p.hits as i64).into(),
                 hpm_text: format!("{:.1}", p.hits_per_minute).into(),
                 score_text: if p.ability_score > 0.0 {
-                    format::format_score(p.ability_score, false)
+                    format::format_score(p.ability_score, abbreviate)
                 } else {
                     "-".to_string()
                 }
@@ -201,6 +199,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     capture::spawn(enc.clone());
 
+    // 設定（%APPDATA%\bpsr-checker\settings.json）。UIスレッドで共有・編集する。
+    let cfg = Rc::new(RefCell::new(settings::load()));
+
     // メイン窓
     let main = MainWindow::new()?;
     // 言語選択（既定は日本語。将来は設定から）。最初のコンポーネント生成後に呼ぶ。
@@ -216,16 +217,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     main.set_skill_rows(skill_rows.clone().into());
     let drill = Rc::new(Cell::new(Drill::None));
 
-    // 列の表示フラグ（既定: 現行と同じく 会心率・幸運率 ON、他 OFF）。S3 で設定連動。
-    main.set_cols(ColumnFlags {
-        crit: true,
-        crit_value: false,
-        lucky: true,
-        lucky_value: false,
-        hits: false,
-        hpm: false,
-        score: false,
-    });
+    // 設定を起動時に適用（列フラグ・自分強調・最前面・起動タブ・runtime settings）
+    {
+        let c = cfg.borrow();
+        main.set_cols(ColumnFlags {
+            crit: c.show_crit,
+            crit_value: c.show_crit_value,
+            lucky: c.show_lucky,
+            lucky_value: c.show_lucky_value,
+            hits: c.show_hits,
+            hpm: c.show_hpm,
+            score: c.show_score,
+        });
+        main.set_highlight_local(c.highlight_local_player);
+        main.set_aot(c.always_on_top);
+        let init_tab = match c.startup_tab.as_str() {
+            "heal" => 1,
+            "taken" => 2,
+            "history" => 3,
+            _ => 0,
+        };
+        main.set_tab(init_tab);
+        tab_cell.set(init_tab);
+        compute::set_combat_exit_timeout(c.combat_exit_sec);
+        compute::set_history_limit(c.history_limit);
+        compute::set_time_series_config(c.time_series_samples, c.time_series_interval_ms);
+        compute::set_imagine_only_mode(&enc, c.imagine_only_mode);
+    }
 
     main.on_quit(|| {
         let _ = slint::quit_event_loop();
@@ -252,11 +270,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let enc_sel = enc.clone();
         let rows_sel = rows.clone();
         let tab_sel = tab_cell.clone();
+        let cfg_sel = cfg.clone();
         main.on_select_tab(move |n| {
             tab_sel.set(n);
             if let Some(m) = w.upgrade() {
                 m.set_tab(n);
-                rows_sel.set_vec(build_rows(&fetch_players(&enc_sel, n)));
+                let c = cfg_sel.borrow();
+                rows_sel.set_vec(build_rows(
+                    &fetch_players(&enc_sel, n),
+                    &c.name_template,
+                    c.abbreviate_scores,
+                ));
             }
         });
     }
@@ -354,9 +378,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tab_cell_poll = tab_cell.clone();
     let drill_poll = drill.clone();
     let skill_rows_poll = skill_rows.clone();
+    let cfg_poll = cfg.clone();
+    let poll_ms = cfg.borrow().poll_interval_ms.max(50.0) as u64;
 
     let timer = Timer::default();
-    timer.start(TimerMode::Repeated, Duration::from_millis(300), move || {
+    timer.start(TimerMode::Repeated, Duration::from_millis(poll_ms), move || {
         tick += 1;
         let Some(m) = main_w.upgrade() else {
             return;
@@ -379,7 +405,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         m.set_elapsed_text(format::format_elapsed(header.elapsed_ms).into());
 
         let pw = fetch_players(&enc_poll, tab_cell_poll.get());
-        rows.set_vec(build_rows(&pw));
+        {
+            let c = cfg_poll.borrow();
+            rows.set_vec(build_rows(&pw, &c.name_template, c.abbreviate_scores));
+        }
 
         // ドリルダウン中はライブ更新
         match drill_poll.get() {

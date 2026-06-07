@@ -11,6 +11,24 @@ struct Row {
     pct-text: string,
     pct: float,        // 0..100（割合バー幅。topValue 基準）
     is-local: bool,
+    // 条件付き列（settings 連動）
+    crit-text: string,
+    crit-value-text: string,
+    lucky-text: string,
+    lucky-value-text: string,
+    hits-text: string,
+    hpm-text: string,
+    score-text: string,
+}
+
+struct ColumnFlags {
+    crit: bool,
+    crit-value: bool,
+    lucky: bool,
+    lucky-value: bool,
+    hits: bool,
+    hpm: bool,
+    score: bool,
 }
 
 struct SkillRowUi {
@@ -45,6 +63,7 @@ component TabButton inherits TouchArea {
 component PlayerRowItem inherits Rectangle {
     in property <Row> entry;
     in property <bool> highlight-local;
+    in property <ColumnFlags> cols;
     callback activate(string);
     height: 20px;
     background: ta.has-hover
@@ -86,6 +105,13 @@ component PlayerRowItem inherits Rectangle {
         Text { text: root.entry.dmg-text; color: #e6e6f0; font-size: 12px; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
         Text { text: root.entry.dps-text; color: #4fc3f7; font-size: 12px; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
         Text { text: root.entry.pct-text; color: #cfcfe0; font-size: 11px; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.crit: Text { text: root.entry.crit-text; color: #f39c12; font-size: 11px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.crit-value: Text { text: root.entry.crit-value-text; color: #f39c12; font-size: 11px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.lucky: Text { text: root.entry.lucky-text; color: #2ecc71; font-size: 11px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.lucky-value: Text { text: root.entry.lucky-value-text; color: #2ecc71; font-size: 11px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.hits: Text { text: root.entry.hits-text; color: #cfcfe0; font-size: 11px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.hpm: Text { text: root.entry.hpm-text; color: #cfcfe0; font-size: 11px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.score: Text { text: root.entry.score-text; color: #99aa99; font-size: 11px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
     }
 
     ta := TouchArea {
@@ -140,6 +166,7 @@ export component MainWindow inherits Window {
     in property <string> elapsed-text: "0:00";
     in property <string> inspected-name;
     in property <bool> highlight-local: true;
+    in property <ColumnFlags> cols;
     in property <int> tab: 0;  // 0=dps 1=heal 2=taken 3=history（Rust が set）
     in property <int> view: 0; // 0=一覧 1=スキル内訳（Rust が set）
     callback quit();
@@ -217,6 +244,13 @@ export component MainWindow inherits Window {
                     }
                     Text { text: @tr("DPS"); color: #888; font-size: 10px; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
                     Text { text: @tr("%"); color: #888; font-size: 10px; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.cols.crit: Text { text: @tr("会心率"); color: #888; font-size: 10px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.cols.crit-value: Text { text: @tr("会心ダメ率"); color: #888; font-size: 9px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.cols.lucky: Text { text: @tr("幸運率"); color: #888; font-size: 10px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.cols.lucky-value: Text { text: @tr("幸運ダメ率"); color: #888; font-size: 9px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.cols.hits: Text { text: @tr("ヒット数"); color: #888; font-size: 9px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.cols.hpm: Text { text: @tr("毎分ヒット数"); color: #888; font-size: 9px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.cols.score: Text { text: @tr("戦力"); color: #888; font-size: 10px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
                 }
             }
             Flickable {
@@ -227,6 +261,7 @@ export component MainWindow inherits Window {
                     for row in root.rows: PlayerRowItem {
                         entry: row;
                         highlight-local: root.highlight-local;
+                        cols: root.cols;
                         activate(u) => { root.open-skills(u); }
                     }
                     if root.rows.length == 0: Text {

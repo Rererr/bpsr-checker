@@ -44,3 +44,24 @@ msgstr "Back"
 
 msgid "スキル"
 msgstr "Skill"
+
+msgid "会心率"
+msgstr "Crit%"
+
+msgid "会心ダメ率"
+msgstr "CritDmg%"
+
+msgid "幸運率"
+msgstr "Lucky%"
+
+msgid "幸運ダメ率"
+msgstr "LuckyDmg%"
+
+msgid "ヒット数"
+msgstr "Hits"
+
+msgid "毎分ヒット数"
+msgstr "Hits/m"
+
+msgid "戦力"
+msgstr "Score"

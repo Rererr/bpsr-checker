@@ -65,3 +65,24 @@ msgstr "Hits/m"
 
 msgid "戦力"
 msgstr "Score"
+
+msgid "設定"
+msgstr "Settings"
+
+msgid "表示列"
+msgstr "Columns"
+
+msgid "表示"
+msgstr "Display"
+
+msgid "オーバーレイ"
+msgstr "Overlay"
+
+msgid "自分を強調"
+msgstr "Highlight self"
+
+msgid "スコア省略(K/M)"
+msgstr "Abbrev. scores (K/M)"
+
+msgid "常に最前面"
+msgstr "Always on top"

@@ -20,6 +20,42 @@ use std::time::Duration;
 
 const SETTLE_TICKS: u64 = 5;
 
+/// 最小ロガー。core の capture / 本体の診断ログを stderr へ出す。
+/// （Slint/parley の CJK 警告は log ではなく直接 eprintln のため別物・ここでは触れない）
+struct ConsoleLog;
+impl log::Log for ConsoleLog {
+    fn enabled(&self, _: &log::Metadata) -> bool {
+        true
+    }
+    fn log(&self, r: &log::Record) {
+        eprintln!("[{}] {}: {}", r.level(), r.target(), r.args());
+    }
+    fn flush(&self) {}
+}
+
+/// 二重起動防止（Windows 名前付き Mutex）。既に起動済みなら true。
+#[cfg(windows)]
+fn already_running() -> bool {
+    use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError};
+    use windows::Win32::System::Threading::CreateMutexW;
+    use windows::core::PCWSTR;
+    let name: Vec<u16> = "Global\\bpsr-checker-slint-instance\0"
+        .encode_utf16()
+        .collect();
+    unsafe {
+        match CreateMutexW(None, true, PCWSTR(name.as_ptr())) {
+            // ハンドルは閉じない＝プロセス寿命まで mutex を保持する。
+            Ok(_handle) => GetLastError() == ERROR_ALREADY_EXISTS,
+            Err(_) => false,
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn already_running() -> bool {
+    false
+}
+
 fn data_dir() -> std::path::PathBuf {
     let base = std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string());
     std::path::PathBuf::from(base).join("bpsr-checker")
@@ -36,6 +72,15 @@ fn fmt_value(v: f64) -> SharedString {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    static LOGGER: ConsoleLog = ConsoleLog;
+    let _ = log::set_logger(&LOGGER);
+    log::set_max_level(log::LevelFilter::Info);
+
+    if already_running() {
+        log::warn!("another instance is already running; exiting");
+        return Ok(());
+    }
+
     // winit backend（透明合成可能＋タスクバー非表示）
     let backend = i_slint_backend_winit::Backend::builder()
         .with_window_attributes_hook(|attrs| {
@@ -66,6 +111,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // メイン窓
     let main = MainWindow::new()?;
+    // 言語選択（既定は日本語。将来は設定から）。最初のコンポーネント生成後に呼ぶ。
+    let _ = slint::select_bundled_translation("ja");
     let rows = Rc::new(VecModel::<Row>::default());
     main.set_rows(rows.clone().into());
 

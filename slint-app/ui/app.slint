@@ -35,6 +35,8 @@ component PlayerRowItem inherits Rectangle {
     in property <Row> entry;
     in property <bool> highlight-local;
     height: 20px;
+    // 自分は行を薄く金色に着色（左の色縦線はクラス色ティックのみ＝二重線を解消）
+    background: (root.entry.is-local && root.highlight-local) ? #ffd7001f : transparent;
 
     // 割合バー（クラス色グラデーション）
     Rectangle {
@@ -43,13 +45,6 @@ component PlayerRowItem inherits Rectangle {
         width: parent.width * (root.entry.pct / 100.0);
         height: 100%;
         background: @linear-gradient(90deg, root.entry.class-color.with-alpha(0.22) 0%, transparent 100%);
-    }
-    // 自分ハイライト（左端の金枠）
-    if root.entry.is-local && root.highlight-local: Rectangle {
-        x: 0;
-        width: 3px;
-        height: 100%;
-        background: #ffd700;
     }
 
     HorizontalLayout {
@@ -82,14 +77,27 @@ component PlayerRowItem inherits Rectangle {
     }
 }
 
+// no-frame 窓の縁/角リサイズ用ハンドル。
+component ResizeHandle inherits TouchArea {
+    in property <int> dir;
+    callback resize(int);
+    pointer-event(e) => {
+        if (e.kind == PointerEventKind.down) {
+            root.resize(root.dir);
+        }
+    }
+}
+
 export component MainWindow inherits Window {
     in property <[Row]> rows;
     in property <string> total-text: "0";
     in property <string> elapsed-text: "0:00";
     in property <bool> highlight-local: true;
-    in-out property <int> tab: 0; // 0=dps 1=heal 2=taken 3=history
+    in property <int> tab: 0; // 0=dps 1=heal 2=taken 3=history（Rust が set）
     callback quit();
     callback start-drag();
+    callback start-resize(int);
+    callback select-tab(int);
 
     title: @tr("DPSメーター");
     no-frame: true;
@@ -107,10 +115,10 @@ export component MainWindow inherits Window {
                 padding-left: 4px;
                 padding-right: 4px;
                 spacing: 2px;
-                TabButton { label: @tr("DPS"); active: root.tab == 0; clicked => { root.tab = 0; } }
-                TabButton { label: @tr("回復"); active: root.tab == 1; clicked => { root.tab = 1; } }
-                TabButton { label: @tr("被ダメ"); active: root.tab == 2; clicked => { root.tab = 2; } }
-                TabButton { label: @tr("履歴"); active: root.tab == 3; clicked => { root.tab = 3; } }
+                TabButton { label: @tr("DPS"); active: root.tab == 0; clicked => { root.select-tab(0); } }
+                TabButton { label: @tr("回復"); active: root.tab == 1; clicked => { root.select-tab(1); } }
+                TabButton { label: @tr("被ダメ"); active: root.tab == 2; clicked => { root.select-tab(2); } }
+                TabButton { label: @tr("履歴"); active: root.tab == 3; clicked => { root.select-tab(3); } }
                 drag := TouchArea {
                     horizontal-stretch: 1;
                     mouse-cursor: move;
@@ -173,4 +181,14 @@ export component MainWindow inherits Window {
             }
         }
     }
+
+    // ── リサイズハンドル（縁/角ドラッグでサイズ変更）──
+    ResizeHandle { dir: 0; mouse-cursor: ns-resize; resize(d) => { root.start-resize(d); } x: 8px; y: 0; width: root.width - 16px; height: 4px; }
+    ResizeHandle { dir: 1; mouse-cursor: ns-resize; resize(d) => { root.start-resize(d); } x: 8px; y: root.height - 4px; width: root.width - 16px; height: 4px; }
+    ResizeHandle { dir: 2; mouse-cursor: ew-resize; resize(d) => { root.start-resize(d); } x: root.width - 4px; y: 8px; width: 4px; height: root.height - 16px; }
+    ResizeHandle { dir: 3; mouse-cursor: ew-resize; resize(d) => { root.start-resize(d); } x: 0; y: 8px; width: 4px; height: root.height - 16px; }
+    ResizeHandle { dir: 5; mouse-cursor: nwse-resize; resize(d) => { root.start-resize(d); } x: 0; y: 0; width: 10px; height: 10px; }
+    ResizeHandle { dir: 4; mouse-cursor: nesw-resize; resize(d) => { root.start-resize(d); } x: root.width - 10px; y: 0; width: 10px; height: 10px; }
+    ResizeHandle { dir: 7; mouse-cursor: nesw-resize; resize(d) => { root.start-resize(d); } x: 0; y: root.height - 10px; width: 10px; height: 10px; }
+    ResizeHandle { dir: 6; mouse-cursor: nwse-resize; resize(d) => { root.start-resize(d); } x: root.width - 10px; y: root.height - 10px; width: 10px; height: 10px; }
 }

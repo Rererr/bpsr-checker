@@ -14,7 +14,7 @@ use bpsr_core::compute;
 use bpsr_core::engine;
 use bpsr_core::engine::encounter::EncounterMutex;
 use slint::{ComponentHandle, Timer, TimerMode, VecModel};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -65,6 +65,49 @@ fn data_dir() -> std::path::PathBuf {
 // 名前列テンプレート（既定）。将来は設定から差し替える。
 const NAME_TEMPLATE: &str = "{name} {spec}({score} - {seasonLv} - {seasonStr})";
 
+/// タブ(0=dps 1=heal 2=taken 3=history)に応じてプレイヤー一覧を取得。
+/// history(3) は S5 実装まで dps を表示する暫定。
+fn fetch_players(enc: &EncounterMutex, tab: i32) -> bpsr_core::models::PlayersWindow {
+    match tab {
+        1 => compute::get_heal_players(enc),
+        2 => compute::get_dmg_taken_players(enc),
+        _ => compute::get_dps_players(enc),
+    }
+}
+
+fn build_rows(pw: &bpsr_core::models::PlayersWindow) -> Vec<Row> {
+    let top = pw.top_value.max(1.0);
+    let local = pw.local_player_uid;
+    pw.player_rows
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let rank = (i + 1) as i32;
+            Row {
+                rank,
+                name: format::format_row_name(
+                    &p.name,
+                    &p.class_name,
+                    &p.class_spec_name,
+                    p.ability_score,
+                    p.season_level,
+                    p.season_strength,
+                    rank,
+                    NAME_TEMPLATE,
+                    false,
+                )
+                .into(),
+                class_color: format::class_color(&p.class_name),
+                dmg_text: format::format_number(p.total_value).into(),
+                dps_text: format::format_dps(p.value_per_sec).into(),
+                pct_text: format::format_pct(p.value_pct).into(),
+                pct: ((p.total_value / top) * 100.0) as f32,
+                is_local: p.uid == local,
+            }
+        })
+        .collect()
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     static LOGGER: ConsoleLog = ConsoleLog;
     let _ = log::set_logger(&LOGGER);
@@ -110,6 +153,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rows = Rc::new(VecModel::<Row>::default());
     main.set_rows(rows.clone().into());
 
+    // 現在タブ（UIスレッド共有）。タブクリックと周期ポーリングの両方が参照する。
+    let tab_cell = Rc::new(Cell::new(0i32));
+
     main.on_quit(|| {
         let _ = slint::quit_event_loop();
     });
@@ -118,6 +164,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         main.on_start_drag(move || {
             if let Some(m) = w.upgrade() {
                 overlay::start_drag(m.window());
+            }
+        });
+    }
+    {
+        let w = main.as_weak();
+        main.on_start_resize(move |dir| {
+            if let Some(m) = w.upgrade() {
+                overlay::start_resize(m.window(), dir);
+            }
+        });
+    }
+    // タブ選択: 共有セルを更新し、即時に再取得して反映（ポーリング待ちにしない）
+    {
+        let w = main.as_weak();
+        let enc_sel = enc.clone();
+        let rows_sel = rows.clone();
+        let tab_sel = tab_cell.clone();
+        main.on_select_tab(move |n| {
+            tab_sel.set(n);
+            if let Some(m) = w.upgrade() {
+                m.set_tab(n);
+                rows_sel.set_vec(build_rows(&fetch_players(&enc_sel, n)));
             }
         });
     }
@@ -132,6 +200,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut tick: u64 = 0;
     let mut setup_tick: u64 = 0;
     let mut setup_done = false;
+    let tab_cell_poll = tab_cell.clone();
 
     let timer = Timer::default();
     timer.start(TimerMode::Repeated, Duration::from_millis(300), move || {
@@ -151,48 +220,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        // ライブ集計を反映（タブに応じて取得）
+        // ライブ集計を反映（共有セルの現在タブに応じて取得）
         let header = compute::get_header_info(&enc_poll);
         m.set_total_text(format::format_dps(header.total_dps).into());
         m.set_elapsed_text(format::format_elapsed(header.elapsed_ms).into());
 
-        let pw = match m.get_tab() {
-            1 => compute::get_heal_players(&enc_poll),
-            2 => compute::get_dmg_taken_players(&enc_poll),
-            _ => compute::get_dps_players(&enc_poll),
-        };
-        let top = pw.top_value.max(1.0);
-        let local = pw.local_player_uid;
-        let new_rows: Vec<Row> = pw
-            .player_rows
-            .iter()
-            .enumerate()
-            .map(|(i, p)| {
-                let rank = (i + 1) as i32;
-                Row {
-                    rank,
-                    name: format::format_row_name(
-                        &p.name,
-                        &p.class_name,
-                        &p.class_spec_name,
-                        p.ability_score,
-                        p.season_level,
-                        p.season_strength,
-                        rank,
-                        NAME_TEMPLATE,
-                        false,
-                    )
-                    .into(),
-                    class_color: format::class_color(&p.class_name),
-                    dmg_text: format::format_number(p.total_value).into(),
-                    dps_text: format::format_dps(p.value_per_sec).into(),
-                    pct_text: format::format_pct(p.value_pct).into(),
-                    pct: ((p.total_value / top) * 100.0) as f32,
-                    is_local: p.uid == local,
-                }
-            })
-            .collect();
-        rows.set_vec(new_rows);
+        let pw = fetch_players(&enc_poll, tab_cell_poll.get());
+        rows.set_vec(build_rows(&pw));
 
         // レイアウト自動保存（復元確定後・差分時のみ）
         if !setup_done || tick < setup_tick + SETTLE_TICKS {

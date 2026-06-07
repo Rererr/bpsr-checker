@@ -38,3 +38,9 @@ msgstr "Elapsed"
 
 msgid "合計DPS"
 msgstr "Total DPS"
+
+msgid "戻る"
+msgstr "Back"
+
+msgid "スキル"
+msgstr "Skill"

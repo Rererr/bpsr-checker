@@ -43,6 +43,17 @@ pub mod attr_type {
     pub const ATTR_SEASON_LEVEL: i32 = 0x2756;
     pub const ATTR_SEASON_STRENGTH: i32 = 0x2CB0;
     pub const ATTR_POS: i32 = 0x34;
+
+    // 自キャラ戦闘ステータス（probe 実測 + ゲーム内パネル照合で確定）。
+    // 各 stat は {id, id+1, id+2}（合計/基礎/補正）の3連で届くため先頭 id を使う。
+    pub const ATTR_ATTACK_POWER: i32 = 0x32; // 攻撃力（整数）
+    pub const ATTR_DEFENSE_POWER: i32 = 0x33; // 防御力（整数）
+    pub const ATTR_ENDURANCE: i32 = 0x2B20; // 11040 耐久力（整数）
+    pub const ATTR_DEXTERITY: i32 = 0x2B84; // 11140 器用さ（整数）
+    pub const ATTR_ATTACK_SPEED: i32 = 0x2DC8; // 11720 攻撃速度（値/100 = %）
+    pub const ATTR_HASTE: i32 = 0x2E9A; // 11930 ファスト/迅速（値/100 = %）
+    pub const ATTR_LUCKY: i32 = 0x3188; // 12680 幸運（値/100 = %）
+    // 会心率はパケットに送られないため、命中データからの実測値を別途使う。
 }
 
 pub mod damage {

@@ -36,7 +36,18 @@ pub struct Entity {
     pub season_level: Option<i32>,
     pub season_strength: Option<i32>,
 
-    // Monsters
+    // Player combat stats (主に自キャラ。パケット attr から取得し戦闘中も追従する)
+    // ※ 整数系: attack_power / defense_power / endurance / dexterity
+    // ※ 割合系: attack_speed / haste / lucky は「値 / 100 = パーセント」(1% = 100)
+    pub attack_power: Option<i32>,
+    pub defense_power: Option<i32>,
+    pub endurance: Option<i32>,
+    pub dexterity: Option<i32>,
+    pub attack_speed: Option<i32>,
+    pub haste: Option<i32>,
+    pub lucky: Option<i32>,
+
+    // Monsters（curr_hp / max_hp は自キャラの HP にも流用する）
     pub monster_id: Option<u32>,
     pub curr_hp: Option<u64>,
     pub max_hp: Option<u64>,

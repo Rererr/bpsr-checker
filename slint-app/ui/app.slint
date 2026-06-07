@@ -16,7 +16,7 @@ export component MainWindow inherits Window {
     callback quit();
     callback start-drag();
 
-    title: "BPSR Checker (Slint)";
+    title: @tr("BPSR Checker");
     no-frame: true;
     always-on-top: true;
     background: #14141ecc;
@@ -54,7 +54,7 @@ export component MainWindow inherits Window {
                 Rectangle {
                     background: quit-btn.has-hover ? #c0392b : #80303a;
                     border-radius: 4px;
-                    Text { text: "Quit"; color: white; font-size: 12px; }
+                    Text { text: @tr("Quit"); color: white; font-size: 12px; }
                 }
             }
         }

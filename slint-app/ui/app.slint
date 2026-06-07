@@ -42,6 +42,7 @@ struct SettingsUi {
     show-score: bool,
     highlight-local: bool,
     abbreviate-scores: bool,
+    privacy-mask: bool,
     aot: bool,
 }
 
@@ -201,6 +202,43 @@ component ToggleRow inherits TouchArea {
     }
 }
 
+// 不透明度スライダー行
+component OpacityRow inherits Rectangle {
+    in property <float> value;
+    callback changed(float);
+    height: 30px;
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 12px;
+        spacing: 10px;
+        Text { text: @tr("不透明度"); color: #ddd; font-size: 12px; vertical-alignment: center; width: 80px; }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            track := Rectangle {
+                height: 6px;
+                background: #3a3a48;
+                border-radius: 3px;
+                Rectangle {
+                    x: 0;
+                    width: parent.width * root.value;
+                    height: 100%;
+                    background: #2d6cdf;
+                    border-radius: 3px;
+                }
+                ta := TouchArea {
+                    moved => { root.changed(self.mouse-x / self.width); }
+                    pointer-event(e) => {
+                        if (e.kind == PointerEventKind.down) {
+                            root.changed(self.mouse-x / self.width);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // no-frame 窓の縁/角リサイズ用ハンドル。
 component ResizeHandle inherits TouchArea {
     in property <int> dir;
@@ -226,6 +264,7 @@ export component MainWindow inherits Window {
     in property <bool> skills-clickable; // 被ダメ攻撃元一覧のとき true（行クリックで技別へ）
     in property <bool> settings-open;
     in property <SettingsUi> cfg-ui;
+    in property <float> win-opacity: 0.85;
     callback quit();
     callback start-drag();
     callback start-resize(int);
@@ -235,11 +274,13 @@ export component MainWindow inherits Window {
     callback back();
     callback toggle-settings();
     callback set-bool(string, bool);
+    callback set-opacity(float);
 
     title: @tr("DPSメーター");
     no-frame: true;
     always-on-top: root.aot;
-    background: #14141ecc;
+    // 不透明度: 背景の透け具合を調整（文字・バーは可読性のため不透明のまま）
+    background: #14141e.with-alpha(root.win-opacity);
     preferred-width: 520px;
     preferred-height: 360px;
 
@@ -440,8 +481,10 @@ export component MainWindow inherits Window {
                     Text { text: @tr("表示"); color: #888; font-size: 10px; }
                     ToggleRow { label: @tr("自分を強調"); checked: root.cfg-ui.highlight-local; toggled => { root.set-bool("highlight-local", !root.cfg-ui.highlight-local); } }
                     ToggleRow { label: @tr("スコア省略(K/M)"); checked: root.cfg-ui.abbreviate-scores; toggled => { root.set-bool("abbreviate-scores", !root.cfg-ui.abbreviate-scores); } }
+                    ToggleRow { label: @tr("名前マスク"); checked: root.cfg-ui.privacy-mask; toggled => { root.set-bool("privacy-mask", !root.cfg-ui.privacy-mask); } }
                     Text { text: @tr("オーバーレイ"); color: #888; font-size: 10px; }
                     ToggleRow { label: @tr("常に最前面"); checked: root.cfg-ui.aot; toggled => { root.set-bool("aot", !root.cfg-ui.aot); } }
+                    OpacityRow { value: root.win-opacity; changed(v) => { root.set-opacity(v); } }
                 }
             }
         }

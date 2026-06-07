@@ -73,7 +73,12 @@ fn fetch_players(enc: &EncounterMutex, tab: i32) -> bpsr_core::models::PlayersWi
     }
 }
 
-fn build_rows(pw: &bpsr_core::models::PlayersWindow, template: &str, abbreviate: bool) -> Vec<Row> {
+fn build_rows(
+    pw: &bpsr_core::models::PlayersWindow,
+    template: &str,
+    abbreviate: bool,
+    privacy: bool,
+) -> Vec<Row> {
     let top = pw.top_value.max(1.0);
     let local = pw.local_player_uid;
     pw.player_rows
@@ -81,11 +86,16 @@ fn build_rows(pw: &bpsr_core::models::PlayersWindow, template: &str, abbreviate:
         .enumerate()
         .map(|(i, p)| {
             let rank = (i + 1) as i32;
+            let display = if privacy {
+                format::mask_player_name(p.uid as i64)
+            } else {
+                p.name.clone()
+            };
             Row {
                 rank,
                 uid_str: format!("{}", p.uid as i64).into(),
                 name: format::format_row_name(
-                    &p.name,
+                    &display,
                     &p.class_name,
                     &p.class_spec_name,
                     p.ability_score,
@@ -174,6 +184,7 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
     });
     m.set_highlight_local(c.highlight_local_player);
     m.set_aot(c.always_on_top);
+    m.set_win_opacity(c.opacity as f32);
     m.set_cfg_ui(SettingsUi {
         show_crit: c.show_crit,
         show_crit_value: c.show_crit_value,
@@ -184,6 +195,7 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         show_score: c.show_score,
         highlight_local: c.highlight_local_player,
         abbreviate_scores: c.abbreviate_scores,
+        privacy_mask: c.privacy_mask_names,
         aot: c.always_on_top,
     });
 }
@@ -297,6 +309,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     &fetch_players(&enc_sel, n),
                     &c.name_template,
                     c.abbreviate_scores,
+                    c.privacy_mask_names,
                 ));
             }
         });
@@ -407,6 +420,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "show-score" => c.show_score = val,
                     "highlight-local" => c.highlight_local_player = val,
                     "abbreviate-scores" => c.abbreviate_scores = val,
+                    "privacy-mask" => c.privacy_mask_names = val,
                     "aot" => c.always_on_top = val,
                     other => log::warn!("unknown setting key: {other}"),
                 }
@@ -416,6 +430,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 apply_settings(&m, &c);
             }
             settings::save(&c);
+        });
+    }
+    // 不透明度スライダー
+    {
+        let w = main.as_weak();
+        let cfg_o = cfg.clone();
+        main.on_set_opacity(move |v| {
+            let clamped = v.clamp(0.05, 1.0) as f64;
+            cfg_o.borrow_mut().opacity = clamped;
+            if let Some(m) = w.upgrade() {
+                m.set_win_opacity(clamped as f32);
+            }
+            settings::save(&cfg_o.borrow());
         });
     }
 
@@ -461,7 +488,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let pw = fetch_players(&enc_poll, tab_cell_poll.get());
         {
             let c = cfg_poll.borrow();
-            rows.set_vec(build_rows(&pw, &c.name_template, c.abbreviate_scores));
+            rows.set_vec(build_rows(
+                &pw,
+                &c.name_template,
+                c.abbreviate_scores,
+                c.privacy_mask_names,
+            ));
         }
 
         // ドリルダウン中はライブ更新

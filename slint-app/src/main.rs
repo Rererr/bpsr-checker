@@ -161,6 +161,33 @@ fn show_drill(
     m.set_view(1);
 }
 
+/// 設定の表示系を UI へ反映（列フラグ・自分強調・最前面・パネルのトグル状態）。
+fn apply_settings(m: &MainWindow, c: &settings::Settings) {
+    m.set_cols(ColumnFlags {
+        crit: c.show_crit,
+        crit_value: c.show_crit_value,
+        lucky: c.show_lucky,
+        lucky_value: c.show_lucky_value,
+        hits: c.show_hits,
+        hpm: c.show_hpm,
+        score: c.show_score,
+    });
+    m.set_highlight_local(c.highlight_local_player);
+    m.set_aot(c.always_on_top);
+    m.set_cfg_ui(SettingsUi {
+        show_crit: c.show_crit,
+        show_crit_value: c.show_crit_value,
+        show_lucky: c.show_lucky,
+        show_lucky_value: c.show_lucky_value,
+        show_hits: c.show_hits,
+        show_hpm: c.show_hpm,
+        show_score: c.show_score,
+        highlight_local: c.highlight_local_player,
+        abbreviate_scores: c.abbreviate_scores,
+        aot: c.always_on_top,
+    });
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     static LOGGER: ConsoleLog = ConsoleLog;
     let _ = log::set_logger(&LOGGER);
@@ -220,17 +247,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 設定を起動時に適用（列フラグ・自分強調・最前面・起動タブ・runtime settings）
     {
         let c = cfg.borrow();
-        main.set_cols(ColumnFlags {
-            crit: c.show_crit,
-            crit_value: c.show_crit_value,
-            lucky: c.show_lucky,
-            lucky_value: c.show_lucky_value,
-            hits: c.show_hits,
-            hpm: c.show_hpm,
-            score: c.show_score,
-        });
-        main.set_highlight_local(c.highlight_local_player);
-        main.set_aot(c.always_on_top);
+        apply_settings(&main, &c);
         let init_tab = match c.startup_tab.as_str() {
             "heal" => 1,
             "taken" => 2,
@@ -362,6 +379,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             drill_h.set(Drill::None);
             m.set_view(0);
+        });
+    }
+    // 設定パネルの開閉
+    {
+        let w = main.as_weak();
+        main.on_toggle_settings(move || {
+            if let Some(m) = w.upgrade() {
+                m.set_settings_open(!m.get_settings_open());
+            }
+        });
+    }
+    // 設定トグル変更 → cfg 更新・即適用・保存
+    {
+        let w = main.as_weak();
+        let cfg_b = cfg.clone();
+        main.on_set_bool(move |key, val| {
+            {
+                let mut c = cfg_b.borrow_mut();
+                match key.as_str() {
+                    "show-crit" => c.show_crit = val,
+                    "show-crit-value" => c.show_crit_value = val,
+                    "show-lucky" => c.show_lucky = val,
+                    "show-lucky-value" => c.show_lucky_value = val,
+                    "show-hits" => c.show_hits = val,
+                    "show-hpm" => c.show_hpm = val,
+                    "show-score" => c.show_score = val,
+                    "highlight-local" => c.highlight_local_player = val,
+                    "abbreviate-scores" => c.abbreviate_scores = val,
+                    "aot" => c.always_on_top = val,
+                    other => log::warn!("unknown setting key: {other}"),
+                }
+            }
+            let c = cfg_b.borrow();
+            if let Some(m) = w.upgrade() {
+                apply_settings(&m, &c);
+            }
+            settings::save(&c);
         });
     }
 

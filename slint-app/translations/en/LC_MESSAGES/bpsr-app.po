@@ -6,8 +6,35 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-msgid "BPSR Checker"
-msgstr "BPSR Checker"
+# ソース(msgid)は日本語。ここで英語へ翻訳する。
+# 日英で同一の文字列（"DPS" / "%" 等）は msgid フォールバックで足りるため省略。
 
-msgid "Quit"
+msgid "DPSメーター"
+msgstr "DPS Checker"
+
+msgid "回復"
+msgstr "Heal"
+
+msgid "被ダメ"
+msgstr "Taken"
+
+msgid "履歴"
+msgstr "History"
+
+msgid "プレイヤー"
+msgstr "Player"
+
+msgid "ダメージ"
+msgstr "Damage"
+
+msgid "終了"
 msgstr "Quit"
+
+msgid "データなし"
+msgstr "No data"
+
+msgid "経過"
+msgstr "Elapsed"
+
+msgid "合計DPS"
+msgstr "Total DPS"

@@ -6,13 +6,14 @@
 slint::include_modules!();
 
 mod capture;
+mod format;
 mod overlay;
 mod window_state;
 
 use bpsr_core::compute;
 use bpsr_core::engine;
 use bpsr_core::engine::encounter::EncounterMutex;
-use slint::{ComponentHandle, SharedString, Timer, TimerMode, VecModel};
+use slint::{ComponentHandle, Timer, TimerMode, VecModel};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -61,15 +62,8 @@ fn data_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(base).join("bpsr-checker")
 }
 
-fn fmt_value(v: f64) -> SharedString {
-    if v >= 1_000_000.0 {
-        format!("{:.2}M", v / 1e6).into()
-    } else if v >= 1_000.0 {
-        format!("{:.1}k", v / 1e3).into()
-    } else {
-        format!("{:.0}", v).into()
-    }
-}
+// 名前列テンプレート（既定）。将来は設定から差し替える。
+const NAME_TEMPLATE: &str = "{name} {spec}({score} - {seasonLv} - {seasonStr})";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     static LOGGER: ConsoleLog = ConsoleLog;
@@ -157,22 +151,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        // ライブ集計を反映
+        // ライブ集計を反映（タブに応じて取得）
         let header = compute::get_header_info(&enc_poll);
-        m.set_total_dps_text(fmt_value(header.total_dps));
-        m.set_elapsed_text(format!("{:.0}s", header.elapsed_ms / 1000.0).into());
+        m.set_total_text(format::format_dps(header.total_dps).into());
+        m.set_elapsed_text(format::format_elapsed(header.elapsed_ms).into());
 
-        let pw = compute::get_dps_players(&enc_poll);
+        let pw = match m.get_tab() {
+            1 => compute::get_heal_players(&enc_poll),
+            2 => compute::get_dmg_taken_players(&enc_poll),
+            _ => compute::get_dps_players(&enc_poll),
+        };
         let top = pw.top_value.max(1.0);
+        let local = pw.local_player_uid;
         let new_rows: Vec<Row> = pw
             .player_rows
             .iter()
-            .map(|p| Row {
-                name: p.name.clone().into(),
-                class_name: p.class_name.clone().into(),
-                dps_text: fmt_value(p.value_per_sec),
-                total_text: fmt_value(p.total_value),
-                pct: ((p.total_value / top) * 100.0) as f32,
+            .enumerate()
+            .map(|(i, p)| {
+                let rank = (i + 1) as i32;
+                Row {
+                    rank,
+                    name: format::format_row_name(
+                        &p.name,
+                        &p.class_name,
+                        &p.class_spec_name,
+                        p.ability_score,
+                        p.season_level,
+                        p.season_strength,
+                        rank,
+                        NAME_TEMPLATE,
+                        false,
+                    )
+                    .into(),
+                    class_color: format::class_color(&p.class_name),
+                    dmg_text: format::format_number(p.total_value).into(),
+                    dps_text: format::format_dps(p.value_per_sec).into(),
+                    pct_text: format::format_pct(p.value_pct).into(),
+                    pct: ((p.total_value / top) * 100.0) as f32,
+                    is_local: p.uid == local,
+                }
             })
             .collect();
         rows.set_vec(new_rows);

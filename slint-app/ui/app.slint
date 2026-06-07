@@ -31,6 +31,20 @@ struct ColumnFlags {
     score: bool,
 }
 
+// 設定パネルのトグル表示状態（Rust が cfg から set）
+struct SettingsUi {
+    show-crit: bool,
+    show-crit-value: bool,
+    show-lucky: bool,
+    show-lucky-value: bool,
+    show-hits: bool,
+    show-hpm: bool,
+    show-score: bool,
+    highlight-local: bool,
+    abbreviate-scores: bool,
+    aot: bool,
+}
+
 struct SkillRowUi {
     uid-str: string,   // 被ダメ攻撃元のドリルダウンに使う（スキル行では未使用）
     name: string,
@@ -157,6 +171,36 @@ component SkillRowItem inherits Rectangle {
     }
 }
 
+// 設定パネルのトグル行（カスタムチェックボックス）
+component ToggleRow inherits TouchArea {
+    in property <string> label;
+    in property <bool> checked;
+    callback toggled();
+    height: 26px;
+    clicked => { root.toggled(); }
+    Rectangle {
+        background: root.has-hover ? #ffffff10 : transparent;
+        HorizontalLayout {
+            padding-left: 10px;
+            padding-right: 10px;
+            spacing: 8px;
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 16px;
+                    height: 16px;
+                    border-width: 1px;
+                    border-color: #777;
+                    border-radius: 3px;
+                    background: root.checked ? #2d6cdf : transparent;
+                    Text { text: root.checked ? "✓" : ""; color: white; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+                }
+            }
+            Text { text: root.label; color: #ddd; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; }
+        }
+    }
+}
+
 // no-frame 窓の縁/角リサイズ用ハンドル。
 component ResizeHandle inherits TouchArea {
     in property <int> dir;
@@ -180,6 +224,8 @@ export component MainWindow inherits Window {
     in property <int> tab: 0;  // 0=dps 1=heal 2=taken 3=history（Rust が set）
     in property <int> view: 0; // 0=一覧 1=スキル内訳/攻撃元（Rust が set）
     in property <bool> skills-clickable; // 被ダメ攻撃元一覧のとき true（行クリックで技別へ）
+    in property <bool> settings-open;
+    in property <SettingsUi> cfg-ui;
     callback quit();
     callback start-drag();
     callback start-resize(int);
@@ -187,6 +233,8 @@ export component MainWindow inherits Window {
     callback open-drill(string);
     callback drill-row(string);
     callback back();
+    callback toggle-settings();
+    callback set-bool(string, bool);
 
     title: @tr("DPSメーター");
     no-frame: true;
@@ -224,6 +272,15 @@ export component MainWindow inherits Window {
                         vertical-alignment: center;
                     }
                 }
+                settings-btn := TouchArea {
+                    width: 36px;
+                    clicked => { root.toggle-settings(); }
+                    Rectangle {
+                        background: (settings-btn.has-hover || root.settings-open) ? #ffffff20 : transparent;
+                        border-radius: 4px;
+                        Text { text: @tr("設定"); color: #cdd; font-size: 11px; }
+                    }
+                }
                 quit-btn := TouchArea {
                     width: 26px;
                     clicked => { root.quit(); }
@@ -237,7 +294,7 @@ export component MainWindow inherits Window {
         }
 
         // ── 一覧ビュー ──
-        if root.view == 0: VerticalLayout {
+        if !root.settings-open && root.view == 0: VerticalLayout {
             vertical-stretch: 1;
             Rectangle {
                 height: 16px;
@@ -289,7 +346,7 @@ export component MainWindow inherits Window {
         }
 
         // ── スキル内訳ビュー ──
-        if root.view == 1: VerticalLayout {
+        if !root.settings-open && root.view == 1: VerticalLayout {
             vertical-stretch: 1;
             Rectangle {
                 height: 20px;
@@ -340,6 +397,51 @@ export component MainWindow inherits Window {
                         horizontal-alignment: center;
                         vertical-alignment: center;
                     }
+                }
+            }
+        }
+
+        // ── 設定パネル ──
+        if root.settings-open: VerticalLayout {
+            vertical-stretch: 1;
+            Rectangle {
+                height: 20px;
+                background: #20202e;
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 6px;
+                    Text { text: @tr("設定"); color: #e6e6f0; font-size: 12px; horizontal-stretch: 1; vertical-alignment: center; }
+                    close-btn := TouchArea {
+                        width: 24px;
+                        clicked => { root.toggle-settings(); }
+                        Rectangle {
+                            background: close-btn.has-hover ? #c0392b : transparent;
+                            border-radius: 4px;
+                            Text { text: "✕"; color: white; font-size: 11px; }
+                        }
+                    }
+                }
+            }
+            Flickable {
+                vertical-stretch: 1;
+                max-height: 100000px;
+                viewport-height: setbox.preferred-height;
+                setbox := VerticalLayout {
+                    padding: 4px;
+                    spacing: 1px;
+                    Text { text: @tr("表示列"); color: #888; font-size: 10px; }
+                    ToggleRow { label: @tr("会心率"); checked: root.cfg-ui.show-crit; toggled => { root.set-bool("show-crit", !root.cfg-ui.show-crit); } }
+                    ToggleRow { label: @tr("会心ダメ率"); checked: root.cfg-ui.show-crit-value; toggled => { root.set-bool("show-crit-value", !root.cfg-ui.show-crit-value); } }
+                    ToggleRow { label: @tr("幸運率"); checked: root.cfg-ui.show-lucky; toggled => { root.set-bool("show-lucky", !root.cfg-ui.show-lucky); } }
+                    ToggleRow { label: @tr("幸運ダメ率"); checked: root.cfg-ui.show-lucky-value; toggled => { root.set-bool("show-lucky-value", !root.cfg-ui.show-lucky-value); } }
+                    ToggleRow { label: @tr("ヒット数"); checked: root.cfg-ui.show-hits; toggled => { root.set-bool("show-hits", !root.cfg-ui.show-hits); } }
+                    ToggleRow { label: @tr("毎分ヒット数"); checked: root.cfg-ui.show-hpm; toggled => { root.set-bool("show-hpm", !root.cfg-ui.show-hpm); } }
+                    ToggleRow { label: @tr("戦力"); checked: root.cfg-ui.show-score; toggled => { root.set-bool("show-score", !root.cfg-ui.show-score); } }
+                    Text { text: @tr("表示"); color: #888; font-size: 10px; }
+                    ToggleRow { label: @tr("自分を強調"); checked: root.cfg-ui.highlight-local; toggled => { root.set-bool("highlight-local", !root.cfg-ui.highlight-local); } }
+                    ToggleRow { label: @tr("スコア省略(K/M)"); checked: root.cfg-ui.abbreviate-scores; toggled => { root.set-bool("abbreviate-scores", !root.cfg-ui.abbreviate-scores); } }
+                    Text { text: @tr("オーバーレイ"); color: #888; font-size: 10px; }
+                    ToggleRow { label: @tr("常に最前面"); checked: root.cfg-ui.aot; toggled => { root.set-bool("aot", !root.cfg-ui.aot); } }
                 }
             }
         }

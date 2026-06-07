@@ -5,6 +5,7 @@ use i_slint_backend_winit::WinitWindowAccessor;
 
 /// 物理座標系でのモニタ矩形。
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // scale/name/primary は S4 のモニタ診断・配置で使用予定
 pub struct MonitorRect {
     pub x: i32,
     pub y: i32,
@@ -15,7 +16,30 @@ pub struct MonitorRect {
     pub primary: bool,
 }
 
+/// no-frame 窓の縁ドラッグでサイズ変更を開始する（マウス押下中に呼ぶ）。
+/// dir: 0=N 1=S 2=E 3=W 4=NE 5=NW 6=SE 7=SW
+pub fn start_resize(window: &slint::Window, dir: i32) {
+    use i_slint_backend_winit::winit::window::ResizeDirection;
+    let direction = match dir {
+        0 => ResizeDirection::North,
+        1 => ResizeDirection::South,
+        2 => ResizeDirection::East,
+        3 => ResizeDirection::West,
+        4 => ResizeDirection::NorthEast,
+        5 => ResizeDirection::NorthWest,
+        6 => ResizeDirection::SouthEast,
+        7 => ResizeDirection::SouthWest,
+        _ => return,
+    };
+    window.with_winit_window(|w| {
+        if let Err(e) = w.drag_resize_window(direction) {
+            log::warn!("drag_resize_window failed: {e}");
+        }
+    });
+}
+
 /// クリックスルー切替。`enabled=true` で背後へクリックを素通しさせる。
+#[allow(dead_code)] // S4 のオーバーレイで使用予定
 pub fn set_click_through(window: &slint::Window, enabled: bool) {
     window.with_winit_window(|w| {
         if let Err(e) = w.set_cursor_hittest(!enabled) {

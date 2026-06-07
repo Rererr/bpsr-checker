@@ -85,6 +85,7 @@ fn build_rows(pw: &bpsr_core::models::PlayersWindow) -> Vec<Row> {
             let rank = (i + 1) as i32;
             Row {
                 rank,
+                uid_str: format!("{}", p.uid as i64).into(),
                 name: format::format_row_name(
                     &p.name,
                     &p.class_name,
@@ -103,6 +104,25 @@ fn build_rows(pw: &bpsr_core::models::PlayersWindow) -> Vec<Row> {
                 pct_text: format::format_pct(p.value_pct).into(),
                 pct: ((p.total_value / top) * 100.0) as f32,
                 is_local: p.uid == local,
+            }
+        })
+        .collect()
+}
+
+fn build_skill_rows(sw: &bpsr_core::models::SkillsWindow) -> Vec<SkillRowUi> {
+    let top = sw.top_value.max(1.0);
+    sw.skill_rows
+        .iter()
+        .map(|s| {
+            let (en, ec) = format::element_label(s.element);
+            SkillRowUi {
+                name: s.name.clone().into(),
+                elem_text: en.into(),
+                elem_color: ec,
+                total_text: format::format_number(s.total_value).into(),
+                dps_text: format::format_dps(s.value_per_sec).into(),
+                pct_text: format::format_pct(s.value_pct).into(),
+                pct: ((s.total_value / top) * 100.0) as f32,
             }
         })
         .collect()
@@ -156,6 +176,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 現在タブ（UIスレッド共有）。タブクリックと周期ポーリングの両方が参照する。
     let tab_cell = Rc::new(Cell::new(0i32));
 
+    // スキル内訳ビュー用モデル＋対象プレイヤー uid（0=なし）
+    let skill_rows = Rc::new(VecModel::<SkillRowUi>::default());
+    main.set_skill_rows(skill_rows.clone().into());
+    let inspected_uid = Rc::new(Cell::new(0i64));
+
     main.on_quit(|| {
         let _ = slint::quit_event_loop();
     });
@@ -189,6 +214,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
+    // 行クリック → スキル内訳へ
+    {
+        let w = main.as_weak();
+        let enc_sk = enc.clone();
+        let sk_rows = skill_rows.clone();
+        let insp = inspected_uid.clone();
+        main.on_open_skills(move |uid_str| {
+            let uid: i64 = uid_str.as_str().parse().unwrap_or(0);
+            if uid == 0 {
+                return;
+            }
+            let Some(m) = w.upgrade() else {
+                return;
+            };
+            match compute::get_skills(&enc_sk, uid) {
+                Ok(sw) => {
+                    insp.set(uid);
+                    m.set_inspected_name(sw.inspected_player.name.clone().into());
+                    sk_rows.set_vec(build_skill_rows(&sw));
+                    m.set_view(1);
+                }
+                Err(e) => log::warn!("get_skills({uid}) failed: {e}"),
+            }
+        });
+    }
+    // 戻る → 一覧へ
+    {
+        let w = main.as_weak();
+        let insp = inspected_uid.clone();
+        main.on_back(move || {
+            insp.set(0);
+            if let Some(m) = w.upgrade() {
+                m.set_view(0);
+            }
+        });
+    }
 
     main.show()?;
 
@@ -201,6 +262,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut setup_tick: u64 = 0;
     let mut setup_done = false;
     let tab_cell_poll = tab_cell.clone();
+    let inspected_uid_poll = inspected_uid.clone();
+    let skill_rows_poll = skill_rows.clone();
 
     let timer = Timer::default();
     timer.start(TimerMode::Repeated, Duration::from_millis(300), move || {
@@ -227,6 +290,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let pw = fetch_players(&enc_poll, tab_cell_poll.get());
         rows.set_vec(build_rows(&pw));
+
+        // スキル内訳ビュー中はライブ更新
+        if m.get_view() == 1 {
+            let uid = inspected_uid_poll.get();
+            if uid != 0 {
+                if let Ok(sw) = compute::get_skills(&enc_poll, uid) {
+                    skill_rows_poll.set_vec(build_skill_rows(&sw));
+                }
+            }
+        }
 
         // レイアウト自動保存（復元確定後・差分時のみ）
         if !setup_done || tick < setup_tick + SETTLE_TICKS {

@@ -50,6 +50,26 @@ pub fn class_color(class_name: &str) -> Color {
     Color::from_rgb_u8((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
 }
 
+/// 属性 → (短い表示名, 色)（utils.ts ELEMENT_TABLE）。
+pub fn element_label(e: u8) -> (&'static str, Color) {
+    let (name, hex): (&str, u32) = match e {
+        0 => ("物", 0xaaaaaa),
+        1 => ("炎", 0xe74c3c),
+        2 => ("氷", 0x4fc3f7),
+        3 => ("雷", 0xf1c40f),
+        4 => ("森", 0x2ecc71),
+        5 => ("風", 0x1abc9c),
+        6 => ("岩", 0xa0522d),
+        7 => ("光", 0xecf0f1),
+        8 => ("闇", 0x9b59b6),
+        _ => ("-", 0x666666),
+    };
+    (
+        name,
+        Color::from_rgb_u8((hex >> 16) as u8, (hex >> 8) as u8, hex as u8),
+    )
+}
+
 const MISSING: &str = "—";
 
 /// 名前列テンプレート展開（utils.ts formatRowAsText のメタ系キー）。

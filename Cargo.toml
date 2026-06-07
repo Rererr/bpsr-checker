@@ -1,0 +1,4 @@
+[workspace]
+resolver = "2"
+members = ["core", "src-tauri"]
+exclude = ["slint-poc"]

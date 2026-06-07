@@ -128,6 +128,7 @@ fn build_skill_rows(sw: &bpsr_core::models::SkillsWindow) -> Vec<SkillRowUi> {
         .map(|s| {
             let (en, ec) = format::element_label(s.element);
             SkillRowUi {
+                uid_str: format!("{}", s.uid as i64).into(),
                 name: s.name.clone().into(),
                 elem_text: en.into(),
                 elem_color: ec,
@@ -138,6 +139,28 @@ fn build_skill_rows(sw: &bpsr_core::models::SkillsWindow) -> Vec<SkillRowUi> {
             }
         })
         .collect()
+}
+
+/// ドリルダウン状態。
+#[derive(Clone, Copy)]
+enum Drill {
+    None,
+    Skills(i64),            // dps/heal: そのプレイヤーの技別
+    TakenAttackers(i64),    // 被ダメ: 被害者の攻撃元一覧
+    TakenSkills(i64, i64),  // 被ダメ: (被害者, 攻撃元) の技別
+}
+
+/// SkillsWindow を内訳ビューへ反映する共通処理。
+fn show_drill(
+    m: &MainWindow,
+    sk_rows: &slint::VecModel<SkillRowUi>,
+    sw: &bpsr_core::models::SkillsWindow,
+    clickable: bool,
+) {
+    m.set_inspected_name(sw.inspected_player.name.clone().into());
+    sk_rows.set_vec(build_skill_rows(sw));
+    m.set_skills_clickable(clickable);
+    m.set_view(1);
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -191,7 +214,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // スキル内訳ビュー用モデル＋対象プレイヤー uid（0=なし）
     let skill_rows = Rc::new(VecModel::<SkillRowUi>::default());
     main.set_skill_rows(skill_rows.clone().into());
-    let inspected_uid = Rc::new(Cell::new(0i64));
+    let drill = Rc::new(Cell::new(Drill::None));
 
     // 列の表示フラグ（既定: 現行と同じく 会心率・幸運率 ON、他 OFF）。S3 で設定連動。
     main.set_cols(ColumnFlags {
@@ -237,13 +260,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
-    // 行クリック → スキル内訳へ
+    // 行クリック → ドリルダウン（dps/heal: 技別 / 被ダメ: 攻撃元一覧）
     {
         let w = main.as_weak();
         let enc_sk = enc.clone();
         let sk_rows = skill_rows.clone();
-        let insp = inspected_uid.clone();
-        main.on_open_skills(move |uid_str| {
+        let drill_h = drill.clone();
+        let tab_h = tab_cell.clone();
+        main.on_open_drill(move |uid_str| {
             let uid: i64 = uid_str.as_str().parse().unwrap_or(0);
             if uid == 0 {
                 return;
@@ -251,26 +275,69 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let Some(m) = w.upgrade() else {
                 return;
             };
-            match compute::get_skills(&enc_sk, uid) {
-                Ok(sw) => {
-                    insp.set(uid);
-                    m.set_inspected_name(sw.inspected_player.name.clone().into());
-                    sk_rows.set_vec(build_skill_rows(&sw));
-                    m.set_view(1);
+            if tab_h.get() == 2 {
+                match compute::get_dmg_taken_attackers(&enc_sk, uid) {
+                    Ok(sw) => {
+                        drill_h.set(Drill::TakenAttackers(uid));
+                        show_drill(&m, &sk_rows, &sw, true);
+                    }
+                    Err(e) => log::warn!("get_dmg_taken_attackers({uid}) failed: {e}"),
                 }
-                Err(e) => log::warn!("get_skills({uid}) failed: {e}"),
+            } else {
+                match compute::get_skills(&enc_sk, uid) {
+                    Ok(sw) => {
+                        drill_h.set(Drill::Skills(uid));
+                        show_drill(&m, &sk_rows, &sw, false);
+                    }
+                    Err(e) => log::warn!("get_skills({uid}) failed: {e}"),
+                }
             }
         });
     }
-    // 戻る → 一覧へ
+    // 攻撃元クリック（被ダメ）→ その攻撃元の技別へ
     {
         let w = main.as_weak();
-        let insp = inspected_uid.clone();
-        main.on_back(move || {
-            insp.set(0);
-            if let Some(m) = w.upgrade() {
-                m.set_view(0);
+        let enc_sk = enc.clone();
+        let sk_rows = skill_rows.clone();
+        let drill_h = drill.clone();
+        main.on_drill_row(move |uid_str| {
+            let attacker: i64 = uid_str.as_str().parse().unwrap_or(0);
+            if attacker == 0 {
+                return;
             }
+            let Some(m) = w.upgrade() else {
+                return;
+            };
+            if let Drill::TakenAttackers(player) = drill_h.get() {
+                match compute::get_dmg_taken_skills(&enc_sk, player, attacker) {
+                    Ok(sw) => {
+                        drill_h.set(Drill::TakenSkills(player, attacker));
+                        show_drill(&m, &sk_rows, &sw, false);
+                    }
+                    Err(e) => log::warn!("get_dmg_taken_skills failed: {e}"),
+                }
+            }
+        });
+    }
+    // 戻る（被ダメ技別→攻撃元一覧、それ以外→一覧へ）
+    {
+        let w = main.as_weak();
+        let enc_b = enc.clone();
+        let sk_rows = skill_rows.clone();
+        let drill_h = drill.clone();
+        main.on_back(move || {
+            let Some(m) = w.upgrade() else {
+                return;
+            };
+            if let Drill::TakenSkills(player, _) = drill_h.get() {
+                if let Ok(sw) = compute::get_dmg_taken_attackers(&enc_b, player) {
+                    drill_h.set(Drill::TakenAttackers(player));
+                    show_drill(&m, &sk_rows, &sw, true);
+                    return;
+                }
+            }
+            drill_h.set(Drill::None);
+            m.set_view(0);
         });
     }
 
@@ -285,7 +352,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut setup_tick: u64 = 0;
     let mut setup_done = false;
     let tab_cell_poll = tab_cell.clone();
-    let inspected_uid_poll = inspected_uid.clone();
+    let drill_poll = drill.clone();
     let skill_rows_poll = skill_rows.clone();
 
     let timer = Timer::default();
@@ -314,14 +381,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let pw = fetch_players(&enc_poll, tab_cell_poll.get());
         rows.set_vec(build_rows(&pw));
 
-        // スキル内訳ビュー中はライブ更新
-        if m.get_view() == 1 {
-            let uid = inspected_uid_poll.get();
-            if uid != 0 {
+        // ドリルダウン中はライブ更新
+        match drill_poll.get() {
+            Drill::Skills(uid) => {
                 if let Ok(sw) = compute::get_skills(&enc_poll, uid) {
                     skill_rows_poll.set_vec(build_skill_rows(&sw));
                 }
             }
+            Drill::TakenAttackers(uid) => {
+                if let Ok(sw) = compute::get_dmg_taken_attackers(&enc_poll, uid) {
+                    skill_rows_poll.set_vec(build_skill_rows(&sw));
+                }
+            }
+            Drill::TakenSkills(p, a) => {
+                if let Ok(sw) = compute::get_dmg_taken_skills(&enc_poll, p, a) {
+                    skill_rows_poll.set_vec(build_skill_rows(&sw));
+                }
+            }
+            Drill::None => {}
         }
 
         // レイアウト自動保存（復元確定後・差分時のみ）

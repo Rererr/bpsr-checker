@@ -32,6 +32,7 @@ struct ColumnFlags {
 }
 
 struct SkillRowUi {
+    uid-str: string,   // 被ダメ攻撃元のドリルダウンに使う（スキル行では未使用）
     name: string,
     elem-text: string,
     elem-color: color,
@@ -121,7 +122,10 @@ component PlayerRowItem inherits Rectangle {
 
 component SkillRowItem inherits Rectangle {
     in property <SkillRowUi> entry;
+    in property <bool> clickable;
+    callback activate(string);
     height: 20px;
+    background: (root.clickable && ta.has-hover) ? #ffffff12 : transparent;
 
     Rectangle {
         x: 0;
@@ -146,6 +150,11 @@ component SkillRowItem inherits Rectangle {
         Text { text: root.entry.dps-text; color: #4fc3f7; font-size: 12px; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
         Text { text: root.entry.pct-text; color: #cfcfe0; font-size: 11px; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
     }
+    ta := TouchArea {
+        enabled: root.clickable;
+        mouse-cursor: root.clickable ? pointer : default;
+        clicked => { root.activate(root.entry.uid-str); }
+    }
 }
 
 // no-frame 窓の縁/角リサイズ用ハンドル。
@@ -168,12 +177,14 @@ export component MainWindow inherits Window {
     in property <bool> highlight-local: true;
     in property <ColumnFlags> cols;
     in property <int> tab: 0;  // 0=dps 1=heal 2=taken 3=history（Rust が set）
-    in property <int> view: 0; // 0=一覧 1=スキル内訳（Rust が set）
+    in property <int> view: 0; // 0=一覧 1=スキル内訳/攻撃元（Rust が set）
+    in property <bool> skills-clickable; // 被ダメ攻撃元一覧のとき true（行クリックで技別へ）
     callback quit();
     callback start-drag();
     callback start-resize(int);
     callback select-tab(int);
-    callback open-skills(string);
+    callback open-drill(string);
+    callback drill-row(string);
     callback back();
 
     title: @tr("DPSメーター");
@@ -262,7 +273,7 @@ export component MainWindow inherits Window {
                         entry: row;
                         highlight-local: root.highlight-local;
                         cols: root.cols;
-                        activate(u) => { root.open-skills(u); }
+                        activate(u) => { root.open-drill(u); }
                     }
                     if root.rows.length == 0: Text {
                         text: @tr("データなし");
@@ -315,7 +326,11 @@ export component MainWindow inherits Window {
                 max-height: 100000px;
                 viewport-height: skillbox.preferred-height;
                 skillbox := VerticalLayout {
-                    for s in root.skill-rows: SkillRowItem { entry: s; }
+                    for s in root.skill-rows: SkillRowItem {
+                        entry: s;
+                        clickable: root.skills-clickable;
+                        activate(u) => { root.drill-row(u); }
+                    }
                     if root.skill-rows.length == 0: Text {
                         text: @tr("データなし");
                         color: #666;

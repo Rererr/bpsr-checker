@@ -751,6 +751,56 @@ fn process_player_attrs(uid: i64, player_entity: &mut Entity, attrs: &[pb::RawAt
                     cache_season_str = Some(st);
                 }
             }
+            // 自キャラ戦闘ステータス（戦闘中も追従。name_cache には載せない）
+            attr_type::ATTR_HP => {
+                if let Ok(hp) = decode_protobuf_int64(&attr.raw_data) {
+                    if hp >= 0 {
+                        player_entity.curr_hp = Some(hp as u64);
+                    }
+                }
+            }
+            attr_type::ATTR_MAX_HP => {
+                if let Ok(hp) = decode_protobuf_int64(&attr.raw_data) {
+                    if hp >= 0 {
+                        player_entity.max_hp = Some(hp as u64);
+                    }
+                }
+            }
+            attr_type::ATTR_ATTACK_POWER => {
+                if let Ok(v) = decode_protobuf_int32(&attr.raw_data) {
+                    player_entity.attack_power = Some(v);
+                }
+            }
+            attr_type::ATTR_DEFENSE_POWER => {
+                if let Ok(v) = decode_protobuf_int32(&attr.raw_data) {
+                    player_entity.defense_power = Some(v);
+                }
+            }
+            attr_type::ATTR_ENDURANCE => {
+                if let Ok(v) = decode_protobuf_int32(&attr.raw_data) {
+                    player_entity.endurance = Some(v);
+                }
+            }
+            attr_type::ATTR_DEXTERITY => {
+                if let Ok(v) = decode_protobuf_int32(&attr.raw_data) {
+                    player_entity.dexterity = Some(v);
+                }
+            }
+            attr_type::ATTR_ATTACK_SPEED => {
+                if let Ok(v) = decode_protobuf_int32(&attr.raw_data) {
+                    player_entity.attack_speed = Some(v);
+                }
+            }
+            attr_type::ATTR_HASTE => {
+                if let Ok(v) = decode_protobuf_int32(&attr.raw_data) {
+                    player_entity.haste = Some(v);
+                }
+            }
+            attr_type::ATTR_LUCKY => {
+                if let Ok(v) = decode_protobuf_int32(&attr.raw_data) {
+                    player_entity.lucky = Some(v);
+                }
+            }
             _ => {}
         }
     }

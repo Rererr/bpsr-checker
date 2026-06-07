@@ -1,13 +1,10 @@
 mod bridge;
-mod capture;
-mod engine;
-mod error;
-mod protocol;
 
+use bpsr_core::engine::encounter::EncounterMutex;
+use bpsr_core::engine::name_cache;
+use bpsr_core::engine::selected_uid;
 use bridge::commands;
-use engine::encounter::EncounterMutex;
-use engine::name_cache;
-use engine::selected_uid;
+use std::sync::Arc;
 use log::{info, warn};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::menu::MenuBuilder;
@@ -100,7 +97,7 @@ pub fn run() {
             setup_logs(&app_handle)?;
             setup_tray(&app_handle)?;
 
-            app.manage(EncounterMutex::default());
+            app.manage(Arc::new(EncounterMutex::default()));
 
             if let Ok(dir) = app_handle.path().app_local_data_dir() {
                 name_cache::init(dir.join("name_cache.json"));
@@ -134,10 +131,10 @@ pub fn run() {
                     }
                 })?;
 
-            // Start packet capture pipeline
-            let handle = app_handle.clone();
+            // Start packet capture pipeline（core が共有 EncounterMutex を直接更新）
+            let enc = app_handle.state::<Arc<EncounterMutex>>().inner().clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = capture::start(handle).await {
+                if let Err(e) = bpsr_core::capture::start(enc).await {
                     log::error!("Capture pipeline error: {e}");
                 }
             });
@@ -179,15 +176,15 @@ pub fn run() {
                 selected_uid::flush();
                 #[cfg(target_os = "windows")]
                 {
-                    capture::windivert::request_shutdown();
+                    bpsr_core::capture::windivert::request_shutdown();
                     let deadline =
                         std::time::Instant::now() + std::time::Duration::from_millis(1500);
-                    while !capture::windivert::is_handle_closed()
+                    while !bpsr_core::capture::windivert::is_handle_closed()
                         && std::time::Instant::now() < deadline
                     {
                         std::thread::sleep(std::time::Duration::from_millis(50));
                     }
-                    if let Err(e) = capture::windivert::force_uninstall_service() {
+                    if let Err(e) = bpsr_core::capture::windivert::force_uninstall_service() {
                         warn!("WinDivert uninstall failed: {e}");
                     }
                 }

@@ -1,4 +1,4 @@
-use crate::bridge::models::TimeSeriesPoint;
+use crate::models::TimeSeriesPoint;
 use crate::engine::buff_tracker::BuffTracker;
 use crate::engine::combat_stats::CombatStats;
 use crate::engine::entity::Entity;

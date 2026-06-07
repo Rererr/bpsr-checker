@@ -1,4 +1,4 @@
-use crate::bridge::models::EncounterSnapshot;
+use crate::models::EncounterSnapshot;
 use crate::engine::runtime_settings::HISTORY_LIMIT;
 use std::collections::VecDeque;
 use std::sync::atomic::Ordering;

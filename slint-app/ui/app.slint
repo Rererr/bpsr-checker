@@ -175,6 +175,7 @@ export component MainWindow inherits Window {
     in property <string> elapsed-text: "0:00";
     in property <string> inspected-name;
     in property <bool> highlight-local: true;
+    in property <bool> aot: true; // 常に最前面（設定連動）
     in property <ColumnFlags> cols;
     in property <int> tab: 0;  // 0=dps 1=heal 2=taken 3=history（Rust が set）
     in property <int> view: 0; // 0=一覧 1=スキル内訳/攻撃元（Rust が set）
@@ -189,7 +190,7 @@ export component MainWindow inherits Window {
 
     title: @tr("DPSメーター");
     no-frame: true;
-    always-on-top: true;
+    always-on-top: root.aot;
     background: #14141ecc;
     preferred-width: 520px;
     preferred-height: 360px;

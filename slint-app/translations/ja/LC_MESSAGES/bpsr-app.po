@@ -6,8 +6,5 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-msgid "BPSR Checker"
-msgstr "BPSRチェッカー"
-
-msgid "Quit"
-msgstr "終了"
+# ソース言語は日本語（msgid が日本語）。ja では msgid をそのまま表示するため
+# 本ファイルは翻訳エントリを持たない（ヘッダのみ）。英訳は en.po にある。

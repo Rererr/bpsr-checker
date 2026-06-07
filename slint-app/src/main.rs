@@ -104,6 +104,18 @@ fn build_rows(pw: &bpsr_core::models::PlayersWindow) -> Vec<Row> {
                 pct_text: format::format_pct(p.value_pct).into(),
                 pct: ((p.total_value / top) * 100.0) as f32,
                 is_local: p.uid == local,
+                crit_text: format::format_pct(p.crit_rate).into(),
+                crit_value_text: format::format_pct(p.crit_value_rate).into(),
+                lucky_text: format::format_pct(p.lucky_rate).into(),
+                lucky_value_text: format::format_pct(p.lucky_value_rate).into(),
+                hits_text: format!("{}", p.hits as i64).into(),
+                hpm_text: format!("{:.1}", p.hits_per_minute).into(),
+                score_text: if p.ability_score > 0.0 {
+                    format::format_score(p.ability_score, false)
+                } else {
+                    "-".to_string()
+                }
+                .into(),
             }
         })
         .collect()
@@ -180,6 +192,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let skill_rows = Rc::new(VecModel::<SkillRowUi>::default());
     main.set_skill_rows(skill_rows.clone().into());
     let inspected_uid = Rc::new(Cell::new(0i64));
+
+    // 列の表示フラグ（既定: 現行と同じく 会心率・幸運率 ON、他 OFF）。S3 で設定連動。
+    main.set_cols(ColumnFlags {
+        crit: true,
+        crit_value: false,
+        lucky: true,
+        lucky_value: false,
+        hits: false,
+        hpm: false,
+        score: false,
+    });
 
     main.on_quit(|| {
         let _ = slint::quit_event_loop();

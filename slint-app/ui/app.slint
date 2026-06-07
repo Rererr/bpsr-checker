@@ -171,6 +171,9 @@ export component MainWindow inherits Window {
         // ── 行（スクロール）──
         Flickable {
             vertical-stretch: 1;
+            // 行数に関わらず窓を縦に伸ばせるよう最大高を大きく取る
+            // （未指定だと窓の最大高が中身の高さに張り付き、空のとき縦リサイズ不可になる）
+            max-height: 100000px;
             viewport-height: rowbox.preferred-height;
             rowbox := VerticalLayout {
                 for row in root.rows: PlayerRowItem {

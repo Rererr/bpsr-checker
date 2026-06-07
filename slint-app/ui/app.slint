@@ -1,0 +1,88 @@
+// 移行中の最小メイン窓（S1: core→Slint ライブ配線の検証用）。
+// 列の settings 連動・タブ・スキル内訳は S2 以降で拡充する。
+
+struct Row {
+    name: string,
+    class-name: string,
+    dps-text: string,
+    total-text: string,
+    pct: float,
+}
+
+export component MainWindow inherits Window {
+    in property <[Row]> rows;
+    in property <string> total-dps-text: "0";
+    in property <string> elapsed-text: "0s";
+    callback quit();
+    callback start-drag();
+
+    title: "BPSR Checker (Slint)";
+    no-frame: true;
+    always-on-top: true;
+    background: #14141ecc;
+    preferred-width: 520px;
+    preferred-height: 350px;
+
+    VerticalLayout {
+        padding: 6px;
+        spacing: 4px;
+
+        // ── ヘッダ（左端ドラッグ・総DPS・Quit）──
+        HorizontalLayout {
+            height: 22px;
+            spacing: 6px;
+            drag := TouchArea {
+                horizontal-stretch: 1;
+                mouse-cursor: move;
+                pointer-event(ev) => {
+                    if (ev.kind == PointerEventKind.down) {
+                        root.start-drag();
+                    }
+                }
+                Text {
+                    text: "DPS " + root.total-dps-text + "  /  " + root.elapsed-text;
+                    color: #e6e6f0;
+                    font-size: 13px;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                }
+            }
+            quit-btn := TouchArea {
+                width: 48px;
+                height: 22px;
+                clicked => { root.quit(); }
+                Rectangle {
+                    background: quit-btn.has-hover ? #c0392b : #80303a;
+                    border-radius: 4px;
+                    Text { text: "Quit"; color: white; font-size: 12px; }
+                }
+            }
+        }
+
+        // ── 行 ──
+        for row in root.rows: Rectangle {
+            height: 20px;
+            Rectangle {
+                x: 0;
+                width: parent.width * (row.pct / 100.0);
+                height: 100%;
+                background: #2d6cdf40;
+                border-radius: 3px;
+            }
+            HorizontalLayout {
+                width: 100%;
+                height: 100%;
+                padding-left: 4px;
+                padding-right: 4px;
+                spacing: 6px;
+                Text { text: row.name; color: white; font-size: 12px; width: 150px; overflow: elide; vertical-alignment: center; }
+                Text { text: row.class-name; color: #a0a0c0; font-size: 11px; width: 60px; vertical-alignment: center; }
+                Rectangle {}
+                Text { text: row.dps-text; color: #cfeaff; font-size: 12px; vertical-alignment: center; }
+                Text { text: row.total-text; color: #9ff0c0; font-size: 11px; width: 72px; horizontal-alignment: right; vertical-alignment: center; }
+            }
+        }
+
+        Rectangle {} // filler
+    }
+}

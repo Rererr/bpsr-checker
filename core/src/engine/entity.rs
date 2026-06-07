@@ -1,4 +1,4 @@
-use crate::bridge::models::TimeSeriesPoint;
+use crate::models::TimeSeriesPoint;
 use crate::engine::class::{Class, ClassSpec};
 use crate::engine::combat_stats::CombatStats;
 use crate::protocol::pb::EntityKind;

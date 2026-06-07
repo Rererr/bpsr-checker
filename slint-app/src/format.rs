@@ -70,6 +70,11 @@ pub fn element_label(e: u8) -> (&'static str, Color) {
     )
 }
 
+/// 名前マスク（utils.ts maskPlayerName）。
+pub fn mask_player_name(uid: i64) -> String {
+    format!("Player#{:04X}", uid & 0xffff)
+}
+
 const MISSING: &str = "—";
 
 /// 名前列テンプレート展開（utils.ts formatRowAsText のメタ系キー）。

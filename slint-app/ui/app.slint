@@ -1,88 +1,176 @@
-// 移行中の最小メイン窓（S1: core→Slint ライブ配線の検証用）。
-// 列の settings 連動・タブ・スキル内訳は S2 以降で拡充する。
+// メイン窓（S2: タブ + プレイヤーテーブル）。
+// 列の settings 連動・スキル内訳・被ダメドリルダウンは後続の増分で拡充する。
 
 struct Row {
+    rank: int,
     name: string,
-    class-name: string,
+    class-color: color,
+    dmg-text: string,
     dps-text: string,
-    total-text: string,
-    pct: float,
+    pct-text: string,
+    pct: float,        // 0..100（割合バー幅。topValue 基準）
+    is-local: bool,
+}
+
+component TabButton inherits TouchArea {
+    in property <string> label;
+    in property <bool> active;
+    Rectangle {
+        background: root.active ? #2d6cdf66 : (root.has-hover ? #ffffff14 : transparent);
+        border-radius: 4px;
+        HorizontalLayout {
+            padding-left: 9px;
+            padding-right: 9px;
+            Text {
+                text: root.label;
+                color: root.active ? white : #b8b8c8;
+                font-size: 12px;
+                vertical-alignment: center;
+            }
+        }
+    }
+}
+
+component PlayerRowItem inherits Rectangle {
+    in property <Row> entry;
+    in property <bool> highlight-local;
+    height: 20px;
+
+    // 割合バー（クラス色グラデーション）
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width * (root.entry.pct / 100.0);
+        height: 100%;
+        background: @linear-gradient(90deg, root.entry.class-color.with-alpha(0.22) 0%, transparent 100%);
+    }
+    // 自分ハイライト（左端の金枠）
+    if root.entry.is-local && root.highlight-local: Rectangle {
+        x: 0;
+        width: 3px;
+        height: 100%;
+        background: #ffd700;
+    }
+
+    HorizontalLayout {
+        width: 100%;
+        height: 100%;
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 6px;
+        // 名前セル（クラス色ティック + 名前）
+        HorizontalLayout {
+            horizontal-stretch: 1;
+            spacing: 5px;
+            Rectangle {
+                width: 3px;
+                background: root.entry.class-color;
+                border-radius: 1px;
+            }
+            Text {
+                text: root.entry.name;
+                color: white;
+                font-size: 12px;
+                overflow: elide;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+        }
+        Text { text: root.entry.dmg-text; color: #e6e6f0; font-size: 12px; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.entry.dps-text; color: #4fc3f7; font-size: 12px; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.entry.pct-text; color: #cfcfe0; font-size: 11px; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
+    }
 }
 
 export component MainWindow inherits Window {
     in property <[Row]> rows;
-    in property <string> total-dps-text: "0";
-    in property <string> elapsed-text: "0s";
+    in property <string> total-text: "0";
+    in property <string> elapsed-text: "0:00";
+    in property <bool> highlight-local: true;
+    in-out property <int> tab: 0; // 0=dps 1=heal 2=taken 3=history
     callback quit();
     callback start-drag();
 
-    title: @tr("BPSR Checker");
+    title: @tr("DPSメーター");
     no-frame: true;
     always-on-top: true;
     background: #14141ecc;
     preferred-width: 520px;
-    preferred-height: 350px;
+    preferred-height: 360px;
 
     VerticalLayout {
-        padding: 6px;
-        spacing: 4px;
-
-        // ── ヘッダ（左端ドラッグ・総DPS・Quit）──
-        HorizontalLayout {
-            height: 22px;
-            spacing: 6px;
-            drag := TouchArea {
-                horizontal-stretch: 1;
-                mouse-cursor: move;
-                pointer-event(ev) => {
-                    if (ev.kind == PointerEventKind.down) {
-                        root.start-drag();
+        // ── ヘッダ（タブ + 合計 + ドラッグ + 終了）──
+        Rectangle {
+            height: 26px;
+            background: #1c1c2acc;
+            HorizontalLayout {
+                padding-left: 4px;
+                padding-right: 4px;
+                spacing: 2px;
+                TabButton { label: @tr("DPS"); active: root.tab == 0; clicked => { root.tab = 0; } }
+                TabButton { label: @tr("回復"); active: root.tab == 1; clicked => { root.tab = 1; } }
+                TabButton { label: @tr("被ダメ"); active: root.tab == 2; clicked => { root.tab = 2; } }
+                TabButton { label: @tr("履歴"); active: root.tab == 3; clicked => { root.tab = 3; } }
+                drag := TouchArea {
+                    horizontal-stretch: 1;
+                    mouse-cursor: move;
+                    pointer-event(ev) => {
+                        if (ev.kind == PointerEventKind.down) {
+                            root.start-drag();
+                        }
+                    }
+                    Text {
+                        x: parent.width - self.width - 6px;
+                        text: @tr("合計DPS") + " " + root.total-text + "   " + @tr("経過") + " " + root.elapsed-text;
+                        color: #c8c8d8;
+                        font-size: 11px;
+                        vertical-alignment: center;
                     }
                 }
-                Text {
-                    text: "DPS " + root.total-dps-text + "  /  " + root.elapsed-text;
-                    color: #e6e6f0;
-                    font-size: 13px;
-                    font-weight: 700;
+                quit-btn := TouchArea {
+                    width: 26px;
+                    clicked => { root.quit(); }
+                    Rectangle {
+                        background: quit-btn.has-hover ? #c0392b : transparent;
+                        border-radius: 4px;
+                        Text { text: "✕"; color: white; font-size: 12px; }
+                    }
+                }
+            }
+        }
+
+        // ── 列見出し ──
+        Rectangle {
+            height: 16px;
+            HorizontalLayout {
+                padding-left: 8px;
+                padding-right: 8px;
+                spacing: 6px;
+                Text { text: @tr("プレイヤー"); color: #888; font-size: 10px; horizontal-stretch: 1; vertical-alignment: center; }
+                Text { text: @tr("ダメージ"); color: #888; font-size: 10px; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
+                Text { text: @tr("DPS"); color: #888; font-size: 10px; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
+                Text { text: @tr("%"); color: #888; font-size: 10px; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
+            }
+        }
+
+        // ── 行（スクロール）──
+        Flickable {
+            vertical-stretch: 1;
+            viewport-height: rowbox.preferred-height;
+            rowbox := VerticalLayout {
+                for row in root.rows: PlayerRowItem {
+                    entry: row;
+                    highlight-local: root.highlight-local;
+                }
+                if root.rows.length == 0: Text {
+                    text: @tr("データなし");
+                    color: #666;
+                    font-size: 12px;
+                    height: 40px;
+                    horizontal-alignment: center;
                     vertical-alignment: center;
                 }
             }
-            quit-btn := TouchArea {
-                width: 48px;
-                height: 22px;
-                clicked => { root.quit(); }
-                Rectangle {
-                    background: quit-btn.has-hover ? #c0392b : #80303a;
-                    border-radius: 4px;
-                    Text { text: @tr("Quit"); color: white; font-size: 12px; }
-                }
-            }
         }
-
-        // ── 行 ──
-        for row in root.rows: Rectangle {
-            height: 20px;
-            Rectangle {
-                x: 0;
-                width: parent.width * (row.pct / 100.0);
-                height: 100%;
-                background: #2d6cdf40;
-                border-radius: 3px;
-            }
-            HorizontalLayout {
-                width: 100%;
-                height: 100%;
-                padding-left: 4px;
-                padding-right: 4px;
-                spacing: 6px;
-                Text { text: row.name; color: white; font-size: 12px; width: 150px; overflow: elide; vertical-alignment: center; }
-                Text { text: row.class-name; color: #a0a0c0; font-size: 11px; width: 60px; vertical-alignment: center; }
-                Rectangle {}
-                Text { text: row.dps-text; color: #cfeaff; font-size: 12px; vertical-alignment: center; }
-                Text { text: row.total-text; color: #9ff0c0; font-size: 11px; width: 72px; horizontal-alignment: right; vertical-alignment: center; }
-            }
-        }
-
-        Rectangle {} // filler
     }
 }

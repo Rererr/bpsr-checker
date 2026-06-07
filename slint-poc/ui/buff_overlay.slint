@@ -1,0 +1,126 @@
+import { BuffTimer } from "common.slint";
+
+// 円形ゲージ。arc-commands は Rust 側で算出済みの SVG パス文字列。
+component CircularTimer inherits Rectangle {
+    in property <BuffTimer> timer;
+    width: 54px;
+    height: 54px;
+
+    // 背景リング（薄い全周）
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-x: 0;
+        viewbox-y: 0;
+        viewbox-width: 100;
+        viewbox-height: 100;
+        commands: "M 50 5 A 45 45 0 1 1 49.99 5";
+        stroke: #ffffff22;
+        stroke-width: 6px;
+        fill: transparent;
+    }
+    // 残量アーク
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-x: 0;
+        viewbox-y: 0;
+        viewbox-width: 100;
+        viewbox-height: 100;
+        commands: timer.arc-commands;
+        stroke: timer.kind == "debuff" ? #ff5a5a : #5ad17a;
+        stroke-width: 6px;
+        fill: transparent;
+    }
+    Text {
+        text: timer.seconds-text;
+        color: white;
+        font-size: 13px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        width: 100%;
+        height: 100%;
+    }
+    Text {
+        text: timer.name;
+        color: #dddddd;
+        font-size: 8px;
+        y: parent.height - 11px;
+        width: 100%;
+        horizontal-alignment: center;
+    }
+}
+
+// 棒ゲージ
+component BarTimer inherits Rectangle {
+    in property <BuffTimer> timer;
+    height: 18px;
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #00000066;
+        border-radius: 4px;
+    }
+    Rectangle {
+        x: 0;
+        width: parent.width * timer.progress;
+        height: 100%;
+        background: timer.kind == "debuff" ? #ff5a5a : #5ad17a;
+        border-radius: 4px;
+    }
+    HorizontalLayout {
+        width: 100%;
+        height: 100%;
+        padding-left: 6px;
+        padding-right: 6px;
+        Text { text: timer.name; color: white; font-size: 11px; vertical-alignment: center; }
+        Rectangle {} // spacer
+        Text { text: timer.seconds-text + "s"; color: white; font-size: 11px; vertical-alignment: center; }
+    }
+}
+
+// バフ/デバフ タイマーオーバーレイ（透明・最前面・クリックスルー）
+export component BuffOverlay inherits Window {
+    in property <[BuffTimer]> bars;
+    in property <[BuffTimer]> circles;
+    in property <bool> locked: true;
+    callback start-drag();
+
+    title: "BPSR Slint PoC — Buffs";
+    no-frame: true;
+    always-on-top: true;
+    background: transparent;
+    preferred-width: 320px;
+    preferred-height: 150px;
+
+    VerticalLayout {
+        padding: 6px;
+        spacing: 6px;
+
+        HorizontalLayout {
+            spacing: 10px;
+            alignment: start;
+            for c in root.circles: CircularTimer { timer: c; }
+        }
+        for b in root.bars: BarTimer { timer: b; }
+    }
+
+    // ロック解除中のみ: 全面ドラッグ＋可視枠。クリックスルー解除は Rust 側で行う。
+    if !root.locked: Rectangle {
+        width: 100%;
+        height: 100%;
+        border-color: #ffcc44;
+        border-width: 2px;
+        border-radius: 4px;
+        background: #ffcc4422;
+        drag-area := TouchArea {
+            mouse-cursor: move;
+            pointer-event(ev) => {
+                if (ev.kind == PointerEventKind.down) {
+                    root.start-drag();
+                }
+            }
+        }
+    }
+}

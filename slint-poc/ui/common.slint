@@ -1,0 +1,26 @@
+// 共有データ構造（Rust 側から流し込むモデル要素）
+// 数値の表示文字列や円弧コマンドは Rust 側で整形済みのものを渡し、
+// .slint 内では数学関数を使わない方針（PoC の堅牢性優先）。
+
+export struct PlayerRow {
+    name: string,
+    class-name: string,
+    dps-text: string,
+    pct: float,        // 0..100（横バー幅に使用）
+    pct-text: string,
+}
+
+export struct BuffTimer {
+    name: string,
+    kind: string,          // "buff" | "debuff"
+    progress: float,       // 0..1（残量比。棒の幅に使用）
+    seconds-text: string,  // "12.3"
+    arc-commands: string,  // 円形ゲージ用に Rust で算出済みの SVG パス
+}
+
+export struct MonitorInfo {
+    name: string,
+    geometry: string,
+    scale: float,
+    primary: bool,
+}

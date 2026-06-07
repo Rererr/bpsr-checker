@@ -15,7 +15,6 @@ use log::{debug, info, warn};
 use prost::Message;
 use std::io::Cursor;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter, Manager};
 
 /// Get-or-create an entity, pre-populating identity (name/class/score)
 /// from the persistent name cache when the entity is freshly created
@@ -134,12 +133,12 @@ fn should_accept(encounter: &mut Encounter, conn: Option<Server>, op: &Pkt) -> b
     true
 }
 
-pub fn process_opcode(app_handle: &AppHandle, env: PktEnvelope) -> AppResult<()> {
+pub fn process_opcode(enc: &EncounterMutex, env: PktEnvelope) -> AppResult<()> {
     let PktEnvelope { op, data, conn } = env;
 
     match op {
         Pkt::ServerHandover => {
-            let state = app_handle.state::<EncounterMutex>();
+            let state = enc;
             let mut encounter = state
                 .lock()
                 .map_err(|e| AppError::LockPoisoned(e.to_string()))?;
@@ -171,7 +170,7 @@ pub fn process_opcode(app_handle: &AppHandle, env: PktEnvelope) -> AppResult<()>
         }
 
         _ => {
-            let state = app_handle.state::<EncounterMutex>();
+            let state = enc;
             let mut encounter = state
                 .lock()
                 .map_err(|e| AppError::LockPoisoned(e.to_string()))?;
@@ -484,7 +483,7 @@ fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::SceneDelta) {
             && encounter.time_last_combat_packet_ms != 0
             && ts.saturating_sub(encounter.time_last_combat_packet_ms) > timeout_ms
         {
-            let snapshot = crate::bridge::commands::build_encounter_snapshot(encounter);
+            let snapshot = crate::compute::build_encounter_snapshot(encounter);
             let selected = selected_uid::get();
             let should_push = !snapshot.player_rows.is_empty()
                 && selected.map_or(true, |_| encounter.has_selected_participant);
@@ -656,7 +655,7 @@ fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::SceneDelta) {
             };
             encounter
                 .time_series
-                .push_back(crate::bridge::models::TimeSeriesPoint {
+                .push_back(crate::models::TimeSeriesPoint {
                     t_ms: elapsed_since_start as f64,
                     total_dmg: encounter.dmg_stats.total as f64,
                     total_dps: dps_window.max(0.0),
@@ -681,7 +680,7 @@ fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::SceneDelta) {
                 };
                 entity
                     .time_series
-                    .push_back(crate::bridge::models::TimeSeriesPoint {
+                    .push_back(crate::models::TimeSeriesPoint {
                         t_ms: elapsed_since_start as f64,
                         total_dmg: entity.dmg_stats.total as f64,
                         total_dps: entity_dps.max(0.0),

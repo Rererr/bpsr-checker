@@ -45,6 +45,7 @@ struct SettingsUi {
     abbreviate-scores: bool,
     privacy-mask: bool,
     self-status: bool,
+    buff-overlay: bool,
     aot: bool,
 }
 
@@ -504,6 +505,7 @@ export component MainWindow inherits Window {
                     ToggleRow { label: @tr("名前マスク"); checked: root.cfg-ui.privacy-mask; toggled => { root.set-bool("privacy-mask", !root.cfg-ui.privacy-mask); } }
                     Text { text: @tr("オーバーレイ"); color: #888; font-size: 10px; }
                     ToggleRow { label: @tr("自キャラ バフ/デバフ"); checked: root.cfg-ui.self-status; toggled => { root.set-bool("self-status-overlay", !root.cfg-ui.self-status); } }
+                    ToggleRow { label: @tr("イマジンデバフタイマー"); checked: root.cfg-ui.buff-overlay; toggled => { root.set-bool("buff-overlay", !root.cfg-ui.buff-overlay); } }
                     ToggleRow { label: @tr("常に最前面"); checked: root.cfg-ui.aot; toggled => { root.set-bool("aot", !root.cfg-ui.aot); } }
                     OpacityRow { value: root.win-opacity; changed(v) => { root.set-opacity(v); } }
                 }
@@ -591,6 +593,112 @@ export component SelfStatusOverlay inherits Window {
         for b in root.buffs: StatusRow { e: b; }
         if !root.waiting && root.debuffs.length > 0: Text { text: @tr("デバフ"); color: #ffffff66; font-size: 9px; }
         for d in root.debuffs: StatusRow { e: d; }
+    }
+}
+
+// ─── バフタイマー オーバーレイ（イマジンデバフの円形タイマー）────────────
+struct BuffCell {
+    active: bool,
+    arc-commands: string,
+    color: color,
+    text: string,
+    text-color: color,
+}
+
+struct BuffPlayerRow {
+    name: string,
+    tina: BuffCell,
+    aluna: BuffCell,
+    tarta: BuffCell,
+    basilisk: BuffCell,
+}
+
+component CircularCell inherits Rectangle {
+    in property <BuffCell> cell;
+    width: 28px;
+    height: 28px;
+    opacity: root.cell.active ? 1.0 : 0.25;
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-x: 0;
+        viewbox-y: 0;
+        viewbox-width: 28;
+        viewbox-height: 28;
+        commands: "M 14 1.5 A 12.5 12.5 0 1 1 13.99 1.5";
+        stroke: #ffffff1f;
+        stroke-width: 3px;
+        fill: transparent;
+    }
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-x: 0;
+        viewbox-y: 0;
+        viewbox-width: 28;
+        viewbox-height: 28;
+        commands: root.cell.arc-commands;
+        stroke: root.cell.color;
+        stroke-width: 3px;
+        fill: transparent;
+    }
+    Text {
+        text: root.cell.text;
+        color: root.cell.text-color;
+        font-size: 9px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        width: 100%;
+        height: 100%;
+    }
+}
+
+component BuffPlayerRowItem inherits Rectangle {
+    in property <BuffPlayerRow> p;
+    height: 30px;
+    HorizontalLayout {
+        spacing: 4px;
+        Text { text: root.p.name; color: #cdd; font-size: 10px; width: 46px; overflow: elide; vertical-alignment: center; }
+        VerticalLayout { width: 48px; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.tina; } } }
+        VerticalLayout { width: 48px; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.aluna; } } }
+        VerticalLayout { width: 48px; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.tarta; } } }
+        VerticalLayout { width: 48px; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.basilisk; } } }
+    }
+}
+
+export component BuffOverlay inherits Window {
+    in property <[BuffPlayerRow]> players;
+    in property <bool> empty;
+    callback start-drag();
+
+    title: @tr("イマジンデバフタイマー");
+    no-frame: true;
+    always-on-top: true;
+    background: #0a0a12d1;
+    preferred-width: 250px;
+    preferred-height: 150px;
+
+    drag := TouchArea {
+        mouse-cursor: move;
+        pointer-event(ev) => {
+            if (ev.kind == PointerEventKind.down) {
+                root.start-drag();
+            }
+        }
+    }
+    VerticalLayout {
+        padding: 8px;
+        spacing: 2px;
+        if root.empty: Text { text: @tr("DPS一覧でピンアイコンをクリック"); color: #ffffff59; font-size: 10px; horizontal-alignment: center; }
+        if !root.empty: HorizontalLayout {
+            spacing: 4px;
+            Rectangle { width: 46px; }
+            Text { text: @tr("ティナ"); color: #ff4d6d; font-size: 9px; width: 48px; horizontal-alignment: center; vertical-alignment: center; }
+            Text { text: @tr("アルーナ"); color: #5fd35f; font-size: 9px; width: 48px; horizontal-alignment: center; vertical-alignment: center; }
+            Text { text: @tr("タータ"); color: #b98bff; font-size: 9px; width: 48px; horizontal-alignment: center; vertical-alignment: center; }
+            Text { text: @tr("バジリスク"); color: #d9a05b; font-size: 9px; width: 48px; horizontal-alignment: center; vertical-alignment: center; }
+        }
+        for p in root.players: BuffPlayerRowItem { p: p; }
     }
 }
 

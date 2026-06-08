@@ -110,3 +110,21 @@ msgstr "Debuffs"
 
 msgid "自キャラ バフ/デバフ"
 msgstr "Self buffs/debuffs"
+
+msgid "イマジンデバフタイマー"
+msgstr "Imagine debuff timer"
+
+msgid "DPS一覧でピンアイコンをクリック"
+msgstr "Pin a player in the DPS list"
+
+msgid "ティナ"
+msgstr "Tina"
+
+msgid "アルーナ"
+msgstr "Aluna"
+
+msgid "タータ"
+msgstr "Tarta"
+
+msgid "バジリスク"
+msgstr "Basilisk"

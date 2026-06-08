@@ -10,6 +10,7 @@ mod capture;
 mod format;
 mod overlay;
 mod settings;
+mod watchlist;
 mod window_state;
 
 use bpsr_core::compute;
@@ -79,6 +80,7 @@ fn build_rows(
     template: &str,
     abbreviate: bool,
     privacy: bool,
+    watched: &[i64],
 ) -> Vec<Row> {
     let top = pw.top_value.max(1.0);
     let local = pw.local_player_uid;
@@ -125,6 +127,7 @@ fn build_rows(
                     "-".to_string()
                 }
                 .into(),
+                watched: watched.contains(&(p.uid as i64)),
             }
         })
         .collect()
@@ -285,6 +288,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 設定（%APPDATA%\bpsr-checker\settings.json）。UIスレッドで共有・編集する。
     let cfg = Rc::new(RefCell::new(settings::load()));
+    // ウォッチリスト（バフタイマー追跡対象）。
+    let wl = Rc::new(RefCell::new(watchlist::Watchlist::load()));
 
     // メイン窓
     let main = MainWindow::new()?;
@@ -360,6 +365,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let rows_sel = rows.clone();
         let tab_sel = tab_cell.clone();
         let cfg_sel = cfg.clone();
+        let wl_sel = wl.clone();
         main.on_select_tab(move |n| {
             tab_sel.set(n);
             if let Some(m) = w.upgrade() {
@@ -370,6 +376,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     &c.name_template,
                     c.abbreviate_scores,
                     c.privacy_mask_names,
+                    &wl_sel.borrow().watched,
                 ));
             }
         });
@@ -452,6 +459,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             drill_h.set(Drill::None);
             m.set_view(0);
+        });
+    }
+    // ウォッチ切替（DPS一覧のピン）→ watchlist 更新・保存・即再描画
+    {
+        let w = main.as_weak();
+        let wl_t = wl.clone();
+        let enc_t = enc.clone();
+        let rows_t = rows.clone();
+        let cfg_t = cfg.clone();
+        let tab_t = tab_cell.clone();
+        main.on_toggle_watch(move |uid_str| {
+            let uid: i64 = uid_str.as_str().parse().unwrap_or(0);
+            if uid == 0 {
+                return;
+            }
+            {
+                let mut wl = wl_t.borrow_mut();
+                wl.toggle(uid);
+                wl.save();
+            }
+            if w.upgrade().is_some() {
+                let c = cfg_t.borrow();
+                let pw = fetch_players(&enc_t, tab_t.get());
+                rows_t.set_vec(build_rows(
+                    &pw,
+                    &c.name_template,
+                    c.abbreviate_scores,
+                    c.privacy_mask_names,
+                    &wl_t.borrow().watched,
+                ));
+            }
         });
     }
     // 設定パネルの開閉
@@ -537,6 +575,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let self_buffs_poll = self_buffs.clone();
     let self_debuffs_poll = self_debuffs.clone();
     let cfg_poll = cfg.clone();
+    let wl_poll = wl.clone();
     let poll_ms = cfg.borrow().poll_interval_ms.max(50.0) as u64;
 
     let timer = Timer::default();
@@ -570,6 +609,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &c.name_template,
                 c.abbreviate_scores,
                 c.privacy_mask_names,
+                &wl_poll.borrow().watched,
             ));
         }
 

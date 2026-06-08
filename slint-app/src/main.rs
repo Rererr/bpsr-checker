@@ -201,6 +201,7 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         abbreviate_scores: c.abbreviate_scores,
         privacy_mask: c.privacy_mask_names,
         self_status: c.show_self_status_overlay,
+        buff_overlay: c.show_buff_overlay,
         aot: c.always_on_top,
     });
 }
@@ -243,6 +244,91 @@ fn build_status_entries(entries: &[bpsr_core::models::SelfStatusEntry]) -> Vec<S
                 },
                 is_low,
                 border_color,
+            }
+        })
+        .collect()
+}
+
+/// 円形タイマーの進捗アーク SVG（viewbox 28、中心14,14、半径12.5、上端から時計回り）。
+fn buff_arc(ratio: f32) -> String {
+    let p = ratio.clamp(0.0, 0.9999);
+    let theta = p * std::f32::consts::TAU;
+    let (cx, cy, r) = (14.0_f32, 14.0_f32, 12.5_f32);
+    let end_x = cx + r * theta.sin();
+    let end_y = cy - r * theta.cos();
+    let large = if p > 0.5 { 1 } else { 0 };
+    format!("M {cx} {} A {r} {r} 0 {large} 1 {end_x:.2} {end_y:.2}", cy - r)
+}
+
+fn buff_cell(snap: Option<&bpsr_core::models::SelfBuffSnapshot>, kind_hex: u32) -> BuffCell {
+    let color =
+        slint::Color::from_rgb_u8((kind_hex >> 16) as u8, (kind_hex >> 8) as u8, kind_hex as u8);
+    match snap {
+        Some(b) => {
+            let active = b.remaining_ms > 0 || b.duration_ms <= 0;
+            let ratio = if b.duration_ms <= 0 {
+                0.0
+            } else {
+                (b.remaining_ms as f32 / b.duration_ms as f32).clamp(0.0, 1.0)
+            };
+            let text = if b.duration_ms <= 0 {
+                "∞".to_string()
+            } else if b.remaining_ms <= 0 {
+                "OK".to_string()
+            } else {
+                let s = (b.remaining_ms as f64 / 1000.0).ceil() as i64;
+                if s > 999 {
+                    "999+".to_string()
+                } else {
+                    s.to_string()
+                }
+            };
+            let text_color = if !active || b.remaining_ms <= 0 {
+                slint::Color::from_rgb_u8(0x88, 0x88, 0x88)
+            } else if b.duration_ms > 0 && b.remaining_ms < 3000 {
+                slint::Color::from_rgb_u8(0xff, 0x52, 0x52)
+            } else {
+                slint::Color::from_rgb_u8(0xdd, 0xdd, 0xdd)
+            };
+            BuffCell {
+                active,
+                arc_commands: buff_arc(ratio).into(),
+                color,
+                text: text.into(),
+                text_color,
+            }
+        }
+        None => BuffCell {
+            active: false,
+            arc_commands: "".into(),
+            color,
+            text: "".into(),
+            text_color: slint::Color::from_rgb_u8(0x88, 0x88, 0x88),
+        },
+    }
+}
+
+fn build_buff_rows(
+    tracked: &bpsr_core::models::TrackedBuffsData,
+    watched: &[i64],
+) -> Vec<BuffPlayerRow> {
+    watched
+        .iter()
+        .map(|&uid| {
+            let snap = tracked.players.iter().find(|p| p.uid as i64 == uid);
+            let name = snap.map(|s| s.name.clone()).unwrap_or_default();
+            let display = if name.is_empty() {
+                format!("{}", uid & 0xffff)
+            } else {
+                name
+            };
+            let find = |kind: &str| snap.and_then(|s| s.buffs.iter().find(|b| b.kind == kind));
+            BuffPlayerRow {
+                name: display.into(),
+                tina: buff_cell(find("Tina"), 0xff4d6d),
+                aluna: buff_cell(find("Aluna"), 0x5fd35f),
+                tarta: buff_cell(find("Tarta"), 0xb98bff),
+                basilisk: buff_cell(find("Basilisk"), 0xd9a05b),
             }
         })
         .collect()
@@ -315,6 +401,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let w = self_overlay.as_weak();
         self_overlay.on_start_drag(move || {
+            if let Some(o) = w.upgrade() {
+                overlay::start_drag(o.window());
+            }
+        });
+    }
+
+    // バフタイマー オーバーレイ（別ウィンドウ）
+    let buff_overlay = BuffOverlay::new()?;
+    let buff_players = Rc::new(VecModel::<BuffPlayerRow>::default());
+    buff_overlay.set_players(buff_players.clone().into());
+    {
+        let w = buff_overlay.as_weak();
+        buff_overlay.on_start_drag(move || {
             if let Some(o) = w.upgrade() {
                 overlay::start_drag(o.window());
             }
@@ -506,11 +605,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let w = main.as_weak();
         let cfg_b = cfg.clone();
         let self_ov = self_overlay.as_weak();
+        let buff_ov = buff_overlay.as_weak();
         main.on_set_bool(move |key, val| {
             {
                 let mut c = cfg_b.borrow_mut();
                 match key.as_str() {
                     "self-status-overlay" => c.show_self_status_overlay = val,
+                    "buff-overlay" => c.show_buff_overlay = val,
                     "show-crit" => c.show_crit = val,
                     "show-crit-value" => c.show_crit_value = val,
                     "show-lucky" => c.show_lucky = val,
@@ -539,6 +640,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
+            if key.as_str() == "buff-overlay" {
+                if let Some(o) = buff_ov.upgrade() {
+                    if c.show_buff_overlay {
+                        let _ = o.show();
+                    } else {
+                        let _ = o.hide();
+                    }
+                }
+            }
         });
     }
     // 不透明度スライダー
@@ -559,6 +669,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if cfg.borrow().show_self_status_overlay {
         let _ = self_overlay.show();
     }
+    if cfg.borrow().show_buff_overlay {
+        let _ = buff_overlay.show();
+    }
 
     // 周期ポーリング＋初回セットアップ（位置復元）＋自動保存
     let main_w = main.as_weak();
@@ -574,6 +687,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let self_overlay_w = self_overlay.as_weak();
     let self_buffs_poll = self_buffs.clone();
     let self_debuffs_poll = self_debuffs.clone();
+    let buff_overlay_w = buff_overlay.as_weak();
+    let buff_players_poll = buff_players.clone();
     let cfg_poll = cfg.clone();
     let wl_poll = wl.clone();
     let poll_ms = cfg.borrow().poll_interval_ms.max(50.0) as u64;
@@ -640,6 +755,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 o.set_waiting(s.local_player_uid == 0.0);
                 self_buffs_poll.set_vec(build_status_entries(&s.buffs));
                 self_debuffs_poll.set_vec(build_status_entries(&s.debuffs));
+            }
+        }
+
+        // バフタイマー オーバーレイ更新（表示中のみ）
+        if cfg_poll.borrow().show_buff_overlay {
+            if let Some(o) = buff_overlay_w.upgrade() {
+                let watched_i: Vec<i64> = wl_poll.borrow().watched.clone();
+                o.set_empty(watched_i.is_empty());
+                if !watched_i.is_empty() {
+                    let uids: Vec<f64> = watched_i.iter().map(|&u| u as f64).collect();
+                    let t = compute::get_tracked_buffs(&enc_poll, uids);
+                    buff_players_poll.set_vec(build_buff_rows(&t, &watched_i));
+                }
             }
         }
 

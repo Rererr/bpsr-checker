@@ -19,6 +19,7 @@ struct Row {
     hits-text: string,
     hpm-text: string,
     score-text: string,
+    watched: bool,
 }
 
 struct ColumnFlags {
@@ -82,10 +83,16 @@ component PlayerRowItem inherits Rectangle {
     in property <bool> highlight-local;
     in property <ColumnFlags> cols;
     callback activate(string);
+    callback toggle-watch(string);
     height: 20px;
-    background: ta.has-hover
+    background: rowta.has-hover
         ? #ffffff12
         : ((root.entry.is-local && root.highlight-local) ? #ffd7001f : transparent);
+
+    // 行クリック（背面）。ウォッチピン等の TouchArea が前面で個別に捕捉する。
+    rowta := TouchArea {
+        clicked => { root.activate(root.entry.uid-str); }
+    }
 
     // 割合バー（クラス色グラデーション）
     Rectangle {
@@ -129,10 +136,20 @@ component PlayerRowItem inherits Rectangle {
         if root.cols.hits: Text { text: root.entry.hits-text; color: #cfcfe0; font-size: 11px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
         if root.cols.hpm: Text { text: root.entry.hpm-text; color: #cfcfe0; font-size: 11px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
         if root.cols.score: Text { text: root.entry.score-text; color: #99aa99; font-size: 11px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-    }
-
-    ta := TouchArea {
-        clicked => { root.activate(root.entry.uid-str); }
+        watch := TouchArea {
+            width: 14px;
+            clicked => { root.toggle-watch(root.entry.uid-str); }
+            Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: 9px;
+                height: 9px;
+                border-radius: 4.5px;
+                border-width: 1px;
+                border-color: root.entry.watched ? #4fc3f7 : (watch.has-hover ? #888888 : #ffffff00);
+                background: root.entry.watched ? #4fc3f7 : transparent;
+            }
+        }
     }
 }
 
@@ -272,6 +289,7 @@ export component MainWindow inherits Window {
     callback select-tab(int);
     callback open-drill(string);
     callback drill-row(string);
+    callback toggle-watch(string);
     callback back();
     callback toggle-settings();
     callback set-bool(string, bool);
@@ -374,6 +392,7 @@ export component MainWindow inherits Window {
                         highlight-local: root.highlight-local;
                         cols: root.cols;
                         activate(u) => { root.open-drill(u); }
+                        toggle-watch(u) => { root.toggle-watch(u); }
                     }
                     if root.rows.length == 0: Text {
                         text: @tr("データなし");

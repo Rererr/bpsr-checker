@@ -5,6 +5,7 @@
 
 slint::include_modules!();
 
+mod buff_names;
 mod capture;
 mod format;
 mod overlay;
@@ -196,8 +197,52 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         highlight_local: c.highlight_local_player,
         abbreviate_scores: c.abbreviate_scores,
         privacy_mask: c.privacy_mask_names,
+        self_status: c.show_self_status_overlay,
         aot: c.always_on_top,
     });
+}
+
+/// SelfStatusEntry 群を UI 行へ変換（BuffIconCell 相当）。
+fn build_status_entries(entries: &[bpsr_core::models::SelfStatusEntry]) -> Vec<StatusEntryUi> {
+    entries
+        .iter()
+        .map(|e| {
+            let is_debuff = e.category == "debuff";
+            let is_low = e.duration_ms > 0 && e.remaining_ms < 3000;
+            let ratio = if e.duration_ms == 0 {
+                1.0
+            } else {
+                (e.remaining_ms as f32 / e.duration_ms as f32).clamp(0.0, 1.0)
+            };
+            let bar_color = if is_low {
+                slint::Color::from_rgb_u8(0xff, 0x70, 0x43)
+            } else if is_debuff {
+                slint::Color::from_rgb_u8(0xef, 0x53, 0x50)
+            } else {
+                slint::Color::from_rgb_u8(0x4f, 0xc3, 0xf7)
+            };
+            let border_color = match e.priority.as_str() {
+                "alert" => slint::Color::from_argb_u8(0xff, 0xff, 0xd5, 0x4f),
+                "high" => slint::Color::from_argb_u8(0x40, 0xff, 0xff, 0xff),
+                "low" => slint::Color::from_argb_u8(0x0f, 0xff, 0xff, 0xff),
+                "hidden" => slint::Color::from_argb_u8(0x00, 0xff, 0xff, 0xff),
+                _ => slint::Color::from_argb_u8(0x1f, 0xff, 0xff, 0xff),
+            };
+            StatusEntryUi {
+                name: buff_names::label(e.base_id).into(),
+                remaining_text: format::format_remaining(e.remaining_ms, e.duration_ms).into(),
+                bar_ratio: ratio,
+                bar_color,
+                layer_text: if e.layer > 1 {
+                    format!("×{}", e.layer).into()
+                } else {
+                    "".into()
+                },
+                is_low,
+                border_color,
+            }
+        })
+        .collect()
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -255,6 +300,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let skill_rows = Rc::new(VecModel::<SkillRowUi>::default());
     main.set_skill_rows(skill_rows.clone().into());
     let drill = Rc::new(Cell::new(Drill::None));
+
+    // 自キャラ バフ/デバフ オーバーレイ（別ウィンドウ）
+    let self_overlay = SelfStatusOverlay::new()?;
+    let self_buffs = Rc::new(VecModel::<StatusEntryUi>::default());
+    let self_debuffs = Rc::new(VecModel::<StatusEntryUi>::default());
+    self_overlay.set_buffs(self_buffs.clone().into());
+    self_overlay.set_debuffs(self_debuffs.clone().into());
+    {
+        let w = self_overlay.as_weak();
+        self_overlay.on_start_drag(move || {
+            if let Some(o) = w.upgrade() {
+                overlay::start_drag(o.window());
+            }
+        });
+    }
 
     // 設定を起動時に適用（列フラグ・自分強調・最前面・起動タブ・runtime settings）
     {
@@ -407,10 +467,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let w = main.as_weak();
         let cfg_b = cfg.clone();
+        let self_ov = self_overlay.as_weak();
         main.on_set_bool(move |key, val| {
             {
                 let mut c = cfg_b.borrow_mut();
                 match key.as_str() {
+                    "self-status-overlay" => c.show_self_status_overlay = val,
                     "show-crit" => c.show_crit = val,
                     "show-crit-value" => c.show_crit_value = val,
                     "show-lucky" => c.show_lucky = val,
@@ -430,6 +492,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 apply_settings(&m, &c);
             }
             settings::save(&c);
+            if key.as_str() == "self-status-overlay" {
+                if let Some(o) = self_ov.upgrade() {
+                    if c.show_self_status_overlay {
+                        let _ = o.show();
+                    } else {
+                        let _ = o.hide();
+                    }
+                }
+            }
         });
     }
     // 不透明度スライダー
@@ -447,6 +518,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     main.show()?;
+    if cfg.borrow().show_self_status_overlay {
+        let _ = self_overlay.show();
+    }
 
     // 周期ポーリング＋初回セットアップ（位置復元）＋自動保存
     let main_w = main.as_weak();
@@ -459,6 +533,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tab_cell_poll = tab_cell.clone();
     let drill_poll = drill.clone();
     let skill_rows_poll = skill_rows.clone();
+    let self_overlay_w = self_overlay.as_weak();
+    let self_buffs_poll = self_buffs.clone();
+    let self_debuffs_poll = self_debuffs.clone();
     let cfg_poll = cfg.clone();
     let poll_ms = cfg.borrow().poll_interval_ms.max(50.0) as u64;
 
@@ -514,6 +591,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             Drill::None => {}
+        }
+
+        // 自キャラ オーバーレイ更新（表示中のみ）
+        if cfg_poll.borrow().show_self_status_overlay {
+            if let Some(o) = self_overlay_w.upgrade() {
+                let s = compute::get_self_buff_status(&enc_poll);
+                o.set_waiting(s.local_player_uid == 0.0);
+                self_buffs_poll.set_vec(build_status_entries(&s.buffs));
+                self_debuffs_poll.set_vec(build_status_entries(&s.debuffs));
+            }
         }
 
         // レイアウト自動保存（復元確定後・差分時のみ）

@@ -70,6 +70,22 @@ pub fn element_label(e: u8) -> (&'static str, Color) {
     )
 }
 
+/// バフ残時間表示（BuffIconCell formatRemaining 相当）。
+pub fn format_remaining(remaining_ms: i64, duration_ms: i64) -> String {
+    if duration_ms == 0 {
+        return "∞".to_string();
+    }
+    if remaining_ms <= 0 {
+        return "0s".to_string();
+    }
+    let sec = remaining_ms as f64 / 1000.0;
+    if sec > 10.0 {
+        format!("{}s", sec.ceil() as i64)
+    } else {
+        format!("{sec:.1}s")
+    }
+}
+
 /// 名前マスク（utils.ts maskPlayerName）。
 pub fn mask_player_name(uid: i64) -> String {
     format!("Player#{:04X}", uid & 0xffff)

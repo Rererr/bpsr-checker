@@ -92,3 +92,21 @@ msgstr "Opacity"
 
 msgid "名前マスク"
 msgstr "Privacy mask"
+
+msgid "自キャラ バフ/デバフ表示"
+msgstr "Self Buff/Debuff Display"
+
+msgid "自キャラ判定中..."
+msgstr "Detecting character..."
+
+msgid "バフ/デバフなし"
+msgstr "No active buffs/debuffs"
+
+msgid "バフ"
+msgstr "Buffs"
+
+msgid "デバフ"
+msgstr "Debuffs"
+
+msgid "自キャラ バフ/デバフ"
+msgstr "Self buffs/debuffs"

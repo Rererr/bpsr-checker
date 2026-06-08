@@ -43,6 +43,7 @@ struct SettingsUi {
     highlight-local: bool,
     abbreviate-scores: bool,
     privacy-mask: bool,
+    self-status: bool,
     aot: bool,
 }
 
@@ -483,6 +484,7 @@ export component MainWindow inherits Window {
                     ToggleRow { label: @tr("スコア省略(K/M)"); checked: root.cfg-ui.abbreviate-scores; toggled => { root.set-bool("abbreviate-scores", !root.cfg-ui.abbreviate-scores); } }
                     ToggleRow { label: @tr("名前マスク"); checked: root.cfg-ui.privacy-mask; toggled => { root.set-bool("privacy-mask", !root.cfg-ui.privacy-mask); } }
                     Text { text: @tr("オーバーレイ"); color: #888; font-size: 10px; }
+                    ToggleRow { label: @tr("自キャラ バフ/デバフ"); checked: root.cfg-ui.self-status; toggled => { root.set-bool("self-status-overlay", !root.cfg-ui.self-status); } }
                     ToggleRow { label: @tr("常に最前面"); checked: root.cfg-ui.aot; toggled => { root.set-bool("aot", !root.cfg-ui.aot); } }
                     OpacityRow { value: root.win-opacity; changed(v) => { root.set-opacity(v); } }
                 }
@@ -500,3 +502,76 @@ export component MainWindow inherits Window {
     ResizeHandle { dir: 7; mouse-cursor: nesw-resize; resize(d) => { root.start-resize(d); } x: 0; y: root.height - 14px; width: 14px; height: 14px; }
     ResizeHandle { dir: 6; mouse-cursor: nwse-resize; resize(d) => { root.start-resize(d); } x: root.width - 14px; y: root.height - 14px; width: 14px; height: 14px; }
 }
+
+// ─── 自キャラ バフ/デバフ オーバーレイ ───────────────────────────────
+struct StatusEntryUi {
+    name: string,
+    remaining-text: string,
+    bar-ratio: float,
+    bar-color: color,
+    layer-text: string,
+    is-low: bool,
+    border-color: color,
+}
+
+component StatusRow inherits Rectangle {
+    in property <StatusEntryUi> e;
+    height: 16px;
+    border-width: 1px;
+    border-color: root.e.border-color;
+    border-radius: 3px;
+    background: #00000059;
+    HorizontalLayout {
+        padding-left: 5px;
+        padding-right: 5px;
+        spacing: 5px;
+        Text { text: root.e.name; color: #ffffffd9; font-size: 9px; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
+        VerticalLayout {
+            alignment: center;
+            width: 64px;
+            Rectangle {
+                height: 4px;
+                background: #ffffff1f;
+                border-radius: 2px;
+                Rectangle { x: 0; width: parent.width * root.e.bar-ratio; height: 100%; background: root.e.bar-color; border-radius: 2px; }
+            }
+        }
+        Text { text: root.e.layer-text; color: #ffffff73; font-size: 8px; width: 22px; vertical-alignment: center; }
+        Text { text: root.e.remaining-text; color: root.e.is-low ? #ff7043 : #ffffffe6; font-size: 9px; width: 36px; horizontal-alignment: right; vertical-alignment: center; }
+    }
+}
+
+export component SelfStatusOverlay inherits Window {
+    in property <[StatusEntryUi]> buffs;
+    in property <[StatusEntryUi]> debuffs;
+    in property <bool> waiting;
+    callback start-drag();
+
+    title: @tr("自キャラ バフ/デバフ表示");
+    no-frame: true;
+    always-on-top: true;
+    background: #0a0a12d1;
+    preferred-width: 220px;
+    preferred-height: 180px;
+
+    // 全面ドラッグ（外周フレーム相当）
+    drag := TouchArea {
+        mouse-cursor: move;
+        pointer-event(ev) => {
+            if (ev.kind == PointerEventKind.down) {
+                root.start-drag();
+            }
+        }
+    }
+    VerticalLayout {
+        padding: 8px;
+        spacing: 3px;
+        if root.waiting: Text { text: @tr("自キャラ判定中..."); color: #ffffff4d; font-size: 10px; horizontal-alignment: center; }
+        if !root.waiting && root.buffs.length == 0 && root.debuffs.length == 0: Text { text: @tr("バフ/デバフなし"); color: #ffffff4d; font-size: 10px; horizontal-alignment: center; }
+        if !root.waiting && root.buffs.length > 0: Text { text: @tr("バフ"); color: #ffffff66; font-size: 9px; }
+        for b in root.buffs: StatusRow { e: b; }
+        if !root.waiting && root.debuffs.length > 0: Text { text: @tr("デバフ"); color: #ffffff66; font-size: 9px; }
+        for d in root.debuffs: StatusRow { e: d; }
+    }
+}
+

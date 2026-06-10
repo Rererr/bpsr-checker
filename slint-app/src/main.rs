@@ -202,6 +202,27 @@ fn build_history_rows(
     out
 }
 
+/// 時系列 total_dps を viewbox(vw×vh) 内の折れ線 SVG パスへ。Sparkline.tsx 移植。
+/// 点が2未満なら空文字（呼び出し側で非表示判定に使う）。
+fn build_spark_commands(points: &[bpsr_core::models::TimeSeriesPoint], vw: f32, vh: f32) -> String {
+    if points.len() < 2 {
+        return String::new();
+    }
+    let max = points.iter().map(|p| p.total_dps).fold(1.0_f64, f64::max);
+    let step = vw / (points.len() - 1) as f32;
+    let mut s = String::with_capacity(points.len() * 12);
+    for (i, p) in points.iter().enumerate() {
+        let x = i as f32 * step;
+        let y = vh - (p.total_dps / max) as f32 * vh;
+        if i == 0 {
+            s.push_str(&format!("M {x:.1} {y:.1}"));
+        } else {
+            s.push_str(&format!(" L {x:.1} {y:.1}"));
+        }
+    }
+    s
+}
+
 /// ドリルダウン状態。
 #[derive(Clone, Copy)]
 enum Drill {
@@ -1041,6 +1062,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let header = compute::get_header_info(&enc_poll);
         m.set_total_text(format::format_dps(header.total_dps).into());
         m.set_elapsed_text(format::format_elapsed(header.elapsed_ms).into());
+
+        // ヘッダースパークライン（有効時のみ time_series を取得して折れ線へ）
+        if cfg_poll.borrow().show_header_sparkline {
+            let ts = compute::get_time_series(&enc_poll);
+            let cmds = build_spark_commands(&ts, 100.0, 16.0);
+            m.set_spark_visible(!cmds.is_empty());
+            m.set_spark_commands(cmds.into());
+        } else if m.get_spark_visible() {
+            m.set_spark_visible(false);
+        }
 
         let cur_tab = tab_cell_poll.get();
         if cur_tab == 3 {

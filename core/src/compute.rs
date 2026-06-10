@@ -209,6 +209,8 @@ pub fn get_dmg_taken_attackers(
         encounter_stats,
         elapsed_secs,
         &player.time_series,
+        false, // inspected_player 見出しは食事/シロップ表示しない
+        false,
     );
 
     let mut top_value = 0.0_f64;
@@ -276,6 +278,8 @@ pub fn get_dmg_taken_skills(
         encounter_stats,
         elapsed_secs,
         &player.time_series,
+        false, // inspected_player 見出しは食事/シロップ表示しない
+        false,
     );
 
     let attacker_total_i64 = attacker_total as i64;
@@ -367,6 +371,11 @@ fn build_players_window_unsorted(encounter: &Encounter, stat_type: StatType) -> 
 
         window.top_value = window.top_value.max(entity_stats.total as f64);
 
+        let (has_food, has_syrup) = crate::engine::consumables::detect(
+            &encounter.buff_tracker,
+            entity_uid,
+            crate::engine::processor::now_ms(),
+        );
         let row = make_player_row(
             entity_uid,
             entity.name.as_deref().unwrap_or(""),
@@ -379,6 +388,8 @@ fn build_players_window_unsorted(encounter: &Encounter, stat_type: StatType) -> 
             encounter_stats,
             elapsed_secs,
             &entity.time_series,
+            has_food,
+            has_syrup,
         );
         window.player_rows.push(row);
     }
@@ -398,6 +409,8 @@ fn make_player_row(
     encounter_stats: &CombatStats,
     elapsed_secs: f64,
     time_series: &VecDeque<TimeSeriesPoint>,
+    has_food: bool,
+    has_syrup: bool,
 ) -> PlayerRow {
     let name_resolved = !name.is_empty();
     let display_name = if name_resolved {
@@ -427,6 +440,8 @@ fn make_player_row(
         lucky_value_rate: ratio_pct(entity_stats.lucky_value, entity_stats.total),
         hits: entity_stats.hit_count as f64,
         hits_per_minute: rate_per_minute(entity_stats.hit_count, elapsed_secs),
+        has_food,
+        has_syrup,
         time_series: time_series.iter().cloned().collect(),
     }
 }
@@ -463,6 +478,8 @@ pub fn get_skills(
         encounter_stats,
         elapsed_secs,
         &player.time_series,
+        false, // inspected_player 見出しは食事/シロップ表示しない
+        false,
     );
 
     let mut skill_window = SkillsWindow {

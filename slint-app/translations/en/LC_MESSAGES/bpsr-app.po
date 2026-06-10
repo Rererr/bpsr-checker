@@ -185,3 +185,9 @@ msgstr "Header graph"
 
 msgid "自分のグラフを表示"
 msgstr "Graph for self"
+
+msgid "コピー"
+msgstr "Copy"
+
+msgid "済"
+msgstr "OK"

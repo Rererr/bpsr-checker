@@ -166,6 +166,8 @@ fn build_rows(
             .into(),
             watched: watched.contains(&(p.uid as i64)),
             spark_commands: spark.into(),
+            has_food: p.has_food,
+            has_syrup: p.has_syrup,
         });
     }
     out

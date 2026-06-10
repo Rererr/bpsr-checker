@@ -200,3 +200,6 @@ msgstr "No history"
 
 msgid "人"
 msgstr " players"
+
+msgid "推移"
+msgstr "Trend"

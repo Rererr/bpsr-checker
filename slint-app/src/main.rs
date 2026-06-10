@@ -75,62 +75,85 @@ fn fetch_players(enc: &EncounterMutex, tab: i32) -> bpsr_core::models::PlayersWi
     }
 }
 
+/// グラフ列(DPS推移)を出すか。graph設定が有効で、被ダメ(tab=2)以外。
+fn graph_col_active(c: &settings::Settings, tab: i32) -> bool {
+    (c.graph_player_count > 0.0 || c.graph_for_local_player) && tab != 2
+}
+
+#[allow(clippy::too_many_arguments)]
 fn build_rows(
     pw: &bpsr_core::models::PlayersWindow,
     template: &str,
     abbreviate: bool,
     privacy: bool,
     watched: &[i64],
+    graph_count: i32,
+    graph_for_local: bool,
 ) -> Vec<Row> {
     let top = pw.top_value.max(1.0);
     let local = pw.local_player_uid;
-    pw.player_rows
-        .iter()
-        .enumerate()
-        .map(|(i, p)| {
-            let rank = (i + 1) as i32;
-            let display = if privacy {
-                format::mask_player_name(p.uid as i64)
-            } else {
-                p.name.clone()
-            };
-            Row {
+    // 非ローカルの上位 graph_count 人＋（設定時）ローカルにグラフを出す。
+    let mut non_local_above: i32 = 0;
+    let mut out = Vec::with_capacity(pw.player_rows.len());
+    for (i, p) in pw.player_rows.iter().enumerate() {
+        let rank = (i + 1) as i32;
+        let is_local = p.uid == local;
+        let show_spark = if is_local {
+            graph_for_local
+        } else {
+            non_local_above < graph_count
+        };
+        let spark = if show_spark {
+            build_spark_commands(&p.time_series, 100.0, 16.0)
+        } else {
+            String::new()
+        };
+        if !is_local {
+            non_local_above += 1;
+        }
+        let display = if privacy {
+            format::mask_player_name(p.uid as i64)
+        } else {
+            p.name.clone()
+        };
+        out.push(Row {
+            rank,
+            uid_str: format!("{}", p.uid as i64).into(),
+            name: format::format_row_name(
+                &display,
+                &p.class_name,
+                &p.class_spec_name,
+                p.ability_score,
+                p.season_level,
+                p.season_strength,
                 rank,
-                uid_str: format!("{}", p.uid as i64).into(),
-                name: format::format_row_name(
-                    &display,
-                    &p.class_name,
-                    &p.class_spec_name,
-                    p.ability_score,
-                    p.season_level,
-                    p.season_strength,
-                    rank,
-                    template,
-                    abbreviate,
-                )
-                .into(),
-                class_color: format::class_color(&p.class_name),
-                dmg_text: format::format_number(p.total_value).into(),
-                dps_text: format::format_dps(p.value_per_sec).into(),
-                pct_text: format::format_pct(p.value_pct).into(),
-                pct: ((p.total_value / top) * 100.0) as f32,
-                is_local: p.uid == local,
-                crit_text: format::format_pct(p.crit_rate).into(),
-                crit_value_text: format::format_pct(p.crit_value_rate).into(),
-                lucky_text: format::format_pct(p.lucky_rate).into(),
-                lucky_value_text: format::format_pct(p.lucky_value_rate).into(),
-                hits_text: format!("{}", p.hits as i64).into(),
-                hpm_text: format!("{:.1}", p.hits_per_minute).into(),
-                score_text: if p.ability_score > 0.0 {
-                    format::format_score(p.ability_score, abbreviate)
-                } else {
-                    "-".to_string()
-                }
-                .into(),
-                watched: watched.contains(&(p.uid as i64)),
+                template,
+                abbreviate,
+            )
+            .into(),
+            class_color: format::class_color(&p.class_name),
+            dmg_text: format::format_number(p.total_value).into(),
+            dps_text: format::format_dps(p.value_per_sec).into(),
+            pct_text: format::format_pct(p.value_pct).into(),
+            pct: ((p.total_value / top) * 100.0) as f32,
+            is_local,
+            crit_text: format::format_pct(p.crit_rate).into(),
+            crit_value_text: format::format_pct(p.crit_value_rate).into(),
+            lucky_text: format::format_pct(p.lucky_rate).into(),
+            lucky_value_text: format::format_pct(p.lucky_value_rate).into(),
+            hits_text: format!("{}", p.hits as i64).into(),
+            hpm_text: format!("{:.1}", p.hits_per_minute).into(),
+            score_text: if p.ability_score > 0.0 {
+                format::format_score(p.ability_score, abbreviate)
+            } else {
+                "-".to_string()
             }
-        })
-        .collect()
+            .into(),
+            watched: watched.contains(&(p.uid as i64)),
+            spark_commands: spark.into(),
+        });
+    }
+    out
 }
 
 fn build_skill_rows(sw: &bpsr_core::models::SkillsWindow) -> Vec<SkillRowUi> {
@@ -623,12 +646,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ));
                 } else {
                     let c = cfg_sel.borrow();
+                    m.set_show_graph_col(graph_col_active(&c, n));
                     rows_sel.set_vec(build_rows(
                         &fetch_players(&enc_sel, n),
                         &c.name_template,
                         c.abbreviate_scores,
                         c.privacy_mask_names,
                         &wl_sel.borrow().watched,
+                        c.graph_player_count as i32,
+                        c.graph_for_local_player,
                     ));
                 }
             }
@@ -741,6 +767,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     c.abbreviate_scores,
                     c.privacy_mask_names,
                     &wl_t.borrow().watched,
+                    c.graph_player_count as i32,
+                    c.graph_for_local_player,
                 ));
             }
         });
@@ -1086,12 +1114,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             let pw = fetch_players(&enc_poll, cur_tab);
             let c = cfg_poll.borrow();
+            m.set_show_graph_col(graph_col_active(&c, cur_tab));
             rows.set_vec(build_rows(
                 &pw,
                 &c.name_template,
                 c.abbreviate_scores,
                 c.privacy_mask_names,
                 &wl_poll.borrow().watched,
+                c.graph_player_count as i32,
+                c.graph_for_local_player,
             ));
         }
 

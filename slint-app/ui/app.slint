@@ -20,6 +20,7 @@ struct Row {
     hpm-text: string,
     score-text: string,
     watched: bool,
+    spark-commands: string, // この行のDPS推移（空=非表示行）。viewbox 100x16
 }
 
 struct ColumnFlags {
@@ -132,6 +133,7 @@ component PlayerRowItem inherits Rectangle {
     in property <bool> highlight-local;
     in property <ColumnFlags> cols;
     in property <float> font-scale: 1.0;
+    in property <bool> show-graph-col;
     callback activate(string);
     callback toggle-watch(string);
     height: 20px;
@@ -174,6 +176,23 @@ component PlayerRowItem inherits Rectangle {
                 overflow: elide;
                 vertical-alignment: center;
                 horizontal-stretch: 1;
+            }
+        }
+        if root.show-graph-col: Rectangle {
+            width: 60px;
+            // 対象行のみ折れ線を描く（非対象は空セルで列を揃える）
+            Path {
+                x: 2px;
+                width: 56px;
+                height: 14px;
+                viewbox-x: 0;
+                viewbox-y: 0;
+                viewbox-width: 100;
+                viewbox-height: 16;
+                commands: root.entry.spark-commands;
+                stroke: root.entry.class-color;
+                stroke-width: 1.2px;
+                fill: transparent;
             }
         }
         Text { text: root.entry.dmg-text; color: #e6e6f0; font-size: 12px * root.font-scale; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
@@ -468,6 +487,7 @@ export component MainWindow inherits Window {
     in property <bool> copied; // コピー直後の一時フィードバック
     in property <string> spark-commands; // ヘッダースパークラインの SVG パス（viewbox 100x16）
     in property <bool> spark-visible;     // 2点以上ありデータがある時のみ true
+    in property <bool> show-graph-col;    // 一覧にDPS推移列を出すか（graph設定＋被ダメ以外）
     callback quit();
     callback start-drag();
     callback start-resize(int);
@@ -579,6 +599,7 @@ export component MainWindow inherits Window {
                     padding-right: 8px;
                     spacing: 6px;
                     Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; vertical-alignment: center; }
+                    if root.show-graph-col: Text { text: @tr("推移"); color: #888; font-size: 9px * root.font-scale; width: 60px; horizontal-alignment: center; vertical-alignment: center; }
                     Text {
                         text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ"));
                         color: #888;
@@ -608,6 +629,7 @@ export component MainWindow inherits Window {
                         highlight-local: root.highlight-local;
                         cols: root.cols;
                         font-scale: root.font-scale;
+                        show-graph-col: root.show-graph-col;
                         activate(u) => { root.open-drill(u); }
                         toggle-watch(u) => { root.toggle-watch(u); }
                     }

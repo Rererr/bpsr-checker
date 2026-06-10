@@ -560,13 +560,8 @@ fn build_status_entries(entries: &[bpsr_core::models::SelfStatusEntry]) -> Vec<S
             } else {
                 slint::Color::from_rgb_u8(0x4f, 0xc3, 0xf7)
             };
-            let border_color = match e.priority.as_str() {
-                "alert" => slint::Color::from_argb_u8(0xff, 0xff, 0xd5, 0x4f),
-                "high" => slint::Color::from_argb_u8(0x40, 0xff, 0xff, 0xff),
-                "low" => slint::Color::from_argb_u8(0x0f, 0xff, 0xff, 0xff),
-                "hidden" => slint::Color::from_argb_u8(0x00, 0xff, 0xff, 0xff),
-                _ => slint::Color::from_argb_u8(0x1f, 0xff, 0xff, 0xff),
-            };
+            // 枠色は優先度に依らず固定（バフ/デバフで色分けしない）。
+            let border_color = slint::Color::from_argb_u8(0x33, 0xff, 0xff, 0xff);
             StatusEntryUi {
                 name: buff_names::label(e.base_id).into(),
                 remaining_text: format::format_remaining(e.remaining_ms, e.duration_ms).into(),

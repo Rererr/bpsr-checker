@@ -466,6 +466,8 @@ export component MainWindow inherits Window {
     in property <float> win-opacity: 0.85;
     in property <float> font-scale: 1.0; // 本体テーブル＋ヘッダの文字倍率（font_size/12）
     in property <bool> copied; // コピー直後の一時フィードバック
+    in property <string> spark-commands; // ヘッダースパークラインの SVG パス（viewbox 100x16）
+    in property <bool> spark-visible;     // 2点以上ありデータがある時のみ true
     callback quit();
     callback start-drag();
     callback start-resize(int);
@@ -519,6 +521,22 @@ export component MainWindow inherits Window {
                         color: #c8c8d8;
                         font-size: 11px * root.font-scale;
                         vertical-alignment: center;
+                    }
+                }
+                if root.cfg-ui.header-sparkline && root.spark-visible: Rectangle {
+                    width: 84px;
+                    Path {
+                        x: 2px;
+                        width: 80px;
+                        height: 14px;
+                        viewbox-x: 0;
+                        viewbox-y: 0;
+                        viewbox-width: 100;
+                        viewbox-height: 16;
+                        commands: root.spark-commands;
+                        stroke: #4fc3f7;
+                        stroke-width: 1.2px;
+                        fill: transparent;
                     }
                 }
                 copy-btn := TouchArea {

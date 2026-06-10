@@ -831,6 +831,65 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             settings::save(&c);
         });
     }
+    // 一覧コピー（現在タブの行を copy_template で整形して \n 連結→クリップボード）。
+    {
+        let w = main.as_weak();
+        let enc_c = enc.clone();
+        let cfg_c = cfg.clone();
+        let tab_c = tab_cell.clone();
+        main.on_copy_list(move || {
+            let pw = fetch_players(&enc_c, tab_c.get());
+            if pw.player_rows.is_empty() {
+                return;
+            }
+            let text = {
+                let c = cfg_c.borrow();
+                pw.player_rows
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| {
+                        format::format_row_template(
+                            &format::CopyRowData {
+                                rank: (i + 1) as i32,
+                                name: &p.name,
+                                class_name: &p.class_name,
+                                class_spec_name: &p.class_spec_name,
+                                total_value: p.total_value,
+                                value_per_sec: p.value_per_sec,
+                                value_pct: p.value_pct,
+                                crit_rate: p.crit_rate,
+                                crit_value_rate: p.crit_value_rate,
+                                lucky_rate: p.lucky_rate,
+                                lucky_value_rate: p.lucky_value_rate,
+                                hits: p.hits,
+                                hits_per_minute: p.hits_per_minute,
+                                ability_score: p.ability_score,
+                                season_level: p.season_level,
+                                season_strength: p.season_strength,
+                            },
+                            &c.copy_template,
+                            c.abbreviate_scores,
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
+            match arboard::Clipboard::new().and_then(|mut cb| cb.set_text(text)) {
+                Ok(()) => {
+                    if let Some(m) = w.upgrade() {
+                        m.set_copied(true);
+                        let wk = m.as_weak();
+                        Timer::single_shot(Duration::from_millis(800), move || {
+                            if let Some(m) = wk.upgrade() {
+                                m.set_copied(false);
+                            }
+                        });
+                    }
+                }
+                Err(e) => log::warn!("clipboard copy failed: {e}"),
+            }
+        });
+    }
 
     main.show()?;
     if cfg.borrow().show_self_status_overlay {

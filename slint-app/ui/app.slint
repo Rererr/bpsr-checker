@@ -406,6 +406,7 @@ export component MainWindow inherits Window {
     in property <string> copy-preview;
     in property <float> win-opacity: 0.85;
     in property <float> font-scale: 1.0; // 本体テーブル＋ヘッダの文字倍率（font_size/12）
+    in property <bool> copied; // コピー直後の一時フィードバック
     callback quit();
     callback start-drag();
     callback start-resize(int);
@@ -420,6 +421,7 @@ export component MainWindow inherits Window {
     callback bump-num(string, int);
     callback set-str(string, string);
     callback reset-str(string);
+    callback copy-list();
 
     title: @tr("DPSメーター");
     no-frame: true;
@@ -458,13 +460,22 @@ export component MainWindow inherits Window {
                         vertical-alignment: center;
                     }
                 }
+                copy-btn := TouchArea {
+                    width: 44px;
+                    clicked => { root.copy-list(); }
+                    Rectangle {
+                        background: root.copied ? #2e7d32 : (copy-btn.has-hover ? #ffffff20 : transparent);
+                        border-radius: 4px;
+                        Text { text: root.copied ? @tr("済") : @tr("コピー"); color: #cdd; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+                    }
+                }
                 settings-btn := TouchArea {
                     width: 36px;
                     clicked => { root.toggle-settings(); }
                     Rectangle {
                         background: (settings-btn.has-hover || root.settings-open) ? #ffffff20 : transparent;
                         border-radius: 4px;
-                        Text { text: @tr("設定"); color: #cdd; font-size: 11px; }
+                        Text { text: @tr("設定"); color: #cdd; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
                     }
                 }
                 quit-btn := TouchArea {

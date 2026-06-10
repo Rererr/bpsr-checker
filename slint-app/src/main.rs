@@ -153,6 +153,55 @@ fn build_skill_rows(sw: &bpsr_core::models::SkillsWindow) -> Vec<SkillRowUi> {
         .collect()
 }
 
+/// 履歴ビューのフラット行を構築（見出し＋展開中のみプレイヤー行）。
+fn build_history_rows(
+    hist: &[bpsr_core::models::EncounterSnapshot],
+    expanded: Option<i64>,
+    privacy: bool,
+) -> Vec<HistoryRowUi> {
+    let mut out = Vec::new();
+    for snap in hist {
+        let id = snap.id as i64;
+        let is_exp = expanded == Some(id);
+        out.push(HistoryRowUi {
+            is_header: true,
+            snap_id: format!("{id}").into(),
+            expanded: is_exp,
+            duration_text: format::format_elapsed(snap.duration_ms).into(),
+            dps_text: format::format_dps(snap.total_dps).into(),
+            dmg_text: format::format_number(snap.total_dmg).into(),
+            count_text: format!("{}", snap.player_rows.len()).into(),
+            ..Default::default()
+        });
+        if is_exp {
+            let top = snap
+                .player_rows
+                .first()
+                .map(|p| p.total_value)
+                .unwrap_or(1.0)
+                .max(1.0);
+            for (i, p) in snap.player_rows.iter().enumerate() {
+                let name = if privacy {
+                    format::mask_player_name(p.uid as i64)
+                } else {
+                    p.name.clone()
+                };
+                out.push(HistoryRowUi {
+                    is_header: false,
+                    rank_text: format!("{}.", i + 1).into(),
+                    name: name.into(),
+                    class_color: format::class_color(&p.class_name),
+                    p_dps_text: format::format_dps(p.value_per_sec).into(),
+                    p_pct_text: format::format_pct(p.value_pct).into(),
+                    p_pct: ((p.total_value / top) * 100.0) as f32,
+                    ..Default::default()
+                });
+            }
+        }
+    }
+    out
+}
+
 /// ドリルダウン状態。
 #[derive(Clone, Copy)]
 enum Drill {
@@ -456,6 +505,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     main.set_skill_rows(skill_rows.clone().into());
     let drill = Rc::new(Cell::new(Drill::None));
 
+    // 履歴ビュー用モデル＋展開中エンカウンタ id（None=折りたたみ）
+    let history_rows = Rc::new(VecModel::<HistoryRowUi>::default());
+    main.set_history_rows(history_rows.clone().into());
+    let history_expanded = Rc::new(Cell::new(None::<i64>));
+
     // 自キャラ バフ/デバフ オーバーレイ（別ウィンドウ）
     let self_overlay = SelfStatusOverlay::new()?;
     let self_buffs = Rc::new(VecModel::<StatusEntryUi>::default());
@@ -521,7 +575,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
-    // タブ選択: 共有セルを更新し、即時に再取得して反映（ポーリング待ちにしない）
+    // タブ選択: 共有セルを更新し、即時に再取得して反映（ポーリング待ちにしない）。
+    // タブ切替時はドリルダウン/内訳ビューを解除して一覧へ戻す。
     {
         let w = main.as_weak();
         let enc_sel = enc.clone();
@@ -529,18 +584,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let tab_sel = tab_cell.clone();
         let cfg_sel = cfg.clone();
         let wl_sel = wl.clone();
+        let drill_sel = drill.clone();
+        let hist_rows_sel = history_rows.clone();
+        let hist_exp_sel = history_expanded.clone();
         main.on_select_tab(move |n| {
             tab_sel.set(n);
+            drill_sel.set(Drill::None);
             if let Some(m) = w.upgrade() {
                 m.set_tab(n);
-                let c = cfg_sel.borrow();
-                rows_sel.set_vec(build_rows(
-                    &fetch_players(&enc_sel, n),
-                    &c.name_template,
-                    c.abbreviate_scores,
-                    c.privacy_mask_names,
-                    &wl_sel.borrow().watched,
-                ));
+                m.set_view(0);
+                if n == 3 {
+                    let hist = compute::get_history();
+                    hist_rows_sel.set_vec(build_history_rows(
+                        &hist,
+                        hist_exp_sel.get(),
+                        cfg_sel.borrow().privacy_mask_names,
+                    ));
+                } else {
+                    let c = cfg_sel.borrow();
+                    rows_sel.set_vec(build_rows(
+                        &fetch_players(&enc_sel, n),
+                        &c.name_template,
+                        c.abbreviate_scores,
+                        c.privacy_mask_names,
+                        &wl_sel.borrow().watched,
+                    ));
+                }
             }
         });
     }
@@ -890,6 +959,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
+    // 履歴: 見出しクリックで展開トグル（単一展開）。
+    {
+        let w = main.as_weak();
+        let hr = history_rows.clone();
+        let he = history_expanded.clone();
+        let cfg_h = cfg.clone();
+        main.on_toggle_history(move |id_str| {
+            let id: i64 = id_str.as_str().parse().unwrap_or(0);
+            he.set(if he.get() == Some(id) { None } else { Some(id) });
+            if w.upgrade().is_some() {
+                let hist = compute::get_history();
+                hr.set_vec(build_history_rows(
+                    &hist,
+                    he.get(),
+                    cfg_h.borrow().privacy_mask_names,
+                ));
+            }
+        });
+    }
+    // 履歴クリア。
+    {
+        let hr = history_rows.clone();
+        let he = history_expanded.clone();
+        main.on_clear_history(move || {
+            compute::clear_history();
+            he.set(None);
+            hr.set_vec(Vec::new());
+        });
+    }
 
     main.show()?;
     if cfg.borrow().show_self_status_overlay {
@@ -917,6 +1015,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let buff_players_poll = buff_players.clone();
     let cfg_poll = cfg.clone();
     let wl_poll = wl.clone();
+    let history_rows_poll = history_rows.clone();
+    let history_expanded_poll = history_expanded.clone();
     let poll_ms = cfg.borrow().poll_interval_ms.max(50.0) as u64;
 
     let timer = Timer::default();
@@ -942,8 +1042,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         m.set_total_text(format::format_dps(header.total_dps).into());
         m.set_elapsed_text(format::format_elapsed(header.elapsed_ms).into());
 
-        let pw = fetch_players(&enc_poll, tab_cell_poll.get());
-        {
+        let cur_tab = tab_cell_poll.get();
+        if cur_tab == 3 {
+            // 履歴タブ: 確定済みエンカウンタ一覧を反映（展開状態は維持）。
+            let privacy = cfg_poll.borrow().privacy_mask_names;
+            let hist = compute::get_history();
+            history_rows_poll.set_vec(build_history_rows(
+                &hist,
+                history_expanded_poll.get(),
+                privacy,
+            ));
+        } else {
+            let pw = fetch_players(&enc_poll, cur_tab);
             let c = cfg_poll.borrow();
             rows.set_vec(build_rows(
                 &pw,

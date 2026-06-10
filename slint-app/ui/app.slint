@@ -938,6 +938,7 @@ export component SelfStatusOverlay inherits Window {
     VerticalLayout {
         padding: 8px;
         spacing: 3px;
+        alignment: start; // 上詰め（既定stretchだと余白分配で下寄り/間延びする）
         if root.waiting: Text { text: @tr("自キャラ判定中..."); color: #ffffff4d; font-size: 10px; horizontal-alignment: center; }
         if !root.waiting && root.buffs.length == 0 && root.debuffs.length == 0: Text { text: @tr("バフ/デバフなし"); color: #ffffff4d; font-size: 10px; horizontal-alignment: center; }
         if !root.waiting && root.buffs.length > 0: Text { text: @tr("バフ"); color: #ffffff66; font-size: 9px; }
@@ -1043,6 +1044,7 @@ export component BuffOverlay inherits Window {
     VerticalLayout {
         padding: 8px;
         spacing: 2px;
+        alignment: start; // 上詰め
         if root.empty: Text { text: @tr("DPS一覧でピンアイコンをクリック"); color: #ffffff59; font-size: 10px; horizontal-alignment: center; }
         if !root.empty: HorizontalLayout {
             spacing: 4px;

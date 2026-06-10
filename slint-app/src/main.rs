@@ -203,6 +203,18 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         self_status: c.show_self_status_overlay,
         buff_overlay: c.show_buff_overlay,
         aot: c.always_on_top,
+        three_min_auto_open: c.three_min_auto_open,
+    });
+    let int_str = |v: f64| -> slint::SharedString { format!("{}", v as i64).into() };
+    m.set_nums(SettingsNumUi {
+        combat_exit: int_str(c.combat_exit_sec),
+        poll_interval: int_str(c.poll_interval_ms),
+        history_limit: int_str(c.history_limit),
+        ts_samples: int_str(c.time_series_samples),
+        ts_interval: int_str(c.time_series_interval_ms),
+        three_min_dur: int_str(c.three_min_duration_sec),
+        graph_count: int_str(c.graph_player_count),
+        font_size: int_str(c.font_size),
     });
 }
 
@@ -623,6 +635,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "abbreviate-scores" => c.abbreviate_scores = val,
                     "privacy-mask" => c.privacy_mask_names = val,
                     "aot" => c.always_on_top = val,
+                    "three-min-auto-open" => c.three_min_auto_open = val,
                     other => log::warn!("unknown setting key: {other}"),
                 }
             }
@@ -662,6 +675,54 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 m.set_win_opacity(clamped as f32);
             }
             settings::save(&cfg_o.borrow());
+        });
+    }
+    // 数値設定ステッパー（key と方向 dir=±1）。キー毎に step/範囲を持ち、必要なら即適用。
+    // poll-interval はポーリングタイマー再構築が要るため次回起動時に反映（永続化のみ）。
+    {
+        let w = main.as_weak();
+        let cfg_n = cfg.clone();
+        main.on_bump_num(move |key, dir| {
+            let d = dir as f64;
+            {
+                let mut c = cfg_n.borrow_mut();
+                match key.as_str() {
+                    "combat-exit" => {
+                        c.combat_exit_sec = (c.combat_exit_sec + d).clamp(0.0, 60.0);
+                        compute::set_combat_exit_timeout(c.combat_exit_sec);
+                    }
+                    "poll-interval" => {
+                        c.poll_interval_ms = (c.poll_interval_ms + d * 50.0).clamp(50.0, 2000.0);
+                    }
+                    "three-min-dur" => {
+                        c.three_min_duration_sec = (c.three_min_duration_sec + d * 30.0).clamp(30.0, 1800.0);
+                    }
+                    "history-limit" => {
+                        c.history_limit = (c.history_limit + d * 5.0).clamp(0.0, 100.0);
+                        compute::set_history_limit(c.history_limit);
+                    }
+                    "ts-samples" => {
+                        c.time_series_samples = (c.time_series_samples + d * 10.0).clamp(10.0, 200.0);
+                        compute::set_time_series_config(c.time_series_samples, c.time_series_interval_ms);
+                    }
+                    "ts-interval" => {
+                        c.time_series_interval_ms = (c.time_series_interval_ms + d * 250.0).clamp(250.0, 5000.0);
+                        compute::set_time_series_config(c.time_series_samples, c.time_series_interval_ms);
+                    }
+                    "graph-count" => {
+                        c.graph_player_count = (c.graph_player_count + d).clamp(0.0, 10.0);
+                    }
+                    "font-size" => {
+                        c.font_size = (c.font_size + d).clamp(10.0, 18.0);
+                    }
+                    other => log::warn!("unknown num key: {other}"),
+                }
+            }
+            let c = cfg_n.borrow();
+            if let Some(m) = w.upgrade() {
+                apply_settings(&m, &c);
+            }
+            settings::save(&c);
         });
     }
 

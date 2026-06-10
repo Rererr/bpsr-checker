@@ -128,3 +128,33 @@ msgstr "Tarta"
 
 msgid "バジリスク"
 msgstr "Basilisk"
+
+msgid "戦闘"
+msgstr "Combat"
+
+msgid "戦闘終了(秒)"
+msgstr "Combat exit (s)"
+
+msgid "更新間隔(ms)"
+msgstr "Update interval (ms)"
+
+msgid "3分計測(秒)"
+msgstr "3-min timer (s)"
+
+msgid "3分計測を自動で開く"
+msgstr "Auto-open 3-min result"
+
+msgid "履歴・グラフ"
+msgstr "History & Graph"
+
+msgid "履歴保持数"
+msgstr "History limit"
+
+msgid "グラフ標本数"
+msgstr "Graph samples"
+
+msgid "グラフ間隔(ms)"
+msgstr "Graph interval (ms)"
+
+msgid "グラフ表示人数"
+msgstr "Graph player count"

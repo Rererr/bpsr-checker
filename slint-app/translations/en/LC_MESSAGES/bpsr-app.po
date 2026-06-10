@@ -210,6 +210,15 @@ msgstr "3-min"
 msgid "待機"
 msgstr "Armed"
 
+msgid "停止"
+msgstr "Pause"
+
+msgid "再開"
+msgstr "Resume"
+
+msgid "初期化"
+msgstr "Reset"
+
 msgid "3分計測 結果"
 msgstr "3-min Result"
 

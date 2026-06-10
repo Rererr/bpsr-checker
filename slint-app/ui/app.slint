@@ -579,6 +579,7 @@ export component MainWindow inherits Window {
     in property <string> spark-commands; // ヘッダースパークラインの SVG パス（viewbox 100x16）
     in property <bool> spark-visible;     // 2点以上ありデータがある時のみ true
     in property <bool> show-graph-col;    // 一覧にDPS推移列を出すか（graph設定＋被ダメ以外）
+    in property <bool> paused;            // 集計の一時停止状態
     in property <int> measure-kind;       // 3分計測 0=通常 1=待機(pending) 2=計測中(active)
     in property <string> measure-text;    // 計測中のカウントダウン "M:SS"
     in property <bool> result-open;       // 3分計測 結果パネル表示
@@ -606,6 +607,8 @@ export component MainWindow inherits Window {
     callback toggle-history(string);
     callback clear-history();
     callback toggle-measure();
+    callback toggle-pause();
+    callback reset-encounter();
     callback close-result();
     callback copy-result();
     callback restart-measure();
@@ -645,6 +648,24 @@ export component MainWindow inherits Window {
                         color: #c8c8d8;
                         font-size: 11px * root.font-scale;
                         vertical-alignment: center;
+                    }
+                }
+                pause-btn := TouchArea {
+                    width: 40px;
+                    clicked => { root.toggle-pause(); }
+                    Rectangle {
+                        background: root.paused ? #8a5d12aa : (pause-btn.has-hover ? #ffffff20 : transparent);
+                        border-radius: 4px;
+                        Text { text: root.paused ? @tr("再開") : @tr("停止"); color: root.paused ? #ffd54f : #cdd; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+                    }
+                }
+                reset-btn := TouchArea {
+                    width: 36px;
+                    clicked => { root.reset-encounter(); }
+                    Rectangle {
+                        background: reset-btn.has-hover ? #ffffff20 : transparent;
+                        border-radius: 4px;
+                        Text { text: @tr("初期化"); color: #cdd; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; }
                     }
                 }
                 measure-btn := TouchArea {

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 static SKILL_NAMES: LazyLock<HashMap<i32, String>> = LazyLock::new(|| {
-    let data = include_str!("../../../src/lib/data/json/SkillName.json");
+    let data = include_str!("../../data/json/SkillName.json");
     serde_json::from_str(data).expect("invalid SkillName.json")
 });
 

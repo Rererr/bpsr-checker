@@ -47,6 +47,19 @@ struct SettingsUi {
     self-status: bool,
     buff-overlay: bool,
     aot: bool,
+    three-min-auto-open: bool,
+}
+
+// 数値設定の表示用（Rust が cfg から整形して set）。ステッパーで増減する。
+struct SettingsNumUi {
+    combat-exit: string,
+    poll-interval: string,
+    history-limit: string,
+    ts-samples: string,
+    ts-interval: string,
+    three-min-dur: string,
+    graph-count: string,
+    font-size: string,
 }
 
 struct SkillRowUi {
@@ -258,6 +271,40 @@ component OpacityRow inherits Rectangle {
     }
 }
 
+// 数値設定の増減行（−/＋ ステッパー。表示はリアクティブ Text で双方向バインド競合を回避）
+component StepperRow inherits Rectangle {
+    in property <string> label;
+    in property <string> value-text;
+    callback dec();
+    callback inc();
+    height: 26px;
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 6px;
+        Text { text: root.label; color: #ddd; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; }
+        dec-btn := TouchArea {
+            width: 22px;
+            clicked => { root.dec(); }
+            Rectangle {
+                background: dec-btn.has-hover ? #ffffff28 : #ffffff12;
+                border-radius: 3px;
+                Text { text: "−"; color: white; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
+            }
+        }
+        Text { text: root.value-text; color: #cdd; font-size: 12px; width: 58px; horizontal-alignment: center; vertical-alignment: center; }
+        inc-btn := TouchArea {
+            width: 22px;
+            clicked => { root.inc(); }
+            Rectangle {
+                background: inc-btn.has-hover ? #ffffff28 : #ffffff12;
+                border-radius: 3px;
+                Text { text: "+"; color: white; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
+            }
+        }
+    }
+}
+
 // no-frame 窓の縁/角リサイズ用ハンドル。
 component ResizeHandle inherits TouchArea {
     in property <int> dir;
@@ -283,6 +330,7 @@ export component MainWindow inherits Window {
     in property <bool> skills-clickable; // 被ダメ攻撃元一覧のとき true（行クリックで技別へ）
     in property <bool> settings-open;
     in property <SettingsUi> cfg-ui;
+    in property <SettingsNumUi> nums;
     in property <float> win-opacity: 0.85;
     callback quit();
     callback start-drag();
@@ -295,6 +343,7 @@ export component MainWindow inherits Window {
     callback toggle-settings();
     callback set-bool(string, bool);
     callback set-opacity(float);
+    callback bump-num(string, int);
 
     title: @tr("DPSメーター");
     no-frame: true;
@@ -508,6 +557,16 @@ export component MainWindow inherits Window {
                     ToggleRow { label: @tr("イマジンデバフタイマー"); checked: root.cfg-ui.buff-overlay; toggled => { root.set-bool("buff-overlay", !root.cfg-ui.buff-overlay); } }
                     ToggleRow { label: @tr("常に最前面"); checked: root.cfg-ui.aot; toggled => { root.set-bool("aot", !root.cfg-ui.aot); } }
                     OpacityRow { value: root.win-opacity; changed(v) => { root.set-opacity(v); } }
+                    Text { text: @tr("戦闘"); color: #888; font-size: 10px; }
+                    StepperRow { label: @tr("戦闘終了(秒)"); value-text: root.nums.combat-exit; dec => { root.bump-num("combat-exit", -1); } inc => { root.bump-num("combat-exit", 1); } }
+                    StepperRow { label: @tr("更新間隔(ms)"); value-text: root.nums.poll-interval; dec => { root.bump-num("poll-interval", -1); } inc => { root.bump-num("poll-interval", 1); } }
+                    StepperRow { label: @tr("3分計測(秒)"); value-text: root.nums.three-min-dur; dec => { root.bump-num("three-min-dur", -1); } inc => { root.bump-num("three-min-dur", 1); } }
+                    ToggleRow { label: @tr("3分計測を自動で開く"); checked: root.cfg-ui.three-min-auto-open; toggled => { root.set-bool("three-min-auto-open", !root.cfg-ui.three-min-auto-open); } }
+                    Text { text: @tr("履歴・グラフ"); color: #888; font-size: 10px; }
+                    StepperRow { label: @tr("履歴保持数"); value-text: root.nums.history-limit; dec => { root.bump-num("history-limit", -1); } inc => { root.bump-num("history-limit", 1); } }
+                    StepperRow { label: @tr("グラフ標本数"); value-text: root.nums.ts-samples; dec => { root.bump-num("ts-samples", -1); } inc => { root.bump-num("ts-samples", 1); } }
+                    StepperRow { label: @tr("グラフ間隔(ms)"); value-text: root.nums.ts-interval; dec => { root.bump-num("ts-interval", -1); } inc => { root.bump-num("ts-interval", 1); } }
+                    StepperRow { label: @tr("グラフ表示人数"); value-text: root.nums.graph-count; dec => { root.bump-num("graph-count", -1); } inc => { root.bump-num("graph-count", 1); } }
                 }
             }
         }

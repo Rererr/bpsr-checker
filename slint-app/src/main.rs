@@ -281,11 +281,60 @@ fn copy_row_data(p: &bpsr_core::models::PlayerRow, rank: i32) -> format::CopyRow
     }
 }
 
+/// ダメージ内訳の円グラフ（各プレイヤーの total_value 比で扇形）。viewbox 100x100。
+fn build_pie(players: &[bpsr_core::models::PlayerRow]) -> Vec<PieSlice> {
+    let sum: f64 = players.iter().map(|p| p.total_value).sum();
+    if sum <= 0.0 {
+        return Vec::new();
+    }
+    let (cx, cy, r) = (50.0_f32, 50.0_f32, 46.0_f32);
+    let mut start = -std::f32::consts::FRAC_PI_2; // 12時方向から時計回り
+    let mut out = Vec::new();
+    for p in players {
+        let frac = (p.total_value / sum) as f32;
+        if frac <= 0.0 {
+            continue;
+        }
+        let color = format::class_color(&p.class_name);
+        if frac >= 0.999 {
+            // 単独100%は扇形が描けないため真円（半円アーク2つ）で描く
+            out.push(PieSlice {
+                commands: format!(
+                    "M {cx} {} A {r} {r} 0 1 1 {cx} {} A {r} {r} 0 1 1 {cx} {} Z",
+                    cy - r,
+                    cy + r,
+                    cy - r
+                )
+                .into(),
+                color,
+            });
+            break;
+        }
+        let sweep = frac * std::f32::consts::TAU;
+        let end = start + sweep;
+        let x0 = cx + r * start.cos();
+        let y0 = cy + r * start.sin();
+        let x1 = cx + r * end.cos();
+        let y1 = cy + r * end.sin();
+        let large = if sweep > std::f32::consts::PI { 1 } else { 0 };
+        out.push(PieSlice {
+            commands: format!(
+                "M {cx} {cy} L {x0:.2} {y0:.2} A {r} {r} 0 {large} 1 {x1:.2} {y1:.2} Z"
+            )
+            .into(),
+            color,
+        });
+        start = end;
+    }
+    out
+}
+
 /// 3分計測 結果パネルへスナップショットを反映して開く。
 fn show_result(
     m: &MainWindow,
     snap: &bpsr_core::models::EncounterSnapshot,
     result_rows: &slint::VecModel<ResultRowUi>,
+    result_pie: &slint::VecModel<PieSlice>,
     privacy: bool,
 ) {
     m.set_result_dps(format::format_dps(snap.total_dps).into());
@@ -316,6 +365,7 @@ fn show_result(
         })
         .collect();
     result_rows.set_vec(rows);
+    result_pie.set_vec(build_pie(&snap.player_rows));
     m.set_result_open(true);
 }
 
@@ -690,6 +740,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 3分計測 結果パネル用モデル＋最後の結果スナップショット（コピー/再計測で参照）
     let result_rows = Rc::new(VecModel::<ResultRowUi>::default());
     main.set_result_rows(result_rows.clone().into());
+    let result_pie = Rc::new(VecModel::<PieSlice>::default());
+    main.set_result_pie(result_pie.clone().into());
     let last_result = Rc::new(RefCell::new(None::<bpsr_core::models::EncounterSnapshot>));
 
     // 自キャラUID 候補モデル
@@ -1334,6 +1386,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let history_rows_poll = history_rows.clone();
     let history_expanded_poll = history_expanded.clone();
     let result_rows_poll = result_rows.clone();
+    let result_pie_poll = result_pie.clone();
     let last_result_poll = last_result.clone();
     let compact_left_poll = compact_left.clone();
     let compact_right_poll = compact_right.clone();
@@ -1397,7 +1450,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let c = cfg_poll.borrow();
                     if c.three_min_auto_open && !c.imagine_only_mode {
                         *last_result_poll.borrow_mut() = Some(snap.clone());
-                        show_result(&m, &snap, &result_rows_poll, c.privacy_mask_names);
+                        show_result(&m, &snap, &result_rows_poll, &result_pie_poll, c.privacy_mask_names);
                     }
                 }
             }

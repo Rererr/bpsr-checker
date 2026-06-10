@@ -2,8 +2,9 @@
 //! 復元時は現在のモニタ範囲と交差するか検査し、画面外なら既定モニタへ収め直す。
 
 use crate::overlay::MonitorRect;
+use i_slint_backend_winit::WinitWindowAccessor;
 use serde::{Deserialize, Serialize};
-use slint::{PhysicalPosition, PhysicalSize};
+use slint::PhysicalPosition;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -126,6 +127,14 @@ pub fn restore(
         Some(m) => clamp_to_monitor(&rect, m),
         None => rect,
     };
-    window.set_size(PhysicalSize::new(rect.w, rect.h));
+    // 位置は Slint API で（混在DPIでも実績あり）。サイズは Slint の set_size だと
+    // Window の preferred-width/height に上書きされて効かないため、winit の
+    // request_inner_size で直接適用する（ドラッグリサイズと同じ経路＝確実に効く）。
     window.set_position(PhysicalPosition::new(rect.x, rect.y));
+    window.with_winit_window(|w| {
+        let _ = w.request_inner_size(i_slint_backend_winit::winit::dpi::PhysicalSize::new(
+            rect.w, rect.h,
+        ));
+    });
+    log::info!("restore: saved={saved:?} applied rect={rect:?} (size は winit 適用)");
 }

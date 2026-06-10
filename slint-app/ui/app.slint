@@ -97,6 +97,13 @@ struct HistoryRowUi {
     p-pct: float,
 }
 
+// 自キャラUID 候補（現在のプレイヤーから）
+struct UidCandidate {
+    uid-str: string,
+    label: string,    // "名前 #1234"
+    selected: bool,
+}
+
 // 3分計測 結果パネルのプレイヤー行
 struct ResultRowUi {
     rank-text: string,
@@ -364,6 +371,25 @@ component ResultRow inherits Rectangle {
     }
 }
 
+// 自キャラUID 候補チップ
+component CandidateChip inherits TouchArea {
+    in property <UidCandidate> c;
+    callback pick(string);
+    height: 20px;
+    clicked => { root.pick(root.c.uid-str); }
+    Rectangle {
+        background: root.c.selected ? #4fc3f733 : (root.has-hover ? #ffffff20 : #ffffff10);
+        border-width: 1px;
+        border-color: root.c.selected ? #4fc3f7 : #ffffff26;
+        border-radius: 3px;
+        HorizontalLayout {
+            padding-left: 6px;
+            padding-right: 6px;
+            Text { text: root.c.label; color: root.c.selected ? #4fc3f7 : #bbb; font-size: 10px; vertical-alignment: center; }
+        }
+    }
+}
+
 // 設定パネルのトグル行（カスタムチェックボックス）
 component ToggleRow inherits TouchArea {
     in property <string> label;
@@ -574,6 +600,9 @@ export component MainWindow inherits Window {
     in property <string> copy-template-value;
     in property <string> name-preview;
     in property <string> copy-preview;
+    in property <string> selected-uid-value;  // 自キャラUID入力欄（開時/確定時に push）
+    in property <string> selected-uid-name;    // 解決名/状態表示
+    in property <[UidCandidate]> uid-candidates;
     in property <float> win-opacity: 0.85;
     in property <float> font-scale: 1.0; // 本体テーブル＋ヘッダの文字倍率（font_size/12）
     in property <bool> copied; // コピー直後の一時フィードバック
@@ -604,6 +633,7 @@ export component MainWindow inherits Window {
     callback bump-num(string, int);
     callback set-str(string, string);
     callback reset-str(string);
+    callback set-selected-uid(string); // 空文字=クリア
     callback copy-list();
     callback toggle-history(string);
     callback clear-history();
@@ -972,6 +1002,65 @@ export component MainWindow inherits Window {
                 setbox := VerticalLayout {
                     padding: 4px;
                     spacing: 1px;
+                    Text { text: @tr("キャラクター"); color: #888; font-size: 10px; }
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        spacing: 6px;
+                        height: 28px;
+                        Text { text: @tr("自キャラUID"); color: #ddd; font-size: 12px; vertical-alignment: center; width: 76px; }
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            background: #ffffff14;
+                            border-width: 1px;
+                            border-color: uidti.has-focus ? #4fc3f7 : #ffffff26;
+                            border-radius: 3px;
+                            uidti := TextInput {
+                                x: 5px;
+                                width: parent.width - 10px;
+                                height: 100%;
+                                vertical-alignment: center;
+                                color: #ddd;
+                                font-size: 12px;
+                                input-type: number;
+                                text: root.selected-uid-value;
+                                // Enter で確定（毎キーで set すると集計リセットされるため）
+                                accepted => { root.set-selected-uid(self.text); }
+                            }
+                        }
+                        uidclear := TouchArea {
+                            width: 44px;
+                            clicked => { root.set-selected-uid(""); }
+                            Rectangle {
+                                background: uidclear.has-hover ? #ffffff28 : #ffffff12;
+                                border-radius: 3px;
+                                Text { text: @tr("クリア"); color: #cdd; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; }
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        spacing: 6px;
+                        Rectangle { width: 76px; }
+                        Text { text: root.selected-uid-name; color: #aaa; font-size: 11px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                    }
+                    if root.uid-candidates.length > 0: HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        spacing: 6px;
+                        height: 24px;
+                        Text { text: @tr("候補"); color: #777; font-size: 10px; vertical-alignment: center; width: 76px; }
+                        Flickable {
+                            horizontal-stretch: 1;
+                            viewport-width: candbox.preferred-width;
+                            candbox := HorizontalLayout {
+                                spacing: 4px;
+                                for cand in root.uid-candidates: CandidateChip { c: cand; pick(u) => { root.set-selected-uid(u); } }
+                            }
+                        }
+                    }
+                    Text { text: @tr("自動判定が外れた時に手動で自分を指定（Enterで確定）"); color: #555; font-size: 9px; }
                     Text { text: @tr("表示列"); color: #888; font-size: 10px; }
                     ToggleRow { label: @tr("会心率"); checked: root.cfg-ui.show-crit; toggled => { root.set-bool("show-crit", !root.cfg-ui.show-crit); } }
                     ToggleRow { label: @tr("会心ダメ率"); checked: root.cfg-ui.show-crit-value; toggled => { root.set-bool("show-crit-value", !root.cfg-ui.show-crit-value); } }

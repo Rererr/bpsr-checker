@@ -319,6 +319,60 @@ fn show_result(
     m.set_result_open(true);
 }
 
+/// uid の下4桁（候補ラベル用。元 UI の String(uid).slice(-4) 相当）。
+fn last4(uid: i64) -> String {
+    let s = uid.to_string();
+    s[s.len().saturating_sub(4)..].to_string()
+}
+
+/// 自キャラUID 候補（現在の DPS プレイヤー）を再構築。selected も反映。
+/// 入力欄(selected-uid-value)は触らない＝設定パネルを開いたまま poll で呼んでも
+/// 入力中をクロバーしない。
+fn refresh_uid_candidates(
+    enc: &EncounterMutex,
+    candidates: &slint::VecModel<UidCandidate>,
+) {
+    let sel = compute::get_selected_uid().map(|v| v as i64);
+    let pw = compute::get_dps_players(enc);
+    let cands: Vec<UidCandidate> = pw
+        .player_rows
+        .iter()
+        .take(12)
+        .map(|p| {
+            let uid = p.uid as i64;
+            UidCandidate {
+                uid_str: format!("{uid}").into(),
+                label: format!("{} #{}", p.name, last4(uid)).into(),
+                selected: Some(uid) == sel,
+            }
+        })
+        .collect();
+    candidates.set_vec(cands);
+}
+
+/// 入力欄・解決名・候補をまとめて更新（パネル開時／確定時のみ。入力欄を push する）。
+fn refresh_selected_uid(
+    m: &MainWindow,
+    enc: &EncounterMutex,
+    candidates: &slint::VecModel<UidCandidate>,
+) {
+    let sel = compute::get_selected_uid();
+    let sel_i64 = sel.map(|v| v as i64);
+    m.set_selected_uid_value(
+        sel_i64
+            .map(|u| u.to_string())
+            .unwrap_or_default()
+            .into(),
+    );
+    let name = sel.and_then(compute::lookup_name_cache).map(|d| d.name);
+    m.set_selected_uid_name(match (name, sel_i64) {
+        (Some(n), _) => n.into(),
+        (None, Some(_)) => "（名前未解決）".into(),
+        (None, None) => "（未設定）".into(),
+    });
+    refresh_uid_candidates(enc, candidates);
+}
+
 /// ドリルダウン状態。
 #[derive(Clone, Copy)]
 enum Drill {
@@ -638,6 +692,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     main.set_result_rows(result_rows.clone().into());
     let last_result = Rc::new(RefCell::new(None::<bpsr_core::models::EncounterSnapshot>));
 
+    // 自キャラUID 候補モデル
+    let uid_candidates = Rc::new(VecModel::<UidCandidate>::default());
+    main.set_uid_candidates(uid_candidates.clone().into());
+
     // 自キャラ バフ/デバフ オーバーレイ（別ウィンドウ）
     let self_overlay = SelfStatusOverlay::new()?;
     let self_buffs = Rc::new(VecModel::<StatusEntryUi>::default());
@@ -887,15 +945,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
-    // 設定パネルの開閉。開く瞬間にテンプレ入力欄へ最新値を push（再開で最新を表示）。
+    // 設定パネルの開閉。開く瞬間にテンプレ入力欄・自キャラUID欄へ最新値を push。
     {
         let w = main.as_weak();
         let cfg_ts = cfg.clone();
+        let enc_ts = enc.clone();
+        let cands_ts = uid_candidates.clone();
         main.on_toggle_settings(move || {
             if let Some(m) = w.upgrade() {
                 let opening = !m.get_settings_open();
                 if opening {
                     refresh_templates(&m, &cfg_ts.borrow());
+                    refresh_selected_uid(&m, &enc_ts, &cands_ts);
                 }
                 m.set_settings_open(opening);
             }
@@ -1080,6 +1141,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             settings::save(&c);
         });
     }
+    // 自キャラUID 確定（空文字=クリア）。set_selected_uid は集計をリセットするため
+    // Enter / 候補クリック / クリア の明示操作時のみ呼ぶ。
+    {
+        let w = main.as_weak();
+        let enc_su = enc.clone();
+        let cands = uid_candidates.clone();
+        main.on_set_selected_uid(move |s| {
+            let t = s.as_str().trim();
+            let uid: Option<f64> = if t.is_empty() {
+                None
+            } else {
+                t.parse::<f64>().ok().filter(|v| *v > 0.0)
+            };
+            compute::set_selected_uid(&enc_su, uid);
+            if let Some(m) = w.upgrade() {
+                refresh_selected_uid(&m, &enc_su, &cands);
+            }
+        });
+    }
     // 一覧コピー（現在タブの行を copy_template で整形して \n 連結→クリップボード）。
     {
         let w = main.as_weak();
@@ -1257,6 +1337,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let last_result_poll = last_result.clone();
     let compact_left_poll = compact_left.clone();
     let compact_right_poll = compact_right.clone();
+    let uid_candidates_poll = uid_candidates.clone();
     let poll_ms = cfg.borrow().poll_interval_ms.max(50.0) as u64;
 
     let timer = Timer::default();
@@ -1294,6 +1375,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // 一時停止状態をボタンへ反映
         m.set_paused(compute::is_paused(&enc_poll));
+
+        // 設定パネルを開いている間は自キャラUID候補を生きたまま更新（入力欄は触らない）
+        if m.get_settings_open() {
+            refresh_uid_candidates(&enc_poll, &uid_candidates_poll);
+        }
 
         // 3分計測の状態反映＋残0で自動確定（→履歴。結果パネルは後続増分）
         let ms = compute::get_measure_mode_status(&enc_poll);

@@ -47,6 +47,7 @@ struct SettingsUi {
     privacy-mask: bool,
     self-status: bool,
     buff-overlay: bool,
+    imagine-only: bool,
     aot: bool,
     three-min-auto-open: bool,
     compact-split: bool,
@@ -998,6 +999,7 @@ export component MainWindow inherits Window {
                     Text { text: @tr("オーバーレイ"); color: #888; font-size: 10px; }
                     ToggleRow { label: @tr("自キャラ バフ/デバフ"); checked: root.cfg-ui.self-status; toggled => { root.set-bool("self-status-overlay", !root.cfg-ui.self-status); } }
                     ToggleRow { label: @tr("イマジンデバフタイマー"); checked: root.cfg-ui.buff-overlay; toggled => { root.set-bool("buff-overlay", !root.cfg-ui.buff-overlay); } }
+                    ToggleRow { label: @tr("イマジン専用モード"); checked: root.cfg-ui.imagine-only; toggled => { root.set-bool("imagine-only", !root.cfg-ui.imagine-only); } }
                     ToggleRow { label: @tr("常に最前面"); checked: root.cfg-ui.aot; toggled => { root.set-bool("aot", !root.cfg-ui.aot); } }
                     OpacityRow { value: root.win-opacity; changed(v) => { root.set-opacity(v); } }
                     Text { text: @tr("戦闘"); color: #888; font-size: 10px; }

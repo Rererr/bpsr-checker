@@ -158,3 +158,15 @@ msgstr "Graph interval (ms)"
 
 msgid "グラフ表示人数"
 msgstr "Graph player count"
+
+msgid "テンプレート"
+msgstr "Template"
+
+msgid "名前列テンプレ"
+msgstr "Name template"
+
+msgid "コピーテンプレ"
+msgstr "Copy template"
+
+msgid "リセット"
+msgstr "Reset"

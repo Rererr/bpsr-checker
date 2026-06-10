@@ -305,6 +305,56 @@ component StepperRow inherits Rectangle {
     }
 }
 
+// テンプレート編集（ラベル＋複数行テキスト入力＋リセット＋プレビュー）。
+// value は Rust 側が「パネル開時／リセット時のみ」push する。編集中(edited)は
+// cfg と preview のみ更新し value を再設定しない＝入力中のクロバーを防ぐ。
+component TemplateField inherits VerticalLayout {
+    in property <string> label;
+    in property <string> value;
+    in property <string> preview;
+    in property <string> hint;
+    callback changed(string);
+    callback reset();
+    spacing: 2px;
+    padding-left: 10px;
+    padding-right: 10px;
+    Text { text: root.label; color: #bbb; font-size: 10px; }
+    HorizontalLayout {
+        spacing: 4px;
+        Rectangle {
+            horizontal-stretch: 1;
+            height: 34px;
+            background: #ffffff14;
+            border-width: 1px;
+            border-color: ti.has-focus ? #4fc3f7 : #ffffff26;
+            border-radius: 3px;
+            ti := TextInput {
+                x: 5px;
+                width: parent.width - 10px;
+                height: 100%;
+                vertical-alignment: center;
+                wrap: word-wrap;
+                single-line: false;
+                color: #ddd;
+                font-size: 11px;
+                text: root.value;
+                edited => { root.changed(self.text); }
+            }
+        }
+        reset-btn := TouchArea {
+            width: 44px;
+            clicked => { root.reset(); }
+            Rectangle {
+                background: reset-btn.has-hover ? #ffffff28 : #ffffff12;
+                border-radius: 3px;
+                Text { text: @tr("リセット"); color: #cdd; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; }
+            }
+        }
+    }
+    if root.hint != "": Text { text: root.hint; color: #666; font-size: 9px; wrap: word-wrap; }
+    Text { text: root.preview; color: #cfcfe0; font-size: 10px; wrap: word-wrap; }
+}
+
 // no-frame 窓の縁/角リサイズ用ハンドル。
 component ResizeHandle inherits TouchArea {
     in property <int> dir;
@@ -331,6 +381,10 @@ export component MainWindow inherits Window {
     in property <bool> settings-open;
     in property <SettingsUi> cfg-ui;
     in property <SettingsNumUi> nums;
+    in property <string> name-template-value;
+    in property <string> copy-template-value;
+    in property <string> name-preview;
+    in property <string> copy-preview;
     in property <float> win-opacity: 0.85;
     callback quit();
     callback start-drag();
@@ -344,6 +398,8 @@ export component MainWindow inherits Window {
     callback set-bool(string, bool);
     callback set-opacity(float);
     callback bump-num(string, int);
+    callback set-str(string, string);
+    callback reset-str(string);
 
     title: @tr("DPSメーター");
     no-frame: true;
@@ -567,6 +623,23 @@ export component MainWindow inherits Window {
                     StepperRow { label: @tr("グラフ標本数"); value-text: root.nums.ts-samples; dec => { root.bump-num("ts-samples", -1); } inc => { root.bump-num("ts-samples", 1); } }
                     StepperRow { label: @tr("グラフ間隔(ms)"); value-text: root.nums.ts-interval; dec => { root.bump-num("ts-interval", -1); } inc => { root.bump-num("ts-interval", 1); } }
                     StepperRow { label: @tr("グラフ表示人数"); value-text: root.nums.graph-count; dec => { root.bump-num("graph-count", -1); } inc => { root.bump-num("graph-count", 1); } }
+                    Text { text: @tr("テンプレート"); color: #888; font-size: 10px; }
+                    TemplateField {
+                        label: @tr("名前列テンプレ");
+                        value: root.name-template-value;
+                        preview: root.name-preview;
+                        hint: "{name} {class} {spec} {score} {seasonLv} {seasonStr}";
+                        changed(t) => { root.set-str("name-template", t); }
+                        reset => { root.reset-str("name-template"); }
+                    }
+                    TemplateField {
+                        label: @tr("コピーテンプレ");
+                        value: root.copy-template-value;
+                        preview: root.copy-preview;
+                        hint: "{rank} {name} {class} {spec} {dmg} {dps} {pct} {crit} {critV} {lucky} {luckyV} {hits} {hpm} {score} {seasonLv} {seasonStr}";
+                        changed(t) => { root.set-str("copy-template", t); }
+                        reset => { root.reset-str("copy-template"); }
+                    }
                 }
             }
         }

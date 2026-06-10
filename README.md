@@ -8,7 +8,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-blue)
 [![Discord](https://img.shields.io/badge/Discord-参加する-5865F2?logo=discord&logoColor=white)](https://discord.gg/exU3gPBx3)
 
-Tauri 2 + SolidJS + Rust で実装。低 CPU・低メモリで、ゲーム画面の上に半透明オーバーレイ表示できる軽量設計です。**外部サーバへのデータ送信は一切ありません。**
+**Slint（Rust ネイティブ GUI）** で実装。低 CPU・低メモリで、ゲーム画面の上に半透明オーバーレイ表示できる軽量設計です。**外部サーバへのデータ送信は一切ありません。**
 
 ## 主な機能
 
@@ -19,18 +19,18 @@ Tauri 2 + SolidJS + Rust で実装。低 CPU・低メモリで、ゲーム画面
 - **自キャラ バフ/デバフ表示** — 自分のキャラクターに現在かかっているバフ・デバフを別ウインドウで日本語表示。残時間バー付きアイコン形式でひと目で把握可能。スタック制バフは重ね掛け数 (×N) とタイマー更新にも追従
 - **デバフタイマー専用モード (軽量)** — DPS/回復の集計を停止してデバフタイマーのみ動作させる省リソースモード
 - **2 列コンパクト表示** — DPS テーブルを 2 列に分割して横幅を節約するレイアウトモード
-- **ヘッダースパークライン** — 全体 DPS の推移を小グラフで可視化
-- **常に最前面表示・クリックスルー** — オーバーレイ運用に必須の機能を標準搭載
+- **ヘッダースパークライン / DPS推移グラフ** — 全体 DPS の推移と、各プレイヤー行の推移を小グラフで可視化
+- **常に最前面表示** — オーバーレイ運用に必須。各ウィンドウは縁ドラッグでリサイズ可能（※クリックスルーはタスクトレイと併せて再実装予定）
 - **コピーテンプレート** — 集計結果を任意フォーマット (Discord 貼り付け等) でクリップボードへ
 - **多言語対応** — 日本語 / English
-- **キャラ指定** — 自キャラの UID を指定すると、ヘッダーに名前バッジが常時表示
+- **キャラ指定** — 自動判定が外れた時は、設定パネルで自キャラの UID を直接入力するか現在のプレイヤー候補から選択して固定（名前は名前キャッシュから解決表示）
 
 ## インストール
 
-[Releases](https://github.com/Rererr/bpsr-checker/releases) から最新の `bpsr-checker_x.x.x_x64-setup.exe` をダウンロードして実行してください。
+[Releases](https://github.com/Rererr/bpsr-checker/releases) から最新の `bpsr-checker-setup-x.x.x.exe`（インストーラ）をダウンロードして実行してください。インストール不要のポータブル版 `bpsr-checker-portable-x.x.x.zip` もあります（解凍して `bpsr-checker.exe` を実行）。
 
 - アップデート時は起動中のアプリを終了しなくてもインストール可能です。
-- 設定・履歴は再インストール後も保持されます。
+- 設定・履歴は再インストール後も保持されます（`%APPDATA%\bpsr-checker`）。
 
 ### 動作要件
 
@@ -74,7 +74,7 @@ Tauri 2 + SolidJS + Rust で実装。低 CPU・低メモリで、ゲーム画面
 3. ペイロードを [protobuf](https://protobuf.dev/) としてデコードし、`SyncNearDeltaInfo` 等のメッセージからダメージ・回復イベントを抽出
 4. UID 単位で集計し、UI に表示
 
-詳細は [`src-tauri/src/capture/windivert.rs`](./src-tauri/src/capture/windivert.rs) を参照してください。
+詳細は [`core/src/capture/windivert.rs`](./core/src/capture/windivert.rs) を参照してください。
 
 ## 使い方
 
@@ -83,15 +83,7 @@ Tauri 2 + SolidJS + Rust で実装。低 CPU・低メモリで、ゲーム画面
 3. プレイヤー行をクリックするとスキル別の内訳を表示
 4. 戦闘終了 (デフォルト 10 秒間ダメージなし) で履歴に自動保存
 
-### キーボードショートカット
-
-| キー | 動作 |
-| --- | --- |
-| `Ctrl+Shift+Z` | クリックスルーを **無効化** (操作可能状態に戻す) |
-
-### タスクトレイ
-
-トレイアイコンを右クリック → メニューから終了などの操作が可能。
+> ※ タスクトレイ常駐とクリックスルー（`Ctrl+Shift+Z` での解除を含む）は現行版では未提供で、再実装を予定しています。ウィンドウは右上の ✕ で終了します。
 
 ### 設定パネル
 
@@ -118,9 +110,7 @@ Tauri 2 + SolidJS + Rust で実装。低 CPU・低メモリで、ゲーム画面
 | --- | --- |
 | ダメージが検出されない | 管理者権限で起動しているか確認。VPN や ping reducer (ExitLag / NoPing 等) を有効にしている場合は無効化して再試行。 |
 | ウイルス対策ソフトに検出される | [上記項目](#ウイルスではないですか-ウイルス対策ソフトに検出されました)を参照。 |
-| 起動時に黒画面 | WebView2 ランタイムが必要です。[Microsoft 公式](https://developer.microsoft.com/microsoft-edge/webview2/) からインストール。 |
-| オーバーレイ表示を切り替えるとメインウィンドウが消える / 真っ白になる | **ウィンドウの端をドラッグして高さ（サイズ）を少し変える**と再描画されて復帰します。マルチモニタ・高 DPI（拡大率 100% 以外）環境で WebView2 の描画が一時的に止まることがある現象です。トレイの「ウィンドウリセット」も併用できます。 |
-| クリックスルー中にウィンドウ操作したい | `Ctrl+Shift+Z` で解除。 |
+| 起動しない / すぐ終了する | `WinDivert.dll` と `WinDivert64.sys` が `bpsr-checker.exe` と同じフォルダにあるか確認（インストーラ版は自動同梱）。 |
 | 過去のリリースとライセンスが違う | v0.7.8 以降は GPL-3.0、それ以前は MIT ライセンスでした。([詳細](#ライセンス)) |
 
 不具合報告・要望は [Issues](https://github.com/Rererr/bpsr-checker/issues) または [Discord](https://discord.gg/exU3gPBx3) へお寄せください。
@@ -128,20 +118,23 @@ Tauri 2 + SolidJS + Rust で実装。低 CPU・低メモリで、ゲーム画面
 ## ソースからのビルド
 
 ```bash
-# 前提: Node.js 22+, Rust stable, Visual Studio Build Tools (Windows)
+# 前提: Rust stable, Protoc, Visual Studio Build Tools (Windows)
 
 git clone https://github.com/Rererr/bpsr-checker.git
 cd bpsr-checker
 
 # WinDivert を取得 (Windows のみ)
 # https://github.com/basil00/WinDivert/releases から v2.2.2 A 版を取得し、
-# WinDivert.dll / WinDivert64.sys を src-tauri/ に配置
+# WinDivert.dll / WinDivert64.sys を windivert/ に配置
 
-npm install
-npm run tauri build
+# 開発実行（管理者権限が必要）
+cargo run -p bpsr-app
+
+# 配布物生成（release exe＋WinDivert同梱→zip、makensis があればインストーラも）
+pwsh scripts/package-slint.ps1
 ```
 
-成果物は `src-tauri/target/release/bundle/nsis/` 配下に生成されます。
+成果物は `dist-slint/`（ポータブル zip と、NSIS があればインストーラ）に生成されます。
 
 ## 関連プロジェクト
 

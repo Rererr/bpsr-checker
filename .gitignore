@@ -7,3 +7,7 @@ dist/
 .claude/worktrees/
 src-tauri/gen/
 translation_work/
+
+# WinDivert 配布バイナリ（DL物・配布同梱用）
+windivert/
+dist-slint/

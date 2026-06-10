@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "src-tauri", "slint-app"]
+members = ["core", "slint-app"]
 exclude = ["slint-poc"]
 
 # 配布バイナリ（bpsr-app）向け最適化。サイズと速度のバランス＋デバッグ情報除去。

@@ -203,3 +203,9 @@ msgstr " players"
 
 msgid "推移"
 msgstr "Trend"
+
+msgid "計測"
+msgstr "3-min"
+
+msgid "待機"
+msgstr "Armed"

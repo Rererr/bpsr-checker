@@ -514,6 +514,8 @@ export component MainWindow inherits Window {
     in property <string> spark-commands; // ヘッダースパークラインの SVG パス（viewbox 100x16）
     in property <bool> spark-visible;     // 2点以上ありデータがある時のみ true
     in property <bool> show-graph-col;    // 一覧にDPS推移列を出すか（graph設定＋被ダメ以外）
+    in property <int> measure-kind;       // 3分計測 0=通常 1=待機(pending) 2=計測中(active)
+    in property <string> measure-text;    // 計測中のカウントダウン "M:SS"
     callback quit();
     callback start-drag();
     callback start-resize(int);
@@ -531,6 +533,7 @@ export component MainWindow inherits Window {
     callback copy-list();
     callback toggle-history(string);
     callback clear-history();
+    callback toggle-measure();
 
     title: @tr("DPSメーター");
     no-frame: true;
@@ -567,6 +570,25 @@ export component MainWindow inherits Window {
                         color: #c8c8d8;
                         font-size: 11px * root.font-scale;
                         vertical-alignment: center;
+                    }
+                }
+                measure-btn := TouchArea {
+                    width: root.measure-kind == 0 ? 44px : 58px;
+                    clicked => { root.toggle-measure(); }
+                    Rectangle {
+                        background: root.measure-kind == 0
+                            ? (measure-btn.has-hover ? #ffffff20 : transparent)
+                            : (measure-btn.has-hover ? #a9791fcc : #8a5d12aa);
+                        border-radius: 4px;
+                        Text {
+                            text: root.measure-kind == 0
+                                ? @tr("計測")
+                                : (root.measure-kind == 1 ? @tr("待機") : root.measure-text);
+                            color: root.measure-kind == 0 ? #cdd : #ffd54f;
+                            font-size: 11px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
                     }
                 }
                 if root.cfg-ui.header-sparkline && root.spark-visible: Rectangle {

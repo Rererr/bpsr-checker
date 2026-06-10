@@ -731,6 +731,18 @@ pub fn finalize_3min_locked(encounter: &mut Encounter) -> EncounterSnapshot {
     snapshot
 }
 
+/// 3分計測を確定し snapshot を返す（履歴 push・mode=Normal は finalize_3min_locked 内）。
+/// 旧 Tauri 版はイベント発火だったが、Slint 版はポーリングで残0を検知して本関数を呼ぶ。
+pub fn finalize_3min_measure_mode(enc: &EncounterMutex) -> Option<EncounterSnapshot> {
+    match enc.lock() {
+        Ok(mut enc) => Some(finalize_3min_locked(&mut enc)),
+        Err(e) => {
+            log::error!("Lock poisoned in finalize_3min_measure_mode: {e}");
+            None
+        }
+    }
+}
+
 pub fn start_3min_measure_mode(enc: &EncounterMutex, duration_secs: f64) {
     let duration_ms = (duration_secs * 1000.0).max(1000.0) as u128;
     match enc.lock() {

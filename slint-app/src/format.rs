@@ -161,3 +161,90 @@ pub fn format_row_name(
     }
     out
 }
+
+/// コピー用テンプレートの全キーを展開する元データ（utils.ts formatRowAsText 相当）。
+/// S5 のクリップボードコピーでも実プレイヤー行から組み立てて再利用する。
+pub struct CopyRowData<'a> {
+    pub rank: i32,
+    pub name: &'a str,
+    pub class_name: &'a str,
+    pub class_spec_name: &'a str,
+    pub total_value: f64,
+    pub value_per_sec: f64,
+    pub value_pct: f64,
+    pub crit_rate: f64,
+    pub crit_value_rate: f64,
+    pub lucky_rate: f64,
+    pub lucky_value_rate: f64,
+    pub hits: f64,
+    pub hits_per_minute: f64,
+    pub ability_score: f64,
+    pub season_level: f64,
+    pub season_strength: f64,
+}
+
+/// コピーテンプレート展開（utils.ts formatRowAsText の全キー）。
+pub fn format_row_template(d: &CopyRowData, template: &str, abbreviate: bool) -> String {
+    let spec = if !d.class_spec_name.is_empty() && d.class_spec_name != "不明" {
+        d.class_spec_name
+    } else {
+        ""
+    };
+    let score = if d.ability_score > 0.0 {
+        format_score(d.ability_score, abbreviate)
+    } else {
+        MISSING.to_string()
+    };
+    let season_lv = if d.season_level > 0.0 {
+        format!("{}", d.season_level.round() as i64)
+    } else {
+        MISSING.to_string()
+    };
+    let season_str = if d.season_strength > 0.0 {
+        format_score(d.season_strength, abbreviate)
+    } else {
+        MISSING.to_string()
+    };
+
+    let mut out = String::with_capacity(template.len() + 32);
+    let mut chars = template.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '{' {
+            out.push(c);
+            continue;
+        }
+        let mut key = String::new();
+        while let Some(&nc) = chars.peek() {
+            if nc == '}' {
+                chars.next();
+                break;
+            }
+            key.push(nc);
+            chars.next();
+        }
+        match key.as_str() {
+            "rank" => out.push_str(&d.rank.to_string()),
+            "name" => out.push_str(d.name),
+            "class" => out.push_str(d.class_name),
+            "spec" => out.push_str(spec),
+            "dmg" => out.push_str(&format_number(d.total_value)),
+            "dps" => out.push_str(&format_dps(d.value_per_sec)),
+            "pct" => out.push_str(&format_pct(d.value_pct)),
+            "crit" => out.push_str(&format_pct(d.crit_rate)),
+            "critV" => out.push_str(&format_pct(d.crit_value_rate)),
+            "lucky" => out.push_str(&format_pct(d.lucky_rate)),
+            "luckyV" => out.push_str(&format_pct(d.lucky_value_rate)),
+            "hits" => out.push_str(&format!("{}", d.hits as i64)),
+            "hpm" => out.push_str(&format!("{:.1}", d.hits_per_minute)),
+            "score" => out.push_str(&score),
+            "seasonLv" => out.push_str(&season_lv),
+            "seasonStr" => out.push_str(&season_str),
+            other => {
+                out.push('{');
+                out.push_str(other);
+                out.push('}');
+            }
+        }
+    }
+    out
+}

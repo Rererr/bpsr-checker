@@ -1053,6 +1053,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             hr.set_vec(Vec::new());
         });
     }
+    // 3分計測: 通常→開始 / 待機・計測中→キャンセル（確認ダイアログは省略）。
+    {
+        let enc_m = enc.clone();
+        let cfg_m = cfg.clone();
+        main.on_toggle_measure(move || {
+            let status = compute::get_measure_mode_status(&enc_m);
+            if status.kind == "normal" {
+                compute::start_3min_measure_mode(&enc_m, cfg_m.borrow().three_min_duration_sec);
+            } else {
+                compute::cancel_3min_measure_mode(&enc_m);
+            }
+        });
+    }
 
     main.show()?;
     if cfg.borrow().show_self_status_overlay {
@@ -1115,6 +1128,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             m.set_spark_commands(cmds.into());
         } else if m.get_spark_visible() {
             m.set_spark_visible(false);
+        }
+
+        // 3分計測の状態反映＋残0で自動確定（→履歴。結果パネルは後続増分）
+        let ms = compute::get_measure_mode_status(&enc_poll);
+        let mkind = match ms.kind.as_str() {
+            "pending" => 1,
+            "active" => 2,
+            _ => 0,
+        };
+        m.set_measure_kind(mkind);
+        if mkind == 2 {
+            let rem = ms.remaining_ms.unwrap_or(0.0).max(0.0);
+            m.set_measure_text(format::format_elapsed(rem).into());
+            if rem <= 0.0 {
+                let _ = compute::finalize_3min_measure_mode(&enc_poll);
+            }
         }
 
         let cur_tab = tab_cell_poll.get();

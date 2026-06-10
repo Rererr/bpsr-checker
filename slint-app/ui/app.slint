@@ -114,6 +114,12 @@ struct ResultRowUi {
     pct-text: string,
 }
 
+// ダメージ内訳 円グラフの1スライス（扇形のSVGパス＋色）。viewbox 100x100
+struct PieSlice {
+    commands: string,
+    color: color,
+}
+
 component TabButton inherits TouchArea {
     in property <string> label;
     in property <bool> active;
@@ -619,6 +625,7 @@ export component MainWindow inherits Window {
     in property <string> result-spark;
     in property <bool> result-spark-visible;
     in property <[ResultRowUi]> result-rows;
+    in property <[PieSlice]> result-pie;
     callback quit();
     callback start-drag();
     callback start-resize(int);
@@ -1187,14 +1194,42 @@ export component MainWindow inherits Window {
                     stroke-width: 1px;
                     fill: transparent;
                 }
-                Flickable {
+                HorizontalLayout {
                     vertical-stretch: 1;
-                    max-height: 100000px;
-                    viewport-height: resbox.preferred-height;
-                    resbox := VerticalLayout {
-                        spacing: 2px;
-                        for r in root.result-rows: ResultRow { e: r; }
-                        if root.result-rows.length == 0: Text { text: @tr("ダメージなし"); color: #555; font-size: 11px; height: 30px; horizontal-alignment: center; vertical-alignment: center; }
+                    spacing: 8px;
+                    // 左 65%: ダメージ詳細（プレイヤー行）
+                    Flickable {
+                        horizontal-stretch: 0.65;
+                        max-height: 100000px;
+                        viewport-height: resbox.preferred-height;
+                        resbox := VerticalLayout {
+                            spacing: 2px;
+                            for r in root.result-rows: ResultRow { e: r; }
+                            if root.result-rows.length == 0: Text { text: @tr("ダメージなし"); color: #555; font-size: 11px; height: 30px; horizontal-alignment: center; vertical-alignment: center; }
+                        }
+                    }
+                    // 右 35%: ダメージ内訳の円グラフ（クラス色・正方形で中央寄せ）
+                    pie-col := Rectangle {
+                        horizontal-stretch: 0.35;
+                        property <length> sz: self.width < self.height ? self.width : self.height;
+                        Rectangle {
+                            width: pie-col.sz;
+                            height: pie-col.sz;
+                            x: (pie-col.width - pie-col.sz) / 2;
+                            y: (pie-col.height - pie-col.sz) / 2;
+                            for slice in root.result-pie: Path {
+                                width: 100%;
+                                height: 100%;
+                                viewbox-x: 0;
+                                viewbox-y: 0;
+                                viewbox-width: 100;
+                                viewbox-height: 100;
+                                commands: slice.commands;
+                                fill: slice.color;
+                                stroke: #14141e;
+                                stroke-width: 1px;
+                            }
+                        }
                     }
                 }
                 HorizontalLayout {

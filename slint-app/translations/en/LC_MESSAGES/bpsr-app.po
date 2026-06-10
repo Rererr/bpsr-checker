@@ -191,3 +191,12 @@ msgstr "Copy"
 
 msgid "済"
 msgstr "OK"
+
+msgid "履歴クリア"
+msgstr "Clear history"
+
+msgid "履歴なし"
+msgstr "No history"
+
+msgid "人"
+msgstr " players"

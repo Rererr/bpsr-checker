@@ -209,3 +209,21 @@ msgstr "3-min"
 
 msgid "待機"
 msgstr "Armed"
+
+msgid "3分計測 結果"
+msgstr "3-min Result"
+
+msgid "総ダメ"
+msgstr "Total dmg"
+
+msgid "計測時間"
+msgstr "Duration"
+
+msgid "ダメージなし"
+msgstr "No damage"
+
+msgid "再計測"
+msgstr "Restart"
+
+msgid "閉じる"
+msgstr "Close"

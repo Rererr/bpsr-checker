@@ -645,7 +645,7 @@ export component MainWindow inherits Window {
     callback restart-measure();
 
     title: @tr("DPSメーター");
-    default-font-family: "Meiryo"; // femtovg は ClearType 非対応のため可読性重視の和文フォントを既定に
+    default-font-family: "Yu Gothic UI"; // femtovg は ClearType 非対応のため可読性重視の和文フォントを既定に
     no-frame: true;
     always-on-top: root.aot;
     // 不透明度: 背景の透け具合を調整（文字・バーは可読性のため不透明のまま）
@@ -1270,7 +1270,7 @@ export component SelfStatusOverlay inherits Window {
     callback start-resize(int);
 
     title: @tr("自キャラ バフ/デバフ表示");
-    default-font-family: "Meiryo";
+    default-font-family: "Yu Gothic UI";
     no-frame: true;
     always-on-top: true;
     background: #0a0a12d1;
@@ -1378,7 +1378,7 @@ export component BuffOverlay inherits Window {
     callback start-resize(int);
 
     title: @tr("イマジンデバフタイマー");
-    default-font-family: "Meiryo";
+    default-font-family: "Yu Gothic UI";
     no-frame: true;
     always-on-top: true;
     background: #0a0a12d1;

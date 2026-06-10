@@ -232,6 +232,41 @@ component PlayerRowItem inherits Rectangle {
     }
 }
 
+// 軽量分割表示の行（名前＋ダメージ＋DPSのみ。グラフ/ピン無し）
+component CompactRowItem inherits Rectangle {
+    in property <Row> entry;
+    in property <bool> highlight-local;
+    in property <float> font-scale: 1.0;
+    callback activate(string);
+    height: 18px;
+    background: cta.has-hover
+        ? #ffffff12
+        : ((root.entry.is-local && root.highlight-local) ? #ffd7001f : transparent);
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width * (root.entry.pct / 100.0);
+        height: 100%;
+        background: @linear-gradient(90deg, root.entry.class-color.with-alpha(0.18) 0%, transparent 100%);
+    }
+    cta := TouchArea {
+        clicked => { root.activate(root.entry.uid-str); }
+    }
+    HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 6px;
+        spacing: 5px;
+        HorizontalLayout {
+            horizontal-stretch: 1;
+            spacing: 4px;
+            Rectangle { width: 2px; background: root.entry.class-color; border-radius: 1px; }
+            Text { text: root.entry.name; color: white; font-size: 11px * root.font-scale; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
+        }
+        Text { text: root.entry.dmg-text; color: #e6e6f0; font-size: 11px * root.font-scale; width: 56px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.entry.dps-text; color: #4fc3f7; font-size: 11px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+    }
+}
+
 component SkillRowItem inherits Rectangle {
     in property <SkillRowUi> entry;
     in property <bool> clickable;
@@ -518,6 +553,8 @@ component ResizeEdges inherits Rectangle {
 
 export component MainWindow inherits Window {
     in property <[Row]> rows;
+    in property <[Row]> compact-left;   // 軽量分割 左カラム（前半）
+    in property <[Row]> compact-right;  // 軽量分割 右カラム（後半）
     in property <[SkillRowUi]> skill-rows;
     in property <[HistoryRowUi]> history-rows;
     in property <string> total-text: "0";
@@ -675,8 +712,8 @@ export component MainWindow inherits Window {
             }
         }
 
-        // ── 一覧ビュー（履歴タブ以外）──
-        if !root.settings-open && root.view == 0 && root.tab != 3: VerticalLayout {
+        // ── 一覧ビュー（履歴タブ以外・通常列）──
+        if !root.settings-open && root.view == 0 && root.tab != 3 && !root.cfg-ui.compact-split: VerticalLayout {
             vertical-stretch: 1;
             Rectangle {
                 height: 16px;
@@ -727,6 +764,59 @@ export component MainWindow inherits Window {
                         horizontal-alignment: center;
                         vertical-alignment: center;
                     }
+                }
+            }
+        }
+
+        // ── 軽量分割表示（2カラム・履歴タブ以外）──
+        if !root.settings-open && root.view == 0 && root.tab != 3 && root.cfg-ui.compact-split: Flickable {
+            vertical-stretch: 1;
+            max-height: 100000px;
+            viewport-height: csbox.preferred-height;
+            csbox := HorizontalLayout {
+                spacing: 4px;
+                // 左カラム（前半）
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    Rectangle {
+                        height: 16px;
+                        HorizontalLayout {
+                            padding-left: 6px;
+                            padding-right: 6px;
+                            spacing: 5px;
+                            Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; vertical-alignment: center; }
+                            Text { text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ")); color: #888; font-size: 10px * root.font-scale; width: 56px; horizontal-alignment: right; vertical-alignment: center; }
+                            Text { text: @tr("DPS"); color: #888; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                        }
+                    }
+                    for row in root.compact-left: CompactRowItem {
+                        entry: row;
+                        highlight-local: root.highlight-local;
+                        font-scale: root.font-scale;
+                        activate(u) => { root.open-drill(u); }
+                    }
+                }
+                // 右カラム（後半）
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    Rectangle {
+                        height: 16px;
+                        HorizontalLayout {
+                            padding-left: 6px;
+                            padding-right: 6px;
+                            spacing: 5px;
+                            Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; vertical-alignment: center; }
+                            Text { text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ")); color: #888; font-size: 10px * root.font-scale; width: 56px; horizontal-alignment: right; vertical-alignment: center; }
+                            Text { text: @tr("DPS"); color: #888; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                        }
+                    }
+                    for row in root.compact-right: CompactRowItem {
+                        entry: row;
+                        highlight-local: root.highlight-local;
+                        font-scale: root.font-scale;
+                        activate(u) => { root.open-drill(u); }
+                    }
+                    if root.rows.length == 0: Text { text: @tr("データなし"); color: #666; font-size: 12px; height: 40px; horizontal-alignment: center; vertical-alignment: center; }
                 }
             }
         }

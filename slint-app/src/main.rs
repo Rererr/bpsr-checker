@@ -246,6 +246,66 @@ fn build_spark_commands(points: &[bpsr_core::models::TimeSeriesPoint], vw: f32, 
     s
 }
 
+/// PlayerRow → コピーテンプレ用データ（copy-list / 結果コピーで共用）。
+fn copy_row_data(p: &bpsr_core::models::PlayerRow, rank: i32) -> format::CopyRowData<'_> {
+    format::CopyRowData {
+        rank,
+        name: &p.name,
+        class_name: &p.class_name,
+        class_spec_name: &p.class_spec_name,
+        total_value: p.total_value,
+        value_per_sec: p.value_per_sec,
+        value_pct: p.value_pct,
+        crit_rate: p.crit_rate,
+        crit_value_rate: p.crit_value_rate,
+        lucky_rate: p.lucky_rate,
+        lucky_value_rate: p.lucky_value_rate,
+        hits: p.hits,
+        hits_per_minute: p.hits_per_minute,
+        ability_score: p.ability_score,
+        season_level: p.season_level,
+        season_strength: p.season_strength,
+    }
+}
+
+/// 3分計測 結果パネルへスナップショットを反映して開く。
+fn show_result(
+    m: &MainWindow,
+    snap: &bpsr_core::models::EncounterSnapshot,
+    result_rows: &slint::VecModel<ResultRowUi>,
+    privacy: bool,
+) {
+    m.set_result_dps(format::format_dps(snap.total_dps).into());
+    m.set_result_dmg(format::format_number(snap.total_dmg).into());
+    m.set_result_duration(format::format_elapsed(snap.duration_ms).into());
+    let cmds = build_spark_commands(&snap.time_series, 100.0, 16.0);
+    m.set_result_spark_visible(!cmds.is_empty());
+    m.set_result_spark(cmds.into());
+    let rows: Vec<ResultRowUi> = snap
+        .player_rows
+        .iter()
+        .take(8)
+        .enumerate()
+        .map(|(i, p)| {
+            let name = if privacy {
+                format::mask_player_name(p.uid as i64)
+            } else {
+                p.name.clone()
+            };
+            ResultRowUi {
+                rank_text: format!("{}.", i + 1).into(),
+                name: name.into(),
+                class_color: format::class_color(&p.class_name),
+                dps_text: format::format_dps(p.value_per_sec).into(),
+                dmg_text: format::format_number(p.total_value).into(),
+                pct_text: format::format_pct(p.value_pct).into(),
+            }
+        })
+        .collect();
+    result_rows.set_vec(rows);
+    m.set_result_open(true);
+}
+
 /// ドリルダウン状態。
 #[derive(Clone, Copy)]
 enum Drill {
@@ -553,6 +613,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let history_rows = Rc::new(VecModel::<HistoryRowUi>::default());
     main.set_history_rows(history_rows.clone().into());
     let history_expanded = Rc::new(Cell::new(None::<i64>));
+
+    // 3分計測 結果パネル用モデル＋最後の結果スナップショット（コピー/再計測で参照）
+    let result_rows = Rc::new(VecModel::<ResultRowUi>::default());
+    main.set_result_rows(result_rows.clone().into());
+    let last_result = Rc::new(RefCell::new(None::<bpsr_core::models::EncounterSnapshot>));
 
     // 自キャラ バフ/デバフ オーバーレイ（別ウィンドウ）
     let self_overlay = SelfStatusOverlay::new()?;
@@ -983,24 +1048,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .enumerate()
                     .map(|(i, p)| {
                         format::format_row_template(
-                            &format::CopyRowData {
-                                rank: (i + 1) as i32,
-                                name: &p.name,
-                                class_name: &p.class_name,
-                                class_spec_name: &p.class_spec_name,
-                                total_value: p.total_value,
-                                value_per_sec: p.value_per_sec,
-                                value_pct: p.value_pct,
-                                crit_rate: p.crit_rate,
-                                crit_value_rate: p.crit_value_rate,
-                                lucky_rate: p.lucky_rate,
-                                lucky_value_rate: p.lucky_value_rate,
-                                hits: p.hits,
-                                hits_per_minute: p.hits_per_minute,
-                                ability_score: p.ability_score,
-                                season_level: p.season_level,
-                                season_strength: p.season_strength,
-                            },
+                            &copy_row_data(p, (i + 1) as i32),
                             &c.copy_template,
                             c.abbreviate_scores,
                         )
@@ -1066,6 +1114,57 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
+    // 3分計測 結果パネル: 閉じる
+    {
+        let w = main.as_weak();
+        main.on_close_result(move || {
+            if let Some(m) = w.upgrade() {
+                m.set_result_open(false);
+            }
+        });
+    }
+    // 3分計測 結果パネル: 上位10行を copy_template でコピー
+    {
+        let lr = last_result.clone();
+        let cfg_cr = cfg.clone();
+        main.on_copy_result(move || {
+            let snap = lr.borrow();
+            let Some(snap) = snap.as_ref() else {
+                return;
+            };
+            let text = {
+                let c = cfg_cr.borrow();
+                snap.player_rows
+                    .iter()
+                    .take(10)
+                    .enumerate()
+                    .map(|(i, p)| {
+                        format::format_row_template(
+                            &copy_row_data(p, (i + 1) as i32),
+                            &c.copy_template,
+                            c.abbreviate_scores,
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
+            if let Err(e) = arboard::Clipboard::new().and_then(|mut cb| cb.set_text(text)) {
+                log::warn!("clipboard copy (result) failed: {e}");
+            }
+        });
+    }
+    // 3分計測 結果パネル: 閉じて再計測を開始
+    {
+        let w = main.as_weak();
+        let enc_rm = enc.clone();
+        let cfg_rm = cfg.clone();
+        main.on_restart_measure(move || {
+            if let Some(m) = w.upgrade() {
+                m.set_result_open(false);
+            }
+            compute::start_3min_measure_mode(&enc_rm, cfg_rm.borrow().three_min_duration_sec);
+        });
+    }
 
     main.show()?;
     if cfg.borrow().show_self_status_overlay {
@@ -1095,6 +1194,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let wl_poll = wl.clone();
     let history_rows_poll = history_rows.clone();
     let history_expanded_poll = history_expanded.clone();
+    let result_rows_poll = result_rows.clone();
+    let last_result_poll = last_result.clone();
     let poll_ms = cfg.borrow().poll_interval_ms.max(50.0) as u64;
 
     let timer = Timer::default();
@@ -1142,7 +1243,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let rem = ms.remaining_ms.unwrap_or(0.0).max(0.0);
             m.set_measure_text(format::format_elapsed(rem).into());
             if rem <= 0.0 {
-                let _ = compute::finalize_3min_measure_mode(&enc_poll);
+                if let Some(snap) = compute::finalize_3min_measure_mode(&enc_poll) {
+                    let c = cfg_poll.borrow();
+                    if c.three_min_auto_open && !c.imagine_only_mode {
+                        *last_result_poll.borrow_mut() = Some(snap.clone());
+                        show_result(&m, &snap, &result_rows_poll, c.privacy_mask_names);
+                    }
+                }
             }
         }
 

@@ -96,6 +96,16 @@ struct HistoryRowUi {
     p-pct: float,
 }
 
+// 3分計測 結果パネルのプレイヤー行
+struct ResultRowUi {
+    rank-text: string,
+    name: string,
+    class-color: color,
+    dps-text: string,
+    dmg-text: string,
+    pct-text: string,
+}
+
 component TabButton inherits TouchArea {
     in property <string> label;
     in property <bool> active;
@@ -297,6 +307,24 @@ component HistoryRowItem inherits Rectangle {
         if !root.e.is-header: Text { text: root.e.name; color: root.e.class-color; font-size: 11px * root.font-scale; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
         if !root.e.is-header: Text { text: root.e.p-dps-text; color: #4fc3f7; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
         if !root.e.is-header: Text { text: root.e.p-pct-text; color: #aaa; font-size: 10px * root.font-scale; width: 40px; horizontal-alignment: right; vertical-alignment: center; }
+    }
+}
+
+// 3分計測 結果パネルの行
+component ResultRow inherits Rectangle {
+    in property <ResultRowUi> e;
+    height: 18px;
+    background: #ffffff0a;
+    border-radius: 2px;
+    HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 6px;
+        spacing: 8px;
+        Text { text: root.e.rank-text; color: #666; width: 18px; font-size: 10px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.e.name; color: root.e.class-color; font-size: 11px; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
+        Text { text: root.e.dps-text; color: #4fc3f7; font-size: 10px; width: 56px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.e.dmg-text; color: #aaa; font-size: 10px; width: 60px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.e.pct-text; color: #777; font-size: 10px; width: 40px; horizontal-alignment: right; vertical-alignment: center; }
     }
 }
 
@@ -516,6 +544,13 @@ export component MainWindow inherits Window {
     in property <bool> show-graph-col;    // 一覧にDPS推移列を出すか（graph設定＋被ダメ以外）
     in property <int> measure-kind;       // 3分計測 0=通常 1=待機(pending) 2=計測中(active)
     in property <string> measure-text;    // 計測中のカウントダウン "M:SS"
+    in property <bool> result-open;       // 3分計測 結果パネル表示
+    in property <string> result-dps;
+    in property <string> result-dmg;
+    in property <string> result-duration;
+    in property <string> result-spark;
+    in property <bool> result-spark-visible;
+    in property <[ResultRowUi]> result-rows;
     callback quit();
     callback start-drag();
     callback start-resize(int);
@@ -534,6 +569,9 @@ export component MainWindow inherits Window {
     callback toggle-history(string);
     callback clear-history();
     callback toggle-measure();
+    callback close-result();
+    callback copy-result();
+    callback restart-measure();
 
     title: @tr("DPSメーター");
     no-frame: true;
@@ -894,6 +932,91 @@ export component MainWindow inherits Window {
     ResizeHandle { dir: 4; mouse-cursor: nesw-resize; resize(d) => { root.start-resize(d); } x: root.width - 14px; y: 0; width: 14px; height: 14px; }
     ResizeHandle { dir: 7; mouse-cursor: nesw-resize; resize(d) => { root.start-resize(d); } x: 0; y: root.height - 14px; width: 14px; height: 14px; }
     ResizeHandle { dir: 6; mouse-cursor: nwse-resize; resize(d) => { root.start-resize(d); } x: root.width - 14px; y: root.height - 14px; width: 14px; height: 14px; }
+
+    // ── 3分計測 結果モーダル（最上層・背景クリックで閉じる）──
+    if root.result-open: Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #000000cc;
+        backdrop := TouchArea { clicked => { root.close-result(); } }
+        Rectangle {
+            x: 12px;
+            y: 12px;
+            width: parent.width - 24px;
+            height: parent.height - 24px;
+            background: #14141ef7;
+            border-width: 1px;
+            border-color: #ffffff26;
+            border-radius: 8px;
+            // カード内クリックを吸収し背景の close へ落とさない
+            TouchArea {}
+            VerticalLayout {
+                padding: 12px;
+                spacing: 8px;
+                HorizontalLayout {
+                    Text { text: @tr("3分計測 結果"); color: #4fc3f7; font-size: 13px; horizontal-stretch: 1; vertical-alignment: center; }
+                    rclose := TouchArea {
+                        width: 24px;
+                        clicked => { root.close-result(); }
+                        Rectangle {
+                            background: rclose.has-hover ? #c0392b : transparent;
+                            border-radius: 4px;
+                            Text { text: "×"; color: white; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 22px;
+                    VerticalLayout { spacing: 1px; Text { text: "DPS"; color: #888; font-size: 10px; } Text { text: root.result-dps; color: #4fc3f7; font-size: 14px; } }
+                    VerticalLayout { spacing: 1px; Text { text: @tr("総ダメ"); color: #888; font-size: 10px; } Text { text: root.result-dmg; color: #e6e6f0; font-size: 14px; } }
+                    VerticalLayout { spacing: 1px; Text { text: @tr("計測時間"); color: #888; font-size: 10px; } Text { text: root.result-duration; color: #e6e6f0; font-size: 14px; } }
+                }
+                if root.result-spark-visible: Path {
+                    height: 30px;
+                    viewbox-x: 0;
+                    viewbox-y: 0;
+                    viewbox-width: 100;
+                    viewbox-height: 16;
+                    commands: root.result-spark;
+                    stroke: #4fc3f7;
+                    stroke-width: 1px;
+                    fill: transparent;
+                }
+                Flickable {
+                    vertical-stretch: 1;
+                    max-height: 100000px;
+                    viewport-height: resbox.preferred-height;
+                    resbox := VerticalLayout {
+                        spacing: 2px;
+                        for r in root.result-rows: ResultRow { e: r; }
+                        if root.result-rows.length == 0: Text { text: @tr("ダメージなし"); color: #555; font-size: 11px; height: 30px; horizontal-alignment: center; vertical-alignment: center; }
+                    }
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    copy-r := TouchArea {
+                        width: 64px;
+                        height: 24px;
+                        clicked => { root.copy-result(); }
+                        Rectangle { background: copy-r.has-hover ? #ffffff20 : #ffffff10; border-radius: 4px; Text { text: @tr("コピー"); color: #ccc; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; } }
+                    }
+                    restart-r := TouchArea {
+                        width: 64px;
+                        height: 24px;
+                        clicked => { root.restart-measure(); }
+                        Rectangle { background: restart-r.has-hover ? #ffffff20 : #ffffff10; border-radius: 4px; Text { text: @tr("再計測"); color: #ccc; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; } }
+                    }
+                    closebtn-r := TouchArea {
+                        width: 64px;
+                        height: 24px;
+                        clicked => { root.close-result(); }
+                        Rectangle { background: closebtn-r.has-hover ? #4fc3f733 : #4fc3f722; border-width: 1px; border-color: #4fc3f773; border-radius: 4px; Text { text: @tr("閉じる"); color: #4fc3f7; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; } }
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ─── 自キャラ バフ/デバフ オーバーレイ ───────────────────────────────

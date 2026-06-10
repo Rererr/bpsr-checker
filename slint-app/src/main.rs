@@ -189,6 +189,7 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
     m.set_highlight_local(c.highlight_local_player);
     m.set_aot(c.always_on_top);
     m.set_win_opacity(c.opacity as f32);
+    m.set_font_scale((c.font_size / 12.0) as f32);
     m.set_cfg_ui(SettingsUi {
         show_crit: c.show_crit,
         show_crit_value: c.show_crit_value,
@@ -204,6 +205,10 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         buff_overlay: c.show_buff_overlay,
         aot: c.always_on_top,
         three_min_auto_open: c.three_min_auto_open,
+        compact_split: c.compact_split_mode,
+        header_sparkline: c.show_header_sparkline,
+        graph_for_local: c.graph_for_local_player,
+        startup_tab: c.startup_tab.clone().into(),
     });
     let int_str = |v: f64| -> slint::SharedString { format!("{}", v as i64).into() };
     m.set_nums(SettingsNumUi {
@@ -688,6 +693,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "privacy-mask" => c.privacy_mask_names = val,
                     "aot" => c.always_on_top = val,
                     "three-min-auto-open" => c.three_min_auto_open = val,
+                    "compact-split" => c.compact_split_mode = val,
+                    "header-sparkline" => c.show_header_sparkline = val,
+                    "graph-for-local" => c.graph_for_local_player = val,
                     other => log::warn!("unknown setting key: {other}"),
                 }
             }
@@ -787,11 +795,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 match key.as_str() {
                     "name-template" => c.name_template = val.to_string(),
                     "copy-template" => c.copy_template = val.to_string(),
+                    "startup-tab" => c.startup_tab = val.to_string(),
                     other => log::warn!("unknown str key: {other}"),
                 }
             }
             let c = cfg_s.borrow();
             if let Some(m) = w.upgrade() {
+                // cfg-ui(起動タブ強調)・nums・font-scale を反映。テンプレ value は
+                // push されない（apply_settings は触らない）ため入力中もクロバーしない。
+                apply_settings(&m, &c);
                 let (np, cp) = template_previews(&c);
                 m.set_name_preview(np);
                 m.set_copy_preview(cp);

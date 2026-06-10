@@ -170,3 +170,18 @@ msgstr "Copy template"
 
 msgid "リセット"
 msgstr "Reset"
+
+msgid "軽量分割表示"
+msgstr "Compact split"
+
+msgid "フォントサイズ"
+msgstr "Font size"
+
+msgid "起動時のタブ"
+msgstr "Startup tab"
+
+msgid "ヘッダーにグラフ"
+msgstr "Header graph"
+
+msgid "自分のグラフを表示"
+msgstr "Graph for self"

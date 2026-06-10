@@ -20,12 +20,17 @@ Pop-Location
 $exe = Join-Path $root "target/release/bpsr-app.exe"
 if (-not (Test-Path $exe)) { throw "build output not found: $exe" }
 
-# WinDivert（配布同梱に必須・exe 隣に置く）。CI は GitHub から DL し src-tauri/ に置く。
-$wdDll = Join-Path $root "src-tauri/WinDivert.dll"
-$wdSys = Join-Path $root "src-tauri/WinDivert64.sys"
-foreach ($f in @($wdDll, $wdSys)) {
-    if (-not (Test-Path $f)) { throw "WinDivert not found: $f （WinDivert 2.2.2 x64 を配置してください）" }
+# WinDivert（配布同梱に必須・exe 隣に置く）。windivert/ を優先し src-tauri/ をフォールバック
+# （src-tauri 削除後も windivert/ で動くようにする）。CI は GitHub から windivert/ へ DL。
+function Resolve-WinDivert([string]$name) {
+    foreach ($d in @("windivert", "src-tauri")) {
+        $p = Join-Path $root "$d/$name"
+        if (Test-Path $p) { return $p }
+    }
+    throw "WinDivert not found: $name （windivert/ か src-tauri/ に WinDivert 2.2.2 x64 を配置してください）"
 }
+$wdDll = Resolve-WinDivert "WinDivert.dll"
+$wdSys = Resolve-WinDivert "WinDivert64.sys"
 
 $out = Join-Path $root "dist-slint/bpsr-checker"
 Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue

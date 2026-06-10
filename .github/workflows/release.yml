@@ -16,11 +16,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
         with:
@@ -31,8 +26,9 @@ jobs:
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
+
+      - name: Install NSIS
+        run: choco install nsis -y --no-progress
 
       - name: Download WinDivert
         shell: pwsh
@@ -41,24 +37,25 @@ jobs:
           $url = "https://github.com/basil00/Divert/releases/download/v${version}/WinDivert-${version}-A.zip"
           Invoke-WebRequest -Uri $url -OutFile WinDivert.zip
           Expand-Archive -Path WinDivert.zip -DestinationPath WinDivert-extract
-          Copy-Item "WinDivert-extract/WinDivert-${version}-A/x64/WinDivert.dll" -Destination src-tauri/
-          Copy-Item "WinDivert-extract/WinDivert-${version}-A/x64/WinDivert64.sys" -Destination src-tauri/
+          New-Item -ItemType Directory -Force windivert | Out-Null
+          Copy-Item "WinDivert-extract/WinDivert-${version}-A/x64/WinDivert.dll" -Destination windivert/
+          Copy-Item "WinDivert-extract/WinDivert-${version}-A/x64/WinDivert64.sys" -Destination windivert/
 
-      - name: Install frontend dependencies
-        run: npm install
-
-      - name: Build Tauri app
-        run: npm run tauri build
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build & package (Slint release + portable zip + NSIS installer)
+        shell: pwsh
+        run: ./scripts/package-slint.ps1
 
       - name: Prepare artifacts for signing
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force to-sign
-          New-Item -ItemType Directory -Force signed
-          Get-ChildItem src-tauri/target/release/bundle/nsis/*.exe -ErrorAction SilentlyContinue |
+          New-Item -ItemType Directory -Force to-sign | Out-Null
+          New-Item -ItemType Directory -Force signed | Out-Null
+          # インストーラ(.exe)を署名対象に。署名失敗時のフォールバックとして signed/ に未署名も置く。
+          Get-ChildItem dist-slint/*setup*.exe -ErrorAction SilentlyContinue |
             ForEach-Object { Copy-Item $_ to-sign/; Copy-Item $_ signed/ }
+          # ポータブル zip はそのまま配布物に含める（署名対象外）。
+          Get-ChildItem dist-slint/*portable*.zip -ErrorAction SilentlyContinue |
+            ForEach-Object { Copy-Item $_ signed/ }
           Write-Host "Artifacts to sign:"
           Get-ChildItem to-sign/
 

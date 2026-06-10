@@ -38,5 +38,17 @@ $zip = Join-Path $root "dist-slint/bpsr-checker-portable-$ver.zip"
 Remove-Item -Force $zip -ErrorAction SilentlyContinue
 Compress-Archive -Path (Join-Path $out "*") -DestinationPath $zip
 
-Write-Host "Done. Portable artifact:"
-Write-Host "  $zip"
+Write-Host "Portable artifact: $zip"
+
+# NSIS インストーラ（makensis があれば生成）。OutFile は絶対パスで明示。
+$makensis = Get-Command makensis -ErrorAction SilentlyContinue
+if ($makensis) {
+    Write-Host "Building NSIS installer..."
+    $setup = Join-Path $root "dist-slint/bpsr-checker-setup-$ver.exe"
+    & $makensis.Source "/DVERSION=$ver" "/DSRCDIR=$out" "/DOUTFILE=$setup" (Join-Path $root "installer/installer.nsi")
+    if (Test-Path $setup) { Write-Host "Installer: $setup" }
+} else {
+    Write-Host "makensis not found; skipped installer (portable zip のみ生成)."
+}
+
+Write-Host "Done."

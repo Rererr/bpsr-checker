@@ -322,7 +322,19 @@ component ToggleRow inherits TouchArea {
                     border-color: #777;
                     border-radius: 3px;
                     background: root.checked ? #2d6cdf : transparent;
-                    Text { text: root.checked ? "✓" : ""; color: white; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+                    // チェックマークはフォント依存(✓はDingbatsで欠落環境あり)を避け Path 描画
+                    if root.checked: Path {
+                        width: 16px;
+                        height: 16px;
+                        viewbox-x: 0;
+                        viewbox-y: 0;
+                        viewbox-width: 16;
+                        viewbox-height: 16;
+                        commands: "M 3.5 8.5 L 6.5 11.5 L 12.5 4.5";
+                        stroke: white;
+                        stroke-width: 1.6px;
+                        fill: transparent;
+                    }
                 }
             }
             Text { text: root.label; color: #ddd; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; }
@@ -385,7 +397,7 @@ component StepperRow inherits Rectangle {
             Rectangle {
                 background: dec-btn.has-hover ? #ffffff28 : #ffffff12;
                 border-radius: 3px;
-                Text { text: "−"; color: white; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
+                Text { text: "-"; color: white; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
             }
         }
         Text { text: root.value-text; color: #cdd; font-size: 12px; width: 58px; horizontal-alignment: center; vertical-alignment: center; }
@@ -460,6 +472,20 @@ component ResizeHandle inherits TouchArea {
             root.resize(root.dir);
         }
     }
+}
+
+// no-frame 窓の縁/角リサイズ枠（8ハンドル）。中央は透過し下層へイベントを通す。
+// 透明 Rectangle 自体はイベントを捕捉しないため、縁/角のみ反応する。
+component ResizeEdges inherits Rectangle {
+    callback resize(int);
+    ResizeHandle { dir: 0; mouse-cursor: ns-resize; resize(d) => { root.resize(d); } x: 14px; y: 0; width: root.width - 28px; height: 6px; }
+    ResizeHandle { dir: 1; mouse-cursor: ns-resize; resize(d) => { root.resize(d); } x: 14px; y: root.height - 6px; width: root.width - 28px; height: 6px; }
+    ResizeHandle { dir: 2; mouse-cursor: ew-resize; resize(d) => { root.resize(d); } x: root.width - 6px; y: 14px; width: 6px; height: root.height - 28px; }
+    ResizeHandle { dir: 3; mouse-cursor: ew-resize; resize(d) => { root.resize(d); } x: 0; y: 14px; width: 6px; height: root.height - 28px; }
+    ResizeHandle { dir: 5; mouse-cursor: nwse-resize; resize(d) => { root.resize(d); } x: 0; y: 0; width: 14px; height: 14px; }
+    ResizeHandle { dir: 4; mouse-cursor: nesw-resize; resize(d) => { root.resize(d); } x: root.width - 14px; y: 0; width: 14px; height: 14px; }
+    ResizeHandle { dir: 7; mouse-cursor: nesw-resize; resize(d) => { root.resize(d); } x: 0; y: root.height - 14px; width: 14px; height: 14px; }
+    ResizeHandle { dir: 6; mouse-cursor: nwse-resize; resize(d) => { root.resize(d); } x: root.width - 14px; y: root.height - 14px; width: 14px; height: 14px; }
 }
 
 export component MainWindow inherits Window {
@@ -583,7 +609,7 @@ export component MainWindow inherits Window {
                     Rectangle {
                         background: quit-btn.has-hover ? #c0392b : transparent;
                         border-radius: 4px;
-                        Text { text: "✕"; color: white; font-size: 12px; }
+                        Text { text: "×"; color: white; font-size: 12px; }
                     }
                 }
             }
@@ -762,7 +788,7 @@ export component MainWindow inherits Window {
                         Rectangle {
                             background: close-btn.has-hover ? #c0392b : transparent;
                             border-radius: 4px;
-                            Text { text: "✕"; color: white; font-size: 11px; }
+                            Text { text: "×"; color: white; font-size: 11px; }
                         }
                     }
                 }
@@ -891,6 +917,7 @@ export component SelfStatusOverlay inherits Window {
     in property <[StatusEntryUi]> debuffs;
     in property <bool> waiting;
     callback start-drag();
+    callback start-resize(int);
 
     title: @tr("自キャラ バフ/デバフ表示");
     no-frame: true;
@@ -918,6 +945,8 @@ export component SelfStatusOverlay inherits Window {
         if !root.waiting && root.debuffs.length > 0: Text { text: @tr("デバフ"); color: #ffffff66; font-size: 9px; }
         for d in root.debuffs: StatusRow { e: d; }
     }
+    // 縁ドラッグでリサイズ（最前面・最後の子＝最上層で縁イベントを捕捉）
+    ResizeEdges { width: 100%; height: 100%; resize(d) => { root.start-resize(d); } }
 }
 
 // ─── バフタイマー オーバーレイ（イマジンデバフの円形タイマー）────────────
@@ -994,6 +1023,7 @@ export component BuffOverlay inherits Window {
     in property <[BuffPlayerRow]> players;
     in property <bool> empty;
     callback start-drag();
+    callback start-resize(int);
 
     title: @tr("イマジンデバフタイマー");
     no-frame: true;
@@ -1024,5 +1054,7 @@ export component BuffOverlay inherits Window {
         }
         for p in root.players: BuffPlayerRowItem { p: p; }
     }
+    // 縁ドラッグでリサイズ
+    ResizeEdges { width: 100%; height: 100%; resize(d) => { root.start-resize(d); } }
 }
 

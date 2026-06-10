@@ -1146,6 +1146,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
+    // 集計の一時停止トグル / 手動リセット
+    {
+        let enc_p = enc.clone();
+        main.on_toggle_pause(move || compute::toggle_pause(&enc_p));
+    }
+    {
+        let enc_r = enc.clone();
+        main.on_reset_encounter(move || compute::reset_encounter(&enc_r));
+    }
     // 3分計測 結果パネル: 閉じる
     {
         let w = main.as_weak();
@@ -1264,6 +1273,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else if m.get_spark_visible() {
             m.set_spark_visible(false);
         }
+
+        // 一時停止状態をボタンへ反映
+        m.set_paused(compute::is_paused(&enc_poll));
 
         // 3分計測の状態反映＋残0で自動確定（→履歴。結果パネルは後続増分）
         let ms = compute::get_measure_mode_status(&enc_poll);

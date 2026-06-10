@@ -515,6 +515,11 @@ pub fn toggle_pause(enc: &EncounterMutex) {
     }
 }
 
+/// 現在の一時停止状態（UI のボタン表示用）。
+pub fn is_paused(enc: &EncounterMutex) -> bool {
+    enc.lock().map(|e| e.is_paused).unwrap_or(false)
+}
+
 // ─── Encounter snapshot ───────────────────────────────────────────────────────
 
 pub fn build_encounter_snapshot(encounter: &Encounter) -> EncounterSnapshot {

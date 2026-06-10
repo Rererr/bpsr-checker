@@ -369,6 +369,7 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         privacy_mask: c.privacy_mask_names,
         self_status: c.show_self_status_overlay,
         buff_overlay: c.show_buff_overlay,
+        imagine_only: c.imagine_only_mode,
         aot: c.always_on_top,
         three_min_auto_open: c.three_min_auto_open,
         compact_split: c.compact_split_mode,
@@ -904,6 +905,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let w = main.as_weak();
         let cfg_b = cfg.clone();
+        let enc_sb = enc.clone();
         let self_ov = self_overlay.as_weak();
         let buff_ov = buff_overlay.as_weak();
         main.on_set_bool(move |key, val| {
@@ -912,6 +914,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 match key.as_str() {
                     "self-status-overlay" => c.show_self_status_overlay = val,
                     "buff-overlay" => c.show_buff_overlay = val,
+                    // 専用モードON時はイマジンタイマーを強制表示（旧UIと同挙動）
+                    "imagine-only" => {
+                        c.imagine_only_mode = val;
+                        if val {
+                            c.show_buff_overlay = true;
+                        }
+                    }
                     "show-crit" => c.show_crit = val,
                     "show-crit-value" => c.show_crit_value = val,
                     "show-lucky" => c.show_lucky = val,
@@ -950,6 +959,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let _ = o.show();
                     } else {
                         let _ = o.hide();
+                    }
+                }
+            }
+            if key.as_str() == "imagine-only" {
+                compute::set_imagine_only_mode(&enc_sb, c.imagine_only_mode);
+                // 専用モードON時は強制表示にした buff overlay を実際に出す
+                if c.show_buff_overlay {
+                    if let Some(o) = buff_ov.upgrade() {
+                        let _ = o.show();
                     }
                 }
             }

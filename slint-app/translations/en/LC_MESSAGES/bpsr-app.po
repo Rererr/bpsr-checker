@@ -114,6 +114,9 @@ msgstr "Self buffs/debuffs"
 msgid "イマジンデバフタイマー"
 msgstr "Imagine debuff timer"
 
+msgid "イマジン専用モード"
+msgstr "Imagine-only mode"
+
 msgid "DPS一覧でピンアイコンをクリック"
 msgstr "Pin a player in the DPS list"
 

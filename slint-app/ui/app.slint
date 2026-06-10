@@ -1177,25 +1177,36 @@ export component MainWindow inherits Window {
                         }
                     }
                 }
-                HorizontalLayout {
-                    spacing: 22px;
-                    VerticalLayout { spacing: 1px; Text { text: "DPS"; color: #888; font-size: 10px; } Text { text: root.result-dps; color: #4fc3f7; font-size: 14px; } }
-                    VerticalLayout { spacing: 1px; Text { text: @tr("総ダメ"); color: #888; font-size: 10px; } Text { text: root.result-dmg; color: #e6e6f0; font-size: 14px; } }
-                    VerticalLayout { spacing: 1px; Text { text: @tr("計測時間"); color: #888; font-size: 10px; } Text { text: root.result-duration; color: #e6e6f0; font-size: 14px; } }
+                // 上 30%: サマリ（総合DPS/総ダメ/計測時間）＋ 折線グラフ
+                VerticalLayout {
+                    vertical-stretch: 30;
+                    spacing: 6px;
+                    HorizontalLayout {
+                        spacing: 22px;
+                        VerticalLayout { spacing: 1px; Text { text: "DPS"; color: #888; font-size: 10px; } Text { text: root.result-dps; color: #4fc3f7; font-size: 14px; } }
+                        VerticalLayout { spacing: 1px; Text { text: @tr("総ダメ"); color: #888; font-size: 10px; } Text { text: root.result-dmg; color: #e6e6f0; font-size: 14px; } }
+                        VerticalLayout { spacing: 1px; Text { text: @tr("計測時間"); color: #888; font-size: 10px; } Text { text: root.result-duration; color: #e6e6f0; font-size: 14px; } }
+                    }
+                    // 折線（上部の残り高さいっぱいに拡大）
+                    Rectangle {
+                        vertical-stretch: 1;
+                        if root.result-spark-visible: Path {
+                            width: 100%;
+                            height: 100%;
+                            viewbox-x: 0;
+                            viewbox-y: 0;
+                            viewbox-width: 100;
+                            viewbox-height: 16;
+                            commands: root.result-spark;
+                            stroke: #4fc3f7;
+                            stroke-width: 1px;
+                            fill: transparent;
+                        }
+                    }
                 }
-                if root.result-spark-visible: Path {
-                    height: 30px;
-                    viewbox-x: 0;
-                    viewbox-y: 0;
-                    viewbox-width: 100;
-                    viewbox-height: 16;
-                    commands: root.result-spark;
-                    stroke: #4fc3f7;
-                    stroke-width: 1px;
-                    fill: transparent;
-                }
+                // 下 70%: 左右分割（詳細｜円グラフ）
                 HorizontalLayout {
-                    vertical-stretch: 1;
+                    vertical-stretch: 70;
                     spacing: 8px;
                     // 左 65%: ダメージ詳細（プレイヤー行）
                     Flickable {

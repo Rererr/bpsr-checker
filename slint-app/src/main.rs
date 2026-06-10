@@ -80,6 +80,19 @@ fn graph_col_active(c: &settings::Settings, tab: i32) -> bool {
     (c.graph_player_count > 0.0 || c.graph_for_local_player) && tab != 2
 }
 
+/// 通常 rows へ反映しつつ、軽量分割表示用に前半/後半カラムへも分配する。
+fn apply_player_rows(
+    rows: &slint::VecModel<Row>,
+    left: &slint::VecModel<Row>,
+    right: &slint::VecModel<Row>,
+    built: Vec<Row>,
+) {
+    let half = built.len().div_ceil(2);
+    left.set_vec(built[..half].to_vec());
+    right.set_vec(built[half..].to_vec());
+    rows.set_vec(built);
+}
+
 #[allow(clippy::too_many_arguments)]
 fn build_rows(
     pw: &bpsr_core::models::PlayersWindow,
@@ -600,6 +613,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = slint::select_bundled_translation("ja");
     let rows = Rc::new(VecModel::<Row>::default());
     main.set_rows(rows.clone().into());
+    // 軽量分割表示の左右カラム（rows を前半/後半に分配）
+    let compact_left = Rc::new(VecModel::<Row>::default());
+    let compact_right = Rc::new(VecModel::<Row>::default());
+    main.set_compact_left(compact_left.clone().into());
+    main.set_compact_right(compact_right.clone().into());
 
     // 現在タブ（UIスレッド共有）。タブクリックと周期ポーリングの両方が参照する。
     let tab_cell = Rc::new(Cell::new(0i32));
@@ -712,6 +730,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let drill_sel = drill.clone();
         let hist_rows_sel = history_rows.clone();
         let hist_exp_sel = history_expanded.clone();
+        let cl_sel = compact_left.clone();
+        let cr_sel = compact_right.clone();
         main.on_select_tab(move |n| {
             tab_sel.set(n);
             drill_sel.set(Drill::None);
@@ -728,15 +748,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else {
                     let c = cfg_sel.borrow();
                     m.set_show_graph_col(graph_col_active(&c, n));
-                    rows_sel.set_vec(build_rows(
-                        &fetch_players(&enc_sel, n),
-                        &c.name_template,
-                        c.abbreviate_scores,
-                        c.privacy_mask_names,
-                        &wl_sel.borrow().watched,
-                        c.graph_player_count as i32,
-                        c.graph_for_local_player,
-                    ));
+                    apply_player_rows(
+                        &rows_sel,
+                        &cl_sel,
+                        &cr_sel,
+                        build_rows(
+                            &fetch_players(&enc_sel, n),
+                            &c.name_template,
+                            c.abbreviate_scores,
+                            c.privacy_mask_names,
+                            &wl_sel.borrow().watched,
+                            c.graph_player_count as i32,
+                            c.graph_for_local_player,
+                        ),
+                    );
                 }
             }
         });
@@ -829,6 +854,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let rows_t = rows.clone();
         let cfg_t = cfg.clone();
         let tab_t = tab_cell.clone();
+        let cl_t = compact_left.clone();
+        let cr_t = compact_right.clone();
         main.on_toggle_watch(move |uid_str| {
             let uid: i64 = uid_str.as_str().parse().unwrap_or(0);
             if uid == 0 {
@@ -842,15 +869,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if w.upgrade().is_some() {
                 let c = cfg_t.borrow();
                 let pw = fetch_players(&enc_t, tab_t.get());
-                rows_t.set_vec(build_rows(
-                    &pw,
-                    &c.name_template,
-                    c.abbreviate_scores,
-                    c.privacy_mask_names,
-                    &wl_t.borrow().watched,
-                    c.graph_player_count as i32,
-                    c.graph_for_local_player,
-                ));
+                apply_player_rows(
+                    &rows_t,
+                    &cl_t,
+                    &cr_t,
+                    build_rows(
+                        &pw,
+                        &c.name_template,
+                        c.abbreviate_scores,
+                        c.privacy_mask_names,
+                        &wl_t.borrow().watched,
+                        c.graph_player_count as i32,
+                        c.graph_for_local_player,
+                    ),
+                );
             }
         });
     }
@@ -1196,6 +1228,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let history_expanded_poll = history_expanded.clone();
     let result_rows_poll = result_rows.clone();
     let last_result_poll = last_result.clone();
+    let compact_left_poll = compact_left.clone();
+    let compact_right_poll = compact_right.clone();
     let poll_ms = cfg.borrow().poll_interval_ms.max(50.0) as u64;
 
     let timer = Timer::default();
@@ -1267,15 +1301,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let pw = fetch_players(&enc_poll, cur_tab);
             let c = cfg_poll.borrow();
             m.set_show_graph_col(graph_col_active(&c, cur_tab));
-            rows.set_vec(build_rows(
-                &pw,
-                &c.name_template,
-                c.abbreviate_scores,
-                c.privacy_mask_names,
-                &wl_poll.borrow().watched,
-                c.graph_player_count as i32,
-                c.graph_for_local_player,
-            ));
+            apply_player_rows(
+                &rows,
+                &compact_left_poll,
+                &compact_right_poll,
+                build_rows(
+                    &pw,
+                    &c.name_template,
+                    c.abbreviate_scores,
+                    c.privacy_mask_names,
+                    &wl_poll.borrow().watched,
+                    c.graph_player_count as i32,
+                    c.graph_for_local_player,
+                ),
+            );
         }
 
         // ドリルダウン中はライブ更新

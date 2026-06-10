@@ -10,6 +10,8 @@ mod capture;
 mod format;
 mod overlay;
 mod settings;
+#[cfg(windows)]
+mod tray;
 mod watchlist;
 mod window_state;
 
@@ -1522,6 +1524,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let compact_left_poll = compact_left.clone();
     let compact_right_poll = compact_right.clone();
     let uid_candidates_poll = uid_candidates.clone();
+    // タスクトレイ／クリックスルー状態（poll closure が move で保持）
+    let click_through = Rc::new(Cell::new(false));
+    let main_visible = Rc::new(Cell::new(true));
+    #[cfg(windows)]
+    let tray_holder: Rc<RefCell<Option<tray::Tray>>> = Rc::new(RefCell::new(None));
     let poll_ms = cfg.borrow().poll_interval_ms.max(50.0) as u64;
 
     let timer = Timer::default();
@@ -1539,6 +1546,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 setup_done = true;
                 setup_tick = tick;
                 log::info!("window restored on {} monitor(s)", mons.len());
+                // イベントループ稼働後にトレイを生成
+                #[cfg(windows)]
+                {
+                    *tray_holder.borrow_mut() = tray::create();
+                    log::info!("tray created: {}", tray_holder.borrow().is_some());
+                }
+            }
+        }
+
+        // トレイメニューのイベント処理（クリックスルー切替・表示/非表示・終了）
+        #[cfg(windows)]
+        {
+            let holder = tray_holder.borrow();
+            if let Some(tray) = holder.as_ref() {
+                while let Ok(ev) = tray_icon::menu::MenuEvent::receiver().try_recv() {
+                    if ev.id == tray.id_quit {
+                        let _ = slint::quit_event_loop();
+                    } else if ev.id == tray.id_show_hide {
+                        let vis = !main_visible.get();
+                        main_visible.set(vis);
+                        let _ = if vis { m.show() } else { m.hide() };
+                    } else if ev.id == tray.id_click_through {
+                        let on = !click_through.get();
+                        click_through.set(on);
+                        tray.click_through.set_checked(on);
+                        overlay::set_click_through(m.window(), on);
+                        if let Some(o) = self_overlay_w.upgrade() {
+                            overlay::set_click_through(o.window(), on);
+                        }
+                        if let Some(o) = buff_overlay_w.upgrade() {
+                            overlay::set_click_through(o.window(), on);
+                        }
+                    }
+                }
             }
         }
 

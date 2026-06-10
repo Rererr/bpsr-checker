@@ -699,12 +699,12 @@ export component MainWindow inherits Window {
                     }
                 }
                 reset-btn := TouchArea {
-                    width: 36px;
+                    width: 44px;
                     clicked => { root.reset-encounter(); }
                     Rectangle {
                         background: reset-btn.has-hover ? #ffffff20 : transparent;
                         border-radius: 4px;
-                        Text { text: @tr("初期化"); color: #cdd; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; }
+                        Text { text: @tr("初期化"); color: #cdd; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
                     }
                 }
                 measure-btn := TouchArea {

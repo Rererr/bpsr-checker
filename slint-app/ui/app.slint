@@ -77,6 +77,24 @@ struct SkillRowUi {
     pct: float,
 }
 
+// 履歴ビューのフラット行（is-header=エンカウンタ見出し / false=プレイヤー行）。
+// 展開はネスト配列を避け、Rust 側で展開中のみプレイヤー行を差し込む。
+struct HistoryRowUi {
+    is-header: bool,
+    snap-id: string,
+    expanded: bool,
+    duration-text: string,
+    dps-text: string,
+    dmg-text: string,
+    count-text: string,
+    rank-text: string,
+    name: string,
+    class-color: color,
+    p-dps-text: string,
+    p-pct-text: string,
+    p-pct: float,
+}
+
 component TabButton inherits TouchArea {
     in property <string> label;
     in property <bool> active;
@@ -220,6 +238,46 @@ component SkillRowItem inherits Rectangle {
         enabled: root.clickable;
         mouse-cursor: root.clickable ? pointer : default;
         clicked => { root.activate(root.entry.uid-str); }
+    }
+}
+
+// 履歴の行（見出し or プレイヤー）。見出しはクリックで展開トグル。
+component HistoryRowItem inherits Rectangle {
+    in property <HistoryRowUi> e;
+    in property <float> font-scale: 1.0;
+    callback toggle(string);
+    height: root.e.is-header ? 24px : 18px;
+    background: (root.e.is-header && hta.has-hover) ? #ffffff14 : (root.e.is-header ? #ffffff08 : transparent);
+
+    // プレイヤー行の割合バー
+    if !root.e.is-header: Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width * (root.e.p-pct / 100.0);
+        height: 100%;
+        background: @linear-gradient(90deg, root.e.class-color.with-alpha(0.18) 0%, transparent 100%);
+    }
+    // 見出しのみクリック可（プレイヤー行では enabled:false で無反応）
+    hta := TouchArea {
+        enabled: root.e.is-header;
+        mouse-cursor: root.e.is-header ? pointer : default;
+        clicked => { root.toggle(root.e.snap-id); }
+    }
+    HorizontalLayout {
+        padding-left: root.e.is-header ? 8px : 18px;
+        padding-right: 8px;
+        spacing: 8px;
+        // ── 見出し ──
+        if root.e.is-header: Text { text: root.e.duration-text; color: #888; font-size: 10px * root.font-scale; width: 40px; vertical-alignment: center; }
+        if root.e.is-header: Text { text: root.e.dps-text + " DPS"; color: #4fc3f7; font-size: 11px * root.font-scale; width: 90px; vertical-alignment: center; }
+        if root.e.is-header: Text { text: root.e.dmg-text; color: #aaa; font-size: 10px * root.font-scale; width: 60px; vertical-alignment: center; }
+        if root.e.is-header: Text { text: root.e.count-text + @tr("人"); color: #666; font-size: 10px * root.font-scale; horizontal-stretch: 1; vertical-alignment: center; }
+        if root.e.is-header: Text { text: root.e.expanded ? "▲" : "▼"; color: #555; font-size: 9px * root.font-scale; vertical-alignment: center; }
+        // ── プレイヤー行 ──
+        if !root.e.is-header: Text { text: root.e.rank-text; color: #555; font-size: 10px * root.font-scale; width: 18px; vertical-alignment: center; }
+        if !root.e.is-header: Text { text: root.e.name; color: root.e.class-color; font-size: 11px * root.font-scale; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
+        if !root.e.is-header: Text { text: root.e.p-dps-text; color: #4fc3f7; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+        if !root.e.is-header: Text { text: root.e.p-pct-text; color: #aaa; font-size: 10px * root.font-scale; width: 40px; horizontal-alignment: right; vertical-alignment: center; }
     }
 }
 
@@ -388,6 +446,7 @@ component ResizeHandle inherits TouchArea {
 export component MainWindow inherits Window {
     in property <[Row]> rows;
     in property <[SkillRowUi]> skill-rows;
+    in property <[HistoryRowUi]> history-rows;
     in property <string> total-text: "0";
     in property <string> elapsed-text: "0:00";
     in property <string> inspected-name;
@@ -422,6 +481,8 @@ export component MainWindow inherits Window {
     callback set-str(string, string);
     callback reset-str(string);
     callback copy-list();
+    callback toggle-history(string);
+    callback clear-history();
 
     title: @tr("DPSメーター");
     no-frame: true;
@@ -490,8 +551,8 @@ export component MainWindow inherits Window {
             }
         }
 
-        // ── 一覧ビュー ──
-        if !root.settings-open && root.view == 0: VerticalLayout {
+        // ── 一覧ビュー（履歴タブ以外）──
+        if !root.settings-open && root.view == 0 && root.tab != 3: VerticalLayout {
             vertical-stretch: 1;
             Rectangle {
                 height: 16px;
@@ -534,6 +595,50 @@ export component MainWindow inherits Window {
                     }
                     if root.rows.length == 0: Text {
                         text: @tr("データなし");
+                        color: #666;
+                        font-size: 12px;
+                        height: 40px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+
+        // ── 履歴ビュー ──
+        if !root.settings-open && root.view == 0 && root.tab == 3: VerticalLayout {
+            vertical-stretch: 1;
+            Rectangle {
+                height: 20px;
+                background: #20202e;
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 6px;
+                    spacing: 6px;
+                    Text { text: @tr("履歴"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; vertical-alignment: center; }
+                    clear-btn := TouchArea {
+                        width: 70px;
+                        clicked => { root.clear-history(); }
+                        Rectangle {
+                            background: clear-btn.has-hover ? #ffffff20 : #ffffff10;
+                            border-radius: 3px;
+                            Text { text: @tr("履歴クリア"); color: #cdd; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; }
+                        }
+                    }
+                }
+            }
+            Flickable {
+                vertical-stretch: 1;
+                max-height: 100000px;
+                viewport-height: histbox.preferred-height;
+                histbox := VerticalLayout {
+                    for h in root.history-rows: HistoryRowItem {
+                        e: h;
+                        font-scale: root.font-scale;
+                        toggle(id) => { root.toggle-history(id); }
+                    }
+                    if root.history-rows.length == 0: Text {
+                        text: @tr("履歴なし");
                         color: #666;
                         font-size: 12px;
                         height: 40px;

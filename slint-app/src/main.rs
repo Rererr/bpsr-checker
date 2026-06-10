@@ -1504,6 +1504,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut tick: u64 = 0;
     let mut setup_tick: u64 = 0;
     let mut setup_done = false;
+    // オーバーレイ復元tick（None=未復元）。復元前のデフォルト位置で保存上書きしないよう、
+    // 復元から SETTLE_TICKS 経過後に保存対象へ含める。非表示で None に戻す。
+    let mut self_rtick: Option<u64> = None;
+    let mut buff_rtick: Option<u64> = None;
     let tab_cell_poll = tab_cell.clone();
     let drill_poll = drill.clone();
     let skill_rows_poll = skill_rows.clone();
@@ -1552,6 +1556,49 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     *tray_holder.borrow_mut() = tray::create();
                     log::info!("tray created: {}", tray_holder.borrow().is_some());
                 }
+            }
+        }
+
+        // オーバーレイの位置/サイズ復元（表示された最初のtickで一度）。非表示で None に戻す。
+        {
+            let c = cfg_poll.borrow();
+            if c.show_self_status_overlay {
+                if self_rtick.is_none() {
+                    if let Some(o) = self_overlay_w.upgrade() {
+                        let mons = overlay::monitors(o.window());
+                        if !mons.is_empty() {
+                            window_state::restore(
+                                o.window(),
+                                last_saved.borrow().self_status.as_ref(),
+                                &mons,
+                                0,
+                                (220, 180),
+                            );
+                            self_rtick = Some(tick);
+                        }
+                    }
+                }
+            } else {
+                self_rtick = None;
+            }
+            if c.show_buff_overlay {
+                if buff_rtick.is_none() {
+                    if let Some(o) = buff_overlay_w.upgrade() {
+                        let mons = overlay::monitors(o.window());
+                        if !mons.is_empty() {
+                            window_state::restore(
+                                o.window(),
+                                last_saved.borrow().buffs.as_ref(),
+                                &mons,
+                                0,
+                                (250, 150),
+                            );
+                            buff_rtick = Some(tick);
+                        }
+                    }
+                }
+            } else {
+                buff_rtick = None;
             }
         }
 
@@ -1734,13 +1781,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        // レイアウト自動保存（復元確定後・差分時のみ）
+        // レイアウト自動保存（復元確定後・差分時のみ）。オーバーレイは復元から
+        // SETTLE_TICKS 経過後のみ保存対象に含める（復元前の既定位置で上書き防止）。
         if !setup_done || tick < setup_tick + SETTLE_TICKS {
             return;
         }
-        let cur = window_state::Layout {
-            main: Some(window_state::capture(m.window())),
-            ..last_saved.borrow().clone()
+        let settled = |rt: Option<u64>| rt.map(|t| tick >= t + SETTLE_TICKS).unwrap_or(false);
+        let cur = {
+            let c = cfg_poll.borrow();
+            let prev = last_saved.borrow();
+            window_state::Layout {
+                main: Some(window_state::capture(m.window())),
+                self_status: if c.show_self_status_overlay && settled(self_rtick) {
+                    self_overlay_w
+                        .upgrade()
+                        .map(|o| window_state::capture(o.window()))
+                } else {
+                    prev.self_status.clone()
+                },
+                buffs: if c.show_buff_overlay && settled(buff_rtick) {
+                    buff_overlay_w
+                        .upgrade()
+                        .map(|o| window_state::capture(o.window()))
+                } else {
+                    prev.buffs.clone()
+                },
+            }
         };
         let mut ls = last_saved.borrow_mut();
         if *ls != cur {

@@ -281,23 +281,35 @@ fn copy_row_data(p: &bpsr_core::models::PlayerRow, rank: i32) -> format::CopyRow
     }
 }
 
-/// ダメージ内訳の円グラフ（各プレイヤーの total_value 比で扇形）。viewbox 100x100。
-fn build_pie(players: &[bpsr_core::models::PlayerRow]) -> Vec<PieSlice> {
-    let sum: f64 = players.iter().map(|p| p.total_value).sum();
+/// スキル内訳 円グラフのパレット（スキル毎に色を変えて区別する）。
+const SKILL_PIE_PALETTE: [u32; 10] = [
+    0x4fc3f7, 0xff7043, 0x66bb6a, 0xffca28, 0xab47bc, 0x26c6da, 0xec407a, 0x9ccc65, 0xff8a65,
+    0x7e57c2,
+];
+
+fn palette_color(i: usize) -> slint::Color {
+    let hex = SKILL_PIE_PALETTE[i % SKILL_PIE_PALETTE.len()];
+    slint::Color::from_rgb_u8((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
+}
+
+/// 選択プレイヤーのスキル内訳 円グラフ。扇形(パレット色・塗り)＋灰色の内向き
+/// 区切り線(中心→0.86r で外周には届かない)。viewbox 100x100。skills=(表示名, 値)。
+fn skill_pie(skills: &[(String, f64)]) -> Vec<PieSlice> {
+    let sum: f64 = skills.iter().map(|s| s.1).sum();
     if sum <= 0.0 {
         return Vec::new();
     }
     let (cx, cy, r) = (50.0_f32, 50.0_f32, 46.0_f32);
-    let mut start = -std::f32::consts::FRAC_PI_2; // 12時方向から時計回り
     let mut out = Vec::new();
-    for p in players {
-        let frac = (p.total_value / sum) as f32;
+    // 扇形（塗り・stroke なし）
+    let mut start = -std::f32::consts::FRAC_PI_2;
+    for (i, (_, v)) in skills.iter().enumerate() {
+        let frac = (*v / sum) as f32;
         if frac <= 0.0 {
             continue;
         }
-        let color = format::class_color(&p.class_name);
+        let color = palette_color(i);
         if frac >= 0.999 {
-            // 単独100%は扇形が描けないため真円（半円アーク2つ）で描く
             out.push(PieSlice {
                 commands: format!(
                     "M {cx} {} A {r} {r} 0 1 1 {cx} {} A {r} {r} 0 1 1 {cx} {} Z",
@@ -307,8 +319,9 @@ fn build_pie(players: &[bpsr_core::models::PlayerRow]) -> Vec<PieSlice> {
                 )
                 .into(),
                 color,
+                is_line: false,
             });
-            break;
+            return out; // 単独100%は区切り線不要
         }
         let sweep = frac * std::f32::consts::TAU;
         let end = start + sweep;
@@ -323,34 +336,59 @@ fn build_pie(players: &[bpsr_core::models::PlayerRow]) -> Vec<PieSlice> {
             )
             .into(),
             color,
+            is_line: false,
         });
         start = end;
+    }
+    // 区切り線（中心→外周手前 0.86r・灰色）。各スライス境界に1本。
+    let r_out = r * 0.86;
+    let line_color = slint::Color::from_rgb_u8(0x8a, 0x8a, 0x8a);
+    let mut a = -std::f32::consts::FRAC_PI_2;
+    for (_, v) in skills.iter() {
+        let frac = (*v / sum) as f32;
+        if frac <= 0.0 {
+            continue;
+        }
+        let lx = cx + r_out * a.cos();
+        let ly = cy + r_out * a.sin();
+        out.push(PieSlice {
+            commands: format!("M {cx} {cy} L {lx:.2} {ly:.2}").into(),
+            color: line_color,
+            is_line: true,
+        });
+        a += frac * std::f32::consts::TAU;
     }
     out
 }
 
-/// 3分計測 結果パネルへスナップショットを反映して開く。
-fn show_result(
-    m: &MainWindow,
+/// スキル内訳の凡例（円グラフと同じパレット色・割合）。
+fn skill_legend(skills: &[(String, f64)]) -> Vec<SkillLegendUi> {
+    let sum = skills.iter().map(|s| s.1).sum::<f64>().max(1.0);
+    skills
+        .iter()
+        .enumerate()
+        .map(|(i, (name, v))| SkillLegendUi {
+            name: name.clone().into(),
+            color: palette_color(i),
+            pct_text: format!("{:.1}%", v / sum * 100.0).into(),
+        })
+        .collect()
+}
+
+/// 結果パネルのプレイヤー行（uid・選択状態付き）。
+fn build_result_rows(
     snap: &bpsr_core::models::EncounterSnapshot,
-    result_rows: &slint::VecModel<ResultRowUi>,
-    result_pie: &slint::VecModel<PieSlice>,
+    selected_uid: i64,
     privacy: bool,
-) {
-    m.set_result_dps(format::format_dps(snap.total_dps).into());
-    m.set_result_dmg(format::format_number(snap.total_dmg).into());
-    m.set_result_duration(format::format_elapsed(snap.duration_ms).into());
-    let cmds = build_spark_commands(&snap.time_series, 100.0, 16.0);
-    m.set_result_spark_visible(!cmds.is_empty());
-    m.set_result_spark(cmds.into());
-    let rows: Vec<ResultRowUi> = snap
-        .player_rows
+) -> Vec<ResultRowUi> {
+    snap.player_rows
         .iter()
         .take(8)
         .enumerate()
         .map(|(i, p)| {
+            let uid = p.uid as i64;
             let name = if privacy {
-                format::mask_player_name(p.uid as i64)
+                format::mask_player_name(uid)
             } else {
                 p.name.clone()
             };
@@ -361,11 +399,73 @@ fn show_result(
                 dps_text: format::format_dps(p.value_per_sec).into(),
                 dmg_text: format::format_number(p.total_value).into(),
                 pct_text: format::format_pct(p.value_pct).into(),
+                uid_str: format!("{uid}").into(),
+                selected: uid == selected_uid,
             }
         })
-        .collect();
-    result_rows.set_vec(rows);
-    result_pie.set_vec(build_pie(&snap.player_rows));
+        .collect()
+}
+
+/// 選択プレイヤーに応じて 行ハイライト・タイトル・円グラフ・凡例 を更新。
+#[allow(clippy::too_many_arguments)]
+fn apply_result_selection(
+    m: &MainWindow,
+    uid: i64,
+    snap: &bpsr_core::models::EncounterSnapshot,
+    captured: &std::collections::HashMap<i64, Vec<(String, f64)>>,
+    result_rows: &slint::VecModel<ResultRowUi>,
+    result_pie: &slint::VecModel<PieSlice>,
+    result_legend: &slint::VecModel<SkillLegendUi>,
+    privacy: bool,
+) {
+    result_rows.set_vec(build_result_rows(snap, uid, privacy));
+    let pname = snap
+        .player_rows
+        .iter()
+        .find(|p| p.uid as i64 == uid)
+        .map(|p| {
+            if privacy {
+                format::mask_player_name(uid)
+            } else {
+                p.name.clone()
+            }
+        })
+        .unwrap_or_default();
+    m.set_result_pie_title(format!("{pname} のスキル内訳").into());
+    let empty = Vec::new();
+    let skills = captured.get(&uid).unwrap_or(&empty);
+    result_pie.set_vec(skill_pie(skills));
+    result_legend.set_vec(skill_legend(skills));
+}
+
+/// 3分計測 結果パネルへスナップショットを反映して開く。
+#[allow(clippy::too_many_arguments)]
+fn show_result(
+    m: &MainWindow,
+    snap: &bpsr_core::models::EncounterSnapshot,
+    captured: &std::collections::HashMap<i64, Vec<(String, f64)>>,
+    default_uid: i64,
+    result_rows: &slint::VecModel<ResultRowUi>,
+    result_pie: &slint::VecModel<PieSlice>,
+    result_legend: &slint::VecModel<SkillLegendUi>,
+    privacy: bool,
+) {
+    m.set_result_dps(format::format_dps(snap.total_dps).into());
+    m.set_result_dmg(format::format_number(snap.total_dmg).into());
+    m.set_result_duration(format::format_elapsed(snap.duration_ms).into());
+    let cmds = build_spark_commands(&snap.time_series, 100.0, 16.0);
+    m.set_result_spark_visible(!cmds.is_empty());
+    m.set_result_spark(cmds.into());
+    apply_result_selection(
+        m,
+        default_uid,
+        snap,
+        captured,
+        result_rows,
+        result_pie,
+        result_legend,
+        privacy,
+    );
     m.set_result_open(true);
 }
 
@@ -737,7 +837,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     main.set_result_rows(result_rows.clone().into());
     let result_pie = Rc::new(VecModel::<PieSlice>::default());
     main.set_result_pie(result_pie.clone().into());
+    let result_legend = Rc::new(VecModel::<SkillLegendUi>::default());
+    main.set_result_legend(result_legend.clone().into());
     let last_result = Rc::new(RefCell::new(None::<bpsr_core::models::EncounterSnapshot>));
+    // finalize 前に捕捉した各プレイヤーのスキル内訳（uid → (スキル名, 値)）
+    let captured_skills =
+        Rc::new(RefCell::new(std::collections::HashMap::<i64, Vec<(String, f64)>>::new()));
 
     // 自キャラUID 候補モデル
     let uid_candidates = Rc::new(VecModel::<UidCandidate>::default());
@@ -1309,6 +1414,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
+    // 3分計測 結果パネル: 行クリックでスキル内訳の対象プレイヤーを切替
+    {
+        let w = main.as_weak();
+        let lr = last_result.clone();
+        let cs = captured_skills.clone();
+        let rr = result_rows.clone();
+        let rp = result_pie.clone();
+        let rl = result_legend.clone();
+        let cfg_sp = cfg.clone();
+        main.on_select_result_player(move |uid_str| {
+            let uid: i64 = uid_str.as_str().parse().unwrap_or(0);
+            let snap = lr.borrow();
+            let Some(snap) = snap.as_ref() else {
+                return;
+            };
+            if let Some(m) = w.upgrade() {
+                apply_result_selection(
+                    &m,
+                    uid,
+                    snap,
+                    &cs.borrow(),
+                    &rr,
+                    &rp,
+                    &rl,
+                    cfg_sp.borrow().privacy_mask_names,
+                );
+            }
+        });
+    }
     // 3分計測 結果パネル: 上位10行を copy_template でコピー
     {
         let lr = last_result.clone();
@@ -1382,6 +1516,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let history_expanded_poll = history_expanded.clone();
     let result_rows_poll = result_rows.clone();
     let result_pie_poll = result_pie.clone();
+    let result_legend_poll = result_legend.clone();
+    let captured_skills_poll = captured_skills.clone();
     let last_result_poll = last_result.clone();
     let compact_left_poll = compact_left.clone();
     let compact_right_poll = compact_right.clone();
@@ -1441,11 +1577,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let rem = ms.remaining_ms.unwrap_or(0.0).max(0.0);
             m.set_measure_text(format::format_elapsed(rem).into());
             if rem <= 0.0 {
+                // finalize で集計が消えるため、直前にライブのスキル内訳と自分uidを捕捉。
+                let pw = compute::get_dps_players(&enc_poll);
+                let local_uid = pw.local_player_uid as i64;
+                let mut skills: std::collections::HashMap<i64, Vec<(String, f64)>> =
+                    std::collections::HashMap::new();
+                for p in &pw.player_rows {
+                    let uid = p.uid as i64;
+                    if let Ok(sw) = compute::get_skills(&enc_poll, uid) {
+                        skills.insert(
+                            uid,
+                            sw.skill_rows
+                                .iter()
+                                .map(|s| (s.name.clone(), s.total_value))
+                                .collect(),
+                        );
+                    }
+                }
                 if let Some(snap) = compute::finalize_3min_measure_mode(&enc_poll) {
                     let c = cfg_poll.borrow();
                     if c.three_min_auto_open && !c.imagine_only_mode {
+                        // 既定の選択=自分(スキル有り)・無ければ最上位プレイヤー
+                        let default_uid = if local_uid != 0 && skills.contains_key(&local_uid) {
+                            local_uid
+                        } else {
+                            snap.player_rows.first().map(|p| p.uid as i64).unwrap_or(0)
+                        };
+                        *captured_skills_poll.borrow_mut() = skills;
                         *last_result_poll.borrow_mut() = Some(snap.clone());
-                        show_result(&m, &snap, &result_rows_poll, &result_pie_poll, c.privacy_mask_names);
+                        show_result(
+                            &m,
+                            &snap,
+                            &captured_skills_poll.borrow(),
+                            default_uid,
+                            &result_rows_poll,
+                            &result_pie_poll,
+                            &result_legend_poll,
+                            c.privacy_mask_names,
+                        );
                     }
                 }
             }

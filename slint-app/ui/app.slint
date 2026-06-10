@@ -112,12 +112,23 @@ struct ResultRowUi {
     dps-text: string,
     dmg-text: string,
     pct-text: string,
+    uid-str: string,   // クリックでスキル内訳の対象に
+    selected: bool,
 }
 
-// ダメージ内訳 円グラフの1スライス（扇形のSVGパス＋色）。viewbox 100x100
+// スキル内訳 円グラフの1要素（扇形 or 区切り線の SVGパス）。viewbox 100x100
+// is-line=true は灰色の内向き区切り線（塗りなし・外周には届かない）。
 struct PieSlice {
     commands: string,
     color: color,
+    is-line: bool,
+}
+
+// スキル内訳の凡例行（円グラフのスライスと同色）。
+struct SkillLegendUi {
+    name: string,
+    color: color,
+    pct-text: string,
 }
 
 component TabButton inherits TouchArea {
@@ -359,12 +370,19 @@ component HistoryRowItem inherits Rectangle {
     }
 }
 
-// 3分計測 結果パネルの行
+// 3分計測 結果パネルの行（クリックでスキル内訳の対象に）
 component ResultRow inherits Rectangle {
     in property <ResultRowUi> e;
+    callback activate(string);
     height: 18px;
-    background: #ffffff0a;
+    background: root.e.selected ? #4fc3f72e : (rta.has-hover ? #ffffff18 : #ffffff0a);
+    border-width: 1px;
+    border-color: root.e.selected ? #4fc3f7aa : #ffffff00;
     border-radius: 2px;
+    rta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.activate(root.e.uid-str); }
+    }
     HorizontalLayout {
         padding-left: 6px;
         padding-right: 6px;
@@ -626,6 +644,8 @@ export component MainWindow inherits Window {
     in property <bool> result-spark-visible;
     in property <[ResultRowUi]> result-rows;
     in property <[PieSlice]> result-pie;
+    in property <[SkillLegendUi]> result-legend;
+    in property <string> result-pie-title;
     callback quit();
     callback start-drag();
     callback start-resize(int);
@@ -650,6 +670,7 @@ export component MainWindow inherits Window {
     callback close-result();
     callback copy-result();
     callback restart-measure();
+    callback select-result-player(string);
 
     title: @tr("DPSメーター");
     default-font-family: "Yu Gothic UI"; // femtovg は ClearType 非対応のため可読性重視の和文フォントを既定に
@@ -1215,30 +1236,52 @@ export component MainWindow inherits Window {
                         viewport-height: resbox.preferred-height;
                         resbox := VerticalLayout {
                             spacing: 2px;
-                            for r in root.result-rows: ResultRow { e: r; }
+                            for r in root.result-rows: ResultRow { e: r; activate(u) => { root.select-result-player(u); } }
                             if root.result-rows.length == 0: Text { text: @tr("ダメージなし"); color: #555; font-size: 11px; height: 30px; horizontal-alignment: center; vertical-alignment: center; }
                         }
                     }
-                    // 右 35%: ダメージ内訳の円グラフ（クラス色・正方形で中央寄せ）
-                    pie-col := Rectangle {
+                    // 右 35%: 選択プレイヤーのスキル内訳（タイトル＋円グラフ＋凡例）
+                    VerticalLayout {
                         horizontal-stretch: 0.35;
-                        property <length> sz: self.width < self.height ? self.width : self.height;
-                        Rectangle {
-                            width: pie-col.sz;
-                            height: pie-col.sz;
-                            x: (pie-col.width - pie-col.sz) / 2;
-                            y: (pie-col.height - pie-col.sz) / 2;
-                            for slice in root.result-pie: Path {
-                                width: 100%;
-                                height: 100%;
-                                viewbox-x: 0;
-                                viewbox-y: 0;
-                                viewbox-width: 100;
-                                viewbox-height: 100;
-                                commands: slice.commands;
-                                fill: slice.color;
-                                stroke: #14141e;
-                                stroke-width: 1px;
+                        spacing: 4px;
+                        Text { text: root.result-pie-title; color: #cdd; font-size: 10px; overflow: elide; horizontal-alignment: center; }
+                        // 円グラフ（列幅基準の正方形）。区切り線は灰色で外周に届かない。
+                        pie-col := Rectangle {
+                            height: self.width;
+                            property <length> sz: self.width < self.height ? self.width : self.height;
+                            Rectangle {
+                                width: pie-col.sz;
+                                height: pie-col.sz;
+                                x: (pie-col.width - pie-col.sz) / 2;
+                                y: (pie-col.height - pie-col.sz) / 2;
+                                for slice in root.result-pie: Path {
+                                    width: 100%;
+                                    height: 100%;
+                                    viewbox-x: 0;
+                                    viewbox-y: 0;
+                                    viewbox-width: 100;
+                                    viewbox-height: 100;
+                                    commands: slice.commands;
+                                    fill: slice.is-line ? transparent : slice.color;
+                                    stroke: slice.is-line ? #8a8a8acc : transparent;
+                                    stroke-width: slice.is-line ? 1px : 0px;
+                                }
+                            }
+                        }
+                        // 凡例（スキル名＋同色＋割合）
+                        Flickable {
+                            vertical-stretch: 1;
+                            max-height: 100000px;
+                            viewport-height: legbox.preferred-height;
+                            legbox := VerticalLayout {
+                                spacing: 1px;
+                                for lg in root.result-legend: HorizontalLayout {
+                                    spacing: 4px;
+                                    height: 14px;
+                                    VerticalLayout { alignment: center; Rectangle { width: 8px; height: 8px; background: lg.color; border-radius: 2px; } }
+                                    Text { text: lg.name; color: #bbb; font-size: 9px; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
+                                    Text { text: lg.pct-text; color: #888; font-size: 9px; vertical-alignment: center; }
+                                }
                             }
                         }
                     }

@@ -117,6 +117,21 @@ msgstr "Imagine debuff timer"
 msgid "イマジン専用モード"
 msgstr "Imagine-only mode"
 
+msgid "キャラクター"
+msgstr "Character"
+
+msgid "自キャラUID"
+msgstr "Your UID"
+
+msgid "クリア"
+msgstr "Clear"
+
+msgid "候補"
+msgstr "Candidates"
+
+msgid "自動判定が外れた時に手動で自分を指定（Enterで確定）"
+msgstr "Set your character manually if auto-detection is wrong (Enter to apply)"
+
 msgid "DPS一覧でピンアイコンをクリック"
 msgstr "Pin a player in the DPS list"
 

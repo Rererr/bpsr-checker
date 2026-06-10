@@ -43,6 +43,11 @@ pub struct PlayerRow {
     pub lucky_value_rate: f64,
     pub hits: f64,
     pub hits_per_minute: f64,
+    // 食事/シロップ(錬金)バフを使用中か
+    #[serde(default)]
+    pub has_food: bool,
+    #[serde(default)]
+    pub has_syrup: bool,
     pub time_series: Vec<TimeSeriesPoint>,
 }
 

@@ -21,6 +21,8 @@ struct Row {
     score-text: string,
     watched: bool,
     spark-commands: string, // この行のDPS推移（空=非表示行）。viewbox 100x16
+    has-food: bool,         // 食事バフ使用中
+    has-syrup: bool,        // シロップ(錬金)バフ使用中
 }
 
 struct ColumnFlags {
@@ -211,6 +213,27 @@ component PlayerRowItem inherits Rectangle {
                 overflow: elide;
                 vertical-alignment: center;
                 horizontal-stretch: 1;
+            }
+            // 食事/シロップ バフ使用バッジ（使用中=色付き / 未使用=薄表示）
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 14px;
+                    height: 14px;
+                    border-radius: 3px;
+                    background: root.entry.has-food ? #2e7d32 : #ffffff12;
+                    Text { text: "食"; color: root.entry.has-food ? #ffffff : #ffffff33; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; }
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 14px;
+                    height: 14px;
+                    border-radius: 3px;
+                    background: root.entry.has-syrup ? #6a3a9c : #ffffff12;
+                    Text { text: "シ"; color: root.entry.has-syrup ? #ffffff : #ffffff33; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; }
+                }
             }
         }
         if root.show-graph-col: Rectangle {

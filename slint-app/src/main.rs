@@ -218,6 +218,53 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
     });
 }
 
+/// テンプレートのプレビュー（固定サンプル行で name/copy 両テンプレを展開）。
+fn template_previews(c: &settings::Settings) -> (slint::SharedString, slint::SharedString) {
+    let name = format::format_row_name(
+        "Sample",
+        "ストームブレイド",
+        "雷刃型",
+        12345.0,
+        38.0,
+        8200.0,
+        1,
+        &c.name_template,
+        c.abbreviate_scores,
+    );
+    let copy = format::format_row_template(
+        &format::CopyRowData {
+            rank: 1,
+            name: "Sample",
+            class_name: "ストームブレイド",
+            class_spec_name: "雷刃型",
+            total_value: 1_234_567.0,
+            value_per_sec: 45678.0,
+            value_pct: 35.5,
+            crit_rate: 42.3,
+            crit_value_rate: 18.7,
+            lucky_rate: 5.5,
+            lucky_value_rate: 2.1,
+            hits: 124.0,
+            hits_per_minute: 78.5,
+            ability_score: 12345.0,
+            season_level: 38.0,
+            season_strength: 8200.0,
+        },
+        &c.copy_template,
+        c.abbreviate_scores,
+    );
+    (name.into(), copy.into())
+}
+
+/// テンプレ入力欄の value を push（パネル開時／リセット時のみ）＋プレビュー更新。
+fn refresh_templates(m: &MainWindow, c: &settings::Settings) {
+    m.set_name_template_value(c.name_template.clone().into());
+    m.set_copy_template_value(c.copy_template.clone().into());
+    let (np, cp) = template_previews(c);
+    m.set_name_preview(np);
+    m.set_copy_preview(cp);
+}
+
 /// SelfStatusEntry 群を UI 行へ変換（BuffIconCell 相当）。
 fn build_status_entries(entries: &[bpsr_core::models::SelfStatusEntry]) -> Vec<StatusEntryUi> {
     entries
@@ -603,12 +650,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
-    // 設定パネルの開閉
+    // 設定パネルの開閉。開く瞬間にテンプレ入力欄へ最新値を push（再開で最新を表示）。
     {
         let w = main.as_weak();
+        let cfg_ts = cfg.clone();
         main.on_toggle_settings(move || {
             if let Some(m) = w.upgrade() {
-                m.set_settings_open(!m.get_settings_open());
+                let opening = !m.get_settings_open();
+                if opening {
+                    refresh_templates(&m, &cfg_ts.borrow());
+                }
+                m.set_settings_open(opening);
             }
         });
     }
@@ -721,6 +773,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let c = cfg_n.borrow();
             if let Some(m) = w.upgrade() {
                 apply_settings(&m, &c);
+            }
+            settings::save(&c);
+        });
+    }
+    // テンプレ編集（edited）。cfg と preview のみ更新（value は push しない＝入力中クロバー防止）。
+    {
+        let w = main.as_weak();
+        let cfg_s = cfg.clone();
+        main.on_set_str(move |key, val| {
+            {
+                let mut c = cfg_s.borrow_mut();
+                match key.as_str() {
+                    "name-template" => c.name_template = val.to_string(),
+                    "copy-template" => c.copy_template = val.to_string(),
+                    other => log::warn!("unknown str key: {other}"),
+                }
+            }
+            let c = cfg_s.borrow();
+            if let Some(m) = w.upgrade() {
+                let (np, cp) = template_previews(&c);
+                m.set_name_preview(np);
+                m.set_copy_preview(cp);
+            }
+            settings::save(&c);
+        });
+    }
+    // テンプレ リセット。既定値へ戻し、value を push して入力欄も更新する。
+    {
+        let w = main.as_weak();
+        let cfg_r = cfg.clone();
+        main.on_reset_str(move |key| {
+            {
+                let mut c = cfg_r.borrow_mut();
+                match key.as_str() {
+                    "name-template" => c.name_template = settings::DEFAULT_NAME_TEMPLATE.to_string(),
+                    "copy-template" => c.copy_template = settings::DEFAULT_COPY_TEMPLATE.to_string(),
+                    other => log::warn!("unknown reset key: {other}"),
+                }
+            }
+            let c = cfg_r.borrow();
+            if let Some(m) = w.upgrade() {
+                refresh_templates(&m, &c);
             }
             settings::save(&c);
         });

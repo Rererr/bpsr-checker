@@ -568,6 +568,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
+    {
+        let w = self_overlay.as_weak();
+        self_overlay.on_start_resize(move |dir| {
+            if let Some(o) = w.upgrade() {
+                overlay::start_resize(o.window(), dir);
+            }
+        });
+    }
 
     // バフタイマー オーバーレイ（別ウィンドウ）
     let buff_overlay = BuffOverlay::new()?;
@@ -578,6 +586,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         buff_overlay.on_start_drag(move || {
             if let Some(o) = w.upgrade() {
                 overlay::start_drag(o.window());
+            }
+        });
+    }
+    {
+        let w = buff_overlay.as_weak();
+        buff_overlay.on_start_resize(move |dir| {
+            if let Some(o) = w.upgrade() {
+                overlay::start_resize(o.window(), dir);
             }
         });
     }

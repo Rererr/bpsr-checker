@@ -1,0 +1,3 @@
+// exe へ埋め込む Windows リソース（アプリアイコン）。
+// マニフェスト（管理者要求）は embed-manifest が別途担当する。
+IDI_ICON1 ICON "icon.ico"

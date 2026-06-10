@@ -14,5 +14,8 @@ fn main() {
             new_manifest("BpsrApp").requested_execution_level(ExecutionLevel::RequireAdministrator),
         )
         .expect("embed manifest failed");
+
+        // exe アイコンを埋め込む（マニフェストは embed-manifest 側で処理済）。
+        embed_resource::compile("app.rc", embed_resource::NONE);
     }
 }

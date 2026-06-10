@@ -48,6 +48,10 @@ struct SettingsUi {
     buff-overlay: bool,
     aot: bool,
     three-min-auto-open: bool,
+    compact-split: bool,
+    header-sparkline: bool,
+    graph-for-local: bool,
+    startup-tab: string,
 }
 
 // 数値設定の表示用（Rust が cfg から整形して set）。ステッパーで増減する。
@@ -92,10 +96,24 @@ component TabButton inherits TouchArea {
     }
 }
 
+// 設定パネルのセグメントボタン（起動タブ選択など）
+component SegButton inherits TouchArea {
+    in property <string> label;
+    in property <bool> active;
+    width: 50px;
+    height: 22px;
+    Rectangle {
+        background: root.active ? #2d6cdf : (root.has-hover ? #ffffff20 : #ffffff10);
+        border-radius: 3px;
+        Text { text: root.label; color: root.active ? white : #bbb; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+    }
+}
+
 component PlayerRowItem inherits Rectangle {
     in property <Row> entry;
     in property <bool> highlight-local;
     in property <ColumnFlags> cols;
+    in property <float> font-scale: 1.0;
     callback activate(string);
     callback toggle-watch(string);
     height: 20px;
@@ -134,22 +152,22 @@ component PlayerRowItem inherits Rectangle {
             Text {
                 text: root.entry.name;
                 color: white;
-                font-size: 12px;
+                font-size: 12px * root.font-scale;
                 overflow: elide;
                 vertical-alignment: center;
                 horizontal-stretch: 1;
             }
         }
-        Text { text: root.entry.dmg-text; color: #e6e6f0; font-size: 12px; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
-        Text { text: root.entry.dps-text; color: #4fc3f7; font-size: 12px; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
-        Text { text: root.entry.pct-text; color: #cfcfe0; font-size: 11px; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.crit: Text { text: root.entry.crit-text; color: #f39c12; font-size: 11px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.crit-value: Text { text: root.entry.crit-value-text; color: #f39c12; font-size: 11px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.lucky: Text { text: root.entry.lucky-text; color: #2ecc71; font-size: 11px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.lucky-value: Text { text: root.entry.lucky-value-text; color: #2ecc71; font-size: 11px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.hits: Text { text: root.entry.hits-text; color: #cfcfe0; font-size: 11px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.hpm: Text { text: root.entry.hpm-text; color: #cfcfe0; font-size: 11px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.score: Text { text: root.entry.score-text; color: #99aa99; font-size: 11px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.entry.dmg-text; color: #e6e6f0; font-size: 12px * root.font-scale; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.entry.dps-text; color: #4fc3f7; font-size: 12px * root.font-scale; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.entry.pct-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.crit: Text { text: root.entry.crit-text; color: #f39c12; font-size: 11px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.crit-value: Text { text: root.entry.crit-value-text; color: #f39c12; font-size: 11px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.lucky: Text { text: root.entry.lucky-text; color: #2ecc71; font-size: 11px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.lucky-value: Text { text: root.entry.lucky-value-text; color: #2ecc71; font-size: 11px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.hits: Text { text: root.entry.hits-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.hpm: Text { text: root.entry.hpm-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.score: Text { text: root.entry.score-text; color: #99aa99; font-size: 11px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
         watch := TouchArea {
             width: 14px;
             clicked => { root.toggle-watch(root.entry.uid-str); }
@@ -170,6 +188,7 @@ component PlayerRowItem inherits Rectangle {
 component SkillRowItem inherits Rectangle {
     in property <SkillRowUi> entry;
     in property <bool> clickable;
+    in property <float> font-scale: 1.0;
     callback activate(string);
     height: 20px;
     background: (root.clickable && ta.has-hover) ? #ffffff12 : transparent;
@@ -190,12 +209,12 @@ component SkillRowItem inherits Rectangle {
         HorizontalLayout {
             horizontal-stretch: 1;
             spacing: 4px;
-            Text { text: root.entry.elem-text; color: root.entry.elem-color; font-size: 11px; width: 14px; horizontal-alignment: center; vertical-alignment: center; }
-            Text { text: root.entry.name; color: white; font-size: 12px; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; }
+            Text { text: root.entry.elem-text; color: root.entry.elem-color; font-size: 11px * root.font-scale; width: 14px; horizontal-alignment: center; vertical-alignment: center; }
+            Text { text: root.entry.name; color: white; font-size: 12px * root.font-scale; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; }
         }
-        Text { text: root.entry.total-text; color: #e6e6f0; font-size: 12px; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
-        Text { text: root.entry.dps-text; color: #4fc3f7; font-size: 12px; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
-        Text { text: root.entry.pct-text; color: #cfcfe0; font-size: 11px; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.entry.total-text; color: #e6e6f0; font-size: 12px * root.font-scale; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.entry.dps-text; color: #4fc3f7; font-size: 12px * root.font-scale; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.entry.pct-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
     }
     ta := TouchArea {
         enabled: root.clickable;
@@ -386,6 +405,7 @@ export component MainWindow inherits Window {
     in property <string> name-preview;
     in property <string> copy-preview;
     in property <float> win-opacity: 0.85;
+    in property <float> font-scale: 1.0; // 本体テーブル＋ヘッダの文字倍率（font_size/12）
     callback quit();
     callback start-drag();
     callback start-resize(int);
@@ -434,7 +454,7 @@ export component MainWindow inherits Window {
                         x: parent.width - self.width - 6px;
                         text: @tr("合計DPS") + " " + root.total-text + "   " + @tr("経過") + " " + root.elapsed-text;
                         color: #c8c8d8;
-                        font-size: 11px;
+                        font-size: 11px * root.font-scale;
                         vertical-alignment: center;
                     }
                 }
@@ -468,24 +488,24 @@ export component MainWindow inherits Window {
                     padding-left: 8px;
                     padding-right: 8px;
                     spacing: 6px;
-                    Text { text: @tr("プレイヤー"); color: #888; font-size: 10px; horizontal-stretch: 1; vertical-alignment: center; }
+                    Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; vertical-alignment: center; }
                     Text {
                         text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ"));
                         color: #888;
-                        font-size: 10px;
+                        font-size: 10px * root.font-scale;
                         width: 64px;
                         horizontal-alignment: right;
                         vertical-alignment: center;
                     }
-                    Text { text: @tr("DPS"); color: #888; font-size: 10px; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
-                    Text { text: @tr("%"); color: #888; font-size: 10px; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.cols.crit: Text { text: @tr("会心率"); color: #888; font-size: 10px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.cols.crit-value: Text { text: @tr("会心ダメ率"); color: #888; font-size: 9px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.cols.lucky: Text { text: @tr("幸運率"); color: #888; font-size: 10px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.cols.lucky-value: Text { text: @tr("幸運ダメ率"); color: #888; font-size: 9px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.cols.hits: Text { text: @tr("ヒット数"); color: #888; font-size: 9px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.cols.hpm: Text { text: @tr("毎分ヒット数"); color: #888; font-size: 9px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.cols.score: Text { text: @tr("戦力"); color: #888; font-size: 10px; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                    Text { text: @tr("DPS"); color: #888; font-size: 10px * root.font-scale; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
+                    Text { text: @tr("%"); color: #888; font-size: 10px * root.font-scale; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.cols.crit: Text { text: @tr("会心率"); color: #888; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.cols.crit-value: Text { text: @tr("会心ダメ率"); color: #888; font-size: 9px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.cols.lucky: Text { text: @tr("幸運率"); color: #888; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.cols.lucky-value: Text { text: @tr("幸運ダメ率"); color: #888; font-size: 9px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.cols.hits: Text { text: @tr("ヒット数"); color: #888; font-size: 9px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.cols.hpm: Text { text: @tr("毎分ヒット数"); color: #888; font-size: 9px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.cols.score: Text { text: @tr("戦力"); color: #888; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
                 }
             }
             Flickable {
@@ -497,6 +517,7 @@ export component MainWindow inherits Window {
                         entry: row;
                         highlight-local: root.highlight-local;
                         cols: root.cols;
+                        font-scale: root.font-scale;
                         activate(u) => { root.open-drill(u); }
                         toggle-watch(u) => { root.toggle-watch(u); }
                     }
@@ -531,7 +552,7 @@ export component MainWindow inherits Window {
                             Text { text: "← " + @tr("戻る"); color: #cdd; font-size: 11px; }
                         }
                     }
-                    Text { text: root.inspected-name; color: #e6e6f0; font-size: 12px; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
+                    Text { text: root.inspected-name; color: #e6e6f0; font-size: 12px * root.font-scale; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
                 }
             }
             Rectangle {
@@ -540,10 +561,10 @@ export component MainWindow inherits Window {
                     padding-left: 8px;
                     padding-right: 8px;
                     spacing: 6px;
-                    Text { text: @tr("スキル"); color: #888; font-size: 10px; horizontal-stretch: 1; vertical-alignment: center; }
-                    Text { text: @tr("ダメージ"); color: #888; font-size: 10px; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
-                    Text { text: @tr("DPS"); color: #888; font-size: 10px; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
-                    Text { text: @tr("%"); color: #888; font-size: 10px; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
+                    Text { text: @tr("スキル"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; vertical-alignment: center; }
+                    Text { text: @tr("ダメージ"); color: #888; font-size: 10px * root.font-scale; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
+                    Text { text: @tr("DPS"); color: #888; font-size: 10px * root.font-scale; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
+                    Text { text: @tr("%"); color: #888; font-size: 10px * root.font-scale; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
                 }
             }
             Flickable {
@@ -554,6 +575,7 @@ export component MainWindow inherits Window {
                     for s in root.skill-rows: SkillRowItem {
                         entry: s;
                         clickable: root.skills-clickable;
+                        font-scale: root.font-scale;
                         activate(u) => { root.drill-row(u); }
                     }
                     if root.skill-rows.length == 0: Text {
@@ -608,6 +630,18 @@ export component MainWindow inherits Window {
                     ToggleRow { label: @tr("自分を強調"); checked: root.cfg-ui.highlight-local; toggled => { root.set-bool("highlight-local", !root.cfg-ui.highlight-local); } }
                     ToggleRow { label: @tr("スコア省略(K/M)"); checked: root.cfg-ui.abbreviate-scores; toggled => { root.set-bool("abbreviate-scores", !root.cfg-ui.abbreviate-scores); } }
                     ToggleRow { label: @tr("名前マスク"); checked: root.cfg-ui.privacy-mask; toggled => { root.set-bool("privacy-mask", !root.cfg-ui.privacy-mask); } }
+                    ToggleRow { label: @tr("軽量分割表示"); checked: root.cfg-ui.compact-split; toggled => { root.set-bool("compact-split", !root.cfg-ui.compact-split); } }
+                    StepperRow { label: @tr("フォントサイズ"); value-text: root.nums.font-size; dec => { root.bump-num("font-size", -1); } inc => { root.bump-num("font-size", 1); } }
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        spacing: 6px;
+                        height: 28px;
+                        Text { text: @tr("起動時のタブ"); color: #ddd; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; }
+                        SegButton { label: @tr("DPS"); active: root.cfg-ui.startup-tab == "dps"; clicked => { root.set-str("startup-tab", "dps"); } }
+                        SegButton { label: @tr("回復"); active: root.cfg-ui.startup-tab == "heal"; clicked => { root.set-str("startup-tab", "heal"); } }
+                        SegButton { label: @tr("履歴"); active: root.cfg-ui.startup-tab == "history"; clicked => { root.set-str("startup-tab", "history"); } }
+                    }
                     Text { text: @tr("オーバーレイ"); color: #888; font-size: 10px; }
                     ToggleRow { label: @tr("自キャラ バフ/デバフ"); checked: root.cfg-ui.self-status; toggled => { root.set-bool("self-status-overlay", !root.cfg-ui.self-status); } }
                     ToggleRow { label: @tr("イマジンデバフタイマー"); checked: root.cfg-ui.buff-overlay; toggled => { root.set-bool("buff-overlay", !root.cfg-ui.buff-overlay); } }
@@ -623,6 +657,8 @@ export component MainWindow inherits Window {
                     StepperRow { label: @tr("グラフ標本数"); value-text: root.nums.ts-samples; dec => { root.bump-num("ts-samples", -1); } inc => { root.bump-num("ts-samples", 1); } }
                     StepperRow { label: @tr("グラフ間隔(ms)"); value-text: root.nums.ts-interval; dec => { root.bump-num("ts-interval", -1); } inc => { root.bump-num("ts-interval", 1); } }
                     StepperRow { label: @tr("グラフ表示人数"); value-text: root.nums.graph-count; dec => { root.bump-num("graph-count", -1); } inc => { root.bump-num("graph-count", 1); } }
+                    ToggleRow { label: @tr("ヘッダーにグラフ"); checked: root.cfg-ui.header-sparkline; toggled => { root.set-bool("header-sparkline", !root.cfg-ui.header-sparkline); } }
+                    ToggleRow { label: @tr("自分のグラフを表示"); checked: root.cfg-ui.graph-for-local; toggled => { root.set-bool("graph-for-local", !root.cfg-ui.graph-for-local); } }
                     Text { text: @tr("テンプレート"); color: #888; font-size: 10px; }
                     TemplateField {
                         label: @tr("名前列テンプレ");

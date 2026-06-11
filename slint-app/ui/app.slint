@@ -22,9 +22,13 @@ struct Row {
     watched: bool,
     spark-commands: string, // この行のDPS推移（空=非表示行）。viewbox 100x16
     food-active: bool,      // 食事バフ使用中
-    food-arc: string,       // 食事の残量アーク（viewbox 28・時計回り減衰）
+    food-remaining: float,  // 食事の残量割合 0..1（アイコンの色が上から縦に抜ける）
+    food-time: string,      // ホバー時の残り時間（例: 45s）
+    food-label: string,     // ホバー時の種類ラベル（例: 物攻 +15。空=不明）
     syrup-active: bool,     // シロップ(錬金)バフ使用中
-    syrup-arc: string,      // シロップの残量アーク
+    syrup-remaining: float, // シロップの残量割合 0..1
+    syrup-time: string,     // ホバー時の残り時間
+    syrup-label: string,    // ホバー時の種類ラベル
 }
 
 struct ColumnFlags {
@@ -167,49 +171,72 @@ component SegButton inherits TouchArea {
     }
 }
 
-// 食事/シロップ バフの円形タイマーバッジ（残量アークが時計回りに減る）。
+// 食事/シロップ バフのタイマーアイコン。アイコン自体の色が残量に応じて上から
+// 縦に抜けていく（縦型プログレスバー・使用中=色付き / 未使用=グレー半透明）。
 component ConsumableBadge inherits Rectangle {
     in property <bool> active;
-    in property <string> arc;
-    in property <image> icon;
-    in property <color> arc-color;
-    width: 16px;
-    height: 16px;
-    opacity: root.active ? 1.0 : 0.28;
-    // 背景リング（viewbox 28・中心14・半径12.5＝buff_arc と同座標）
+    in property <float> remaining;  // 残量割合 0..1（1=満タン, 0=切れ）
+    in property <string> icon;      // SVGパス commands（viewbox 24）
+    in property <color> tint;       // 使用中の色
+    in property <string> tip-time;  // ホバー: 残り時間（例 45s）
+    in property <string> tip-label; // ホバー: 種類ラベル（例 物攻 +15。空=非表示）
+    in property <float> font-scale: 1.0;
+    property <float> elapsed: 1.0 - root.remaining;  // 経過割合（上から色が消える境界）
+    // アイコン径＝メインのフォントサイズ（font_size = 12px*font_scale）に一致
+    width: 12px * root.font-scale;
+    height: self.width;
     Path {
         width: 100%;
         height: 100%;
         viewbox-x: 0;
         viewbox-y: 0;
-        viewbox-width: 28;
-        viewbox-height: 28;
-        commands: "M 14 1.5 A 12.5 12.5 0 1 1 13.99 1.5";
-        stroke: #ffffff24;
-        stroke-width: 2px;
-        fill: transparent;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: root.icon;
+        // 上[0..経過]=グレー半透明、下[経過..1]=色。残量が減ると色が上から下へ抜ける。
+        fill: root.active
+            ? @linear-gradient(180deg, #8a8f9980 0%, #8a8f9980 root.elapsed * 100%, root.tint root.elapsed * 100%, root.tint 100%)
+            : #8a8f9980;
     }
-    // 残量アーク
-    Path {
-        width: 100%;
-        height: 100%;
-        viewbox-x: 0;
-        viewbox-y: 0;
-        viewbox-width: 28;
-        viewbox-height: 28;
-        commands: root.arc;
-        stroke: root.arc-color;
-        stroke-width: 2px;
-        fill: transparent;
+    // ホバーで残り時間＋種類をアイコンの下に表示。PopupWindow=最前面・行にクリップ
+    // されないため最上段でも見切れない。ポップはアイコンの下に出すので hover を奪わない。
+    ta := TouchArea {
+        changed has-hover => {
+            if (self.has-hover && root.active) {
+                tip.show();
+            } else {
+                tip.close();
+            }
+        }
     }
-    // 中央アイコン（言語非依存。SVGを白で表示）
-    Image {
-        source: root.icon;
-        width: 9px;
-        height: 9px;
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        colorize: root.active ? #ffffff : #ffffffcc;
+    tip := PopupWindow {
+        x: 0;
+        y: root.height + 3px;
+        Rectangle {
+            width: tipcol.preferred-width;
+            height: tipcol.preferred-height;
+            background: #11131af2;
+            border-radius: 4px;
+            border-width: 1px;
+            border-color: #ffffff26;
+            tipcol := VerticalLayout {
+                padding-left: 7px;
+                padding-right: 7px;
+                padding-top: 4px;
+                padding-bottom: 4px;
+                spacing: 1px;
+                Text {
+                    text: @tr("残り {}", root.tip-time);
+                    color: #e6e6f0;
+                    font-size: 11px * root.font-scale;
+                }
+                if root.tip-label != "": Text {
+                    text: root.tip-label;
+                    color: root.tint;
+                    font-size: 10px * root.font-scale;
+                }
+            }
+        }
     }
 }
 
@@ -221,7 +248,7 @@ component PlayerRowItem inherits Rectangle {
     in property <bool> show-graph-col;
     callback activate(string);
     callback toggle-watch(string);
-    height: 20px;
+    height: 20px * root.font-scale;
     background: rowta.has-hover
         ? #ffffff12
         : ((root.entry.is-local && root.highlight-local) ? #ffd7001f : transparent);
@@ -262,9 +289,25 @@ component PlayerRowItem inherits Rectangle {
                 vertical-alignment: center;
                 horizontal-stretch: 1;
             }
-            // 食事/シロップ バフの円形タイマーバッジ（残量が時計回りに減る）
-            VerticalLayout { alignment: center; ConsumableBadge { active: root.entry.food-active; arc: root.entry.food-arc; icon: @image-url("icons/food.svg"); arc-color: #66bb6a; } }
-            VerticalLayout { alignment: center; ConsumableBadge { active: root.entry.syrup-active; arc: root.entry.syrup-arc; icon: @image-url("icons/syrup.svg"); arc-color: #b07cff; } }
+            // 食事/シロップ バフのタイマーアイコン（残量に応じて色が上から縦に抜ける・ホバーで詳細）
+            VerticalLayout { alignment: center; ConsumableBadge {
+                active: root.entry.food-active;
+                remaining: root.entry.food-remaining;
+                tint: #66bb6a;
+                tip-time: root.entry.food-time;
+                tip-label: root.entry.food-label;
+                font-scale: root.font-scale;
+                icon: "M8.1 13.34l2.83-2.83L3.91 3.5c-1.56 1.56-1.56 4.09 0 5.66l4.19 4.18zm6.78-1.81c1.53.71 3.68.21 5.27-1.38 1.91-1.91 2.28-4.65.81-6.12-1.46-1.46-4.2-1.1-6.12.81-1.59 1.59-2.09 3.74-1.38 5.27L3.7 19.87l1.41 1.41L12 14.41l6.88 6.88 1.41-1.41L13.41 13l1.47-1.47z";
+            } }
+            VerticalLayout { alignment: center; ConsumableBadge {
+                active: root.entry.syrup-active;
+                remaining: root.entry.syrup-remaining;
+                tint: #b07cff;
+                tip-time: root.entry.syrup-time;
+                tip-label: root.entry.syrup-label;
+                font-scale: root.font-scale;
+                icon: "M19.8 18.4L14 10.67V6.5l1.35-1.69c.26-.33.03-.81-.39-.81H9.04c-.42 0-.65.48-.39.81L10 6.5v4.17L4.2 18.4c-.49.66-.02 1.6.8 1.6h14c.82 0 1.29-.94.8-1.6z";
+            } }
         }
         if root.show-graph-col: Rectangle {
             width: 60px;

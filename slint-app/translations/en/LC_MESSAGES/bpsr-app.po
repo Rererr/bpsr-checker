@@ -254,3 +254,6 @@ msgstr "Restart"
 
 msgid "閉じる"
 msgstr "Close"
+
+msgid "残り {}"
+msgstr "Left {}"

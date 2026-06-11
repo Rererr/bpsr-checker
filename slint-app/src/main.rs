@@ -7,6 +7,7 @@ slint::include_modules!();
 
 mod buff_names;
 mod capture;
+mod consumable_names;
 mod format;
 mod overlay;
 mod settings;
@@ -126,16 +127,37 @@ fn build_rows(
         if !is_local {
             non_local_above += 1;
         }
-        // 食事/シロップの残量アーク（時計回りに減衰）
+        // 食事/シロップの残量割合（0..1。アイコンの色が上から縦に抜ける）＋ホバー用の
+        // 残り時間テキスト・種類ラベル（base_id→日本語効果名）。
         let food_act = p.food_duration_ms > 0.0 && p.food_remaining_ms > 0.0;
-        let food_arc = if food_act {
-            deplete_cw_arc((p.food_remaining_ms / p.food_duration_ms) as f32)
+        let food_remaining = if food_act {
+            (p.food_remaining_ms / p.food_duration_ms).clamp(0.0, 1.0) as f32
+        } else {
+            0.0
+        };
+        let food_time = if food_act {
+            format::format_remaining(p.food_remaining_ms as i64, p.food_duration_ms as i64)
+        } else {
+            String::new()
+        };
+        let food_label = if food_act {
+            consumable_names::label(p.food_base_id).unwrap_or_default()
         } else {
             String::new()
         };
         let syrup_act = p.syrup_duration_ms > 0.0 && p.syrup_remaining_ms > 0.0;
-        let syrup_arc = if syrup_act {
-            deplete_cw_arc((p.syrup_remaining_ms / p.syrup_duration_ms) as f32)
+        let syrup_remaining = if syrup_act {
+            (p.syrup_remaining_ms / p.syrup_duration_ms).clamp(0.0, 1.0) as f32
+        } else {
+            0.0
+        };
+        let syrup_time = if syrup_act {
+            format::format_remaining(p.syrup_remaining_ms as i64, p.syrup_duration_ms as i64)
+        } else {
+            String::new()
+        };
+        let syrup_label = if syrup_act {
+            consumable_names::label(p.syrup_base_id).unwrap_or_default()
         } else {
             String::new()
         };
@@ -180,9 +202,13 @@ fn build_rows(
             watched: watched.contains(&(p.uid as i64)),
             spark_commands: spark.into(),
             food_active: food_act,
-            food_arc: food_arc.into(),
+            food_remaining,
+            food_time: food_time.into(),
+            food_label: food_label.into(),
             syrup_active: syrup_act,
-            syrup_arc: syrup_arc.into(),
+            syrup_remaining,
+            syrup_time: syrup_time.into(),
+            syrup_label: syrup_label.into(),
         });
     }
     out
@@ -707,31 +733,6 @@ fn buff_arc(ratio: f32) -> String {
     let end_y = cy - r * theta.cos();
     let large = if p > 0.5 { 1 } else { 0 };
     format!("M {cx} {} A {r} {r} 0 {large} 1 {end_x:.2} {end_y:.2}", cy - r)
-}
-
-/// 残量 p(0..1) を「時計回りに消えていく」アークで返す。12時から時計回りに空に
-/// なり、残量は反時計回り側(左)に残る。viewbox 28・中心14・半径12.5。
-fn deplete_cw_arc(p: f32) -> String {
-    let p = p.clamp(0.0, 1.0);
-    let (cx, cy, r) = (14.0_f32, 14.0_f32, 12.5_f32);
-    if p <= 0.0001 {
-        return String::new();
-    }
-    if p >= 0.999 {
-        // ほぼ満タンは真円（半円アーク2つ）
-        return format!(
-            "M {cx} {} A {r} {r} 0 1 1 {cx} {} A {r} {r} 0 1 1 {cx} {} Z",
-            cy - r,
-            cy + r,
-            cy - r
-        );
-    }
-    // 残量の開始角(12時からの時計回り角)。終点は常に12時。
-    let a0 = (1.0 - p) * std::f32::consts::TAU;
-    let x0 = cx + r * a0.sin();
-    let y0 = cy - r * a0.cos();
-    let large = if p > 0.5 { 1 } else { 0 };
-    format!("M {x0:.2} {y0:.2} A {r} {r} 0 {large} 1 {cx} {:.2}", cy - r)
 }
 
 fn buff_cell(snap: Option<&bpsr_core::models::SelfBuffSnapshot>, kind_hex: u32) -> BuffCell {

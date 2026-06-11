@@ -377,6 +377,7 @@ fn build_players_window_unsorted(encounter: &Encounter, stat_type: StatType) -> 
                 .map(|t| t.remaining_ms(now).max(0) as f64)
                 .unwrap_or(0.0),
             food_duration_ms: pc.and_then(|c| c.food).map(|t| t.duration_ms as f64).unwrap_or(0.0),
+            food_base_id: pc.and_then(|c| c.food).map(|t| t.base_id).unwrap_or(0),
             syrup_remaining_ms: pc
                 .and_then(|c| c.syrup)
                 .map(|t| t.remaining_ms(now).max(0) as f64)
@@ -385,6 +386,7 @@ fn build_players_window_unsorted(encounter: &Encounter, stat_type: StatType) -> 
                 .and_then(|c| c.syrup)
                 .map(|t| t.duration_ms as f64)
                 .unwrap_or(0.0),
+            syrup_base_id: pc.and_then(|c| c.syrup).map(|t| t.base_id).unwrap_or(0),
         };
         let row = make_player_row(
             entity_uid,
@@ -410,8 +412,10 @@ fn build_players_window_unsorted(encounter: &Encounter, stat_type: StatType) -> 
 struct ConsumableTimes {
     food_remaining_ms: f64,
     food_duration_ms: f64,
+    food_base_id: i32,
     syrup_remaining_ms: f64,
     syrup_duration_ms: f64,
+    syrup_base_id: i32,
 }
 
 fn make_player_row(
@@ -458,8 +462,10 @@ fn make_player_row(
         hits_per_minute: rate_per_minute(entity_stats.hit_count, elapsed_secs),
         food_remaining_ms: consumable.food_remaining_ms,
         food_duration_ms: consumable.food_duration_ms,
+        food_base_id: consumable.food_base_id,
         syrup_remaining_ms: consumable.syrup_remaining_ms,
         syrup_duration_ms: consumable.syrup_duration_ms,
+        syrup_base_id: consumable.syrup_base_id,
         time_series: time_series.iter().cloned().collect(),
     }
 }

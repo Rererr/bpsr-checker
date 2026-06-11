@@ -1805,9 +1805,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Drill::None => {}
         }
 
+        // オーバーレイの文字サイズをメインの font_size に連動
+        let overlay_scale = (cfg_poll.borrow().font_size / 12.0) as f32;
+
         // 自キャラ オーバーレイ更新（表示中のみ）
         if cfg_poll.borrow().show_self_status_overlay {
             if let Some(o) = self_overlay_w.upgrade() {
+                o.set_font_scale(overlay_scale);
                 let s = compute::get_self_buff_status(&enc_poll);
                 o.set_waiting(s.local_player_uid == 0.0);
                 self_buffs_poll.set_vec(build_status_entries(&s.buffs));
@@ -1818,6 +1822,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // バフタイマー オーバーレイ更新（表示中のみ）
         if cfg_poll.borrow().show_buff_overlay {
             if let Some(o) = buff_overlay_w.upgrade() {
+                o.set_font_scale(overlay_scale);
                 let watched_i: Vec<i64> = wl_poll.borrow().watched.clone();
                 o.set_empty(watched_i.is_empty());
                 if !watched_i.is_empty() {

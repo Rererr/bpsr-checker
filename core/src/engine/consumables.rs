@@ -26,11 +26,12 @@ static IDS: LazyLock<(HashSet<i32>, HashSet<i32>)> = LazyLock::new(|| {
     )
 });
 
-/// 1バフの終了時刻と総時間（円形タイマーの比率算出用）。
+/// 1バフの終了時刻・総時間（残量比率算出用）と種類解決用の base_id。
 #[derive(Clone, Copy, Debug)]
 pub struct Timing {
     pub expire_at_ms: u128,
     pub duration_ms: u128,
+    pub base_id: i32,
 }
 
 impl Timing {
@@ -61,6 +62,7 @@ pub fn refresh(store: &mut HashMap<i64, PlayerConsumables>, tracker: &BuffTracke
             let t = Timing {
                 expire_at_ms: s.received_at_local_ms + s.duration_ms as u128,
                 duration_ms: s.duration_ms as u128,
+                base_id: s.base_id,
             };
             if food_ids.contains(&s.base_id) && food.is_none_or(|f| t.expire_at_ms > f.expire_at_ms)
             {

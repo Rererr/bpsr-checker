@@ -21,8 +21,10 @@ struct Row {
     score-text: string,
     watched: bool,
     spark-commands: string, // この行のDPS推移（空=非表示行）。viewbox 100x16
-    has-food: bool,         // 食事バフ使用中
-    has-syrup: bool,        // シロップ(錬金)バフ使用中
+    food-active: bool,      // 食事バフ使用中
+    food-arc: string,       // 食事の残量アーク（viewbox 28・時計回り減衰）
+    syrup-active: bool,     // シロップ(錬金)バフ使用中
+    syrup-arc: string,      // シロップの残量アーク
 }
 
 struct ColumnFlags {
@@ -165,6 +167,52 @@ component SegButton inherits TouchArea {
     }
 }
 
+// 食事/シロップ バフの円形タイマーバッジ（残量アークが時計回りに減る）。
+component ConsumableBadge inherits Rectangle {
+    in property <bool> active;
+    in property <string> arc;
+    in property <string> label;
+    in property <color> arc-color;
+    width: 16px;
+    height: 16px;
+    opacity: root.active ? 1.0 : 0.28;
+    // 背景リング（viewbox 28・中心14・半径12.5＝buff_arc と同座標）
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-x: 0;
+        viewbox-y: 0;
+        viewbox-width: 28;
+        viewbox-height: 28;
+        commands: "M 14 1.5 A 12.5 12.5 0 1 1 13.99 1.5";
+        stroke: #ffffff24;
+        stroke-width: 2px;
+        fill: transparent;
+    }
+    // 残量アーク
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-x: 0;
+        viewbox-y: 0;
+        viewbox-width: 28;
+        viewbox-height: 28;
+        commands: root.arc;
+        stroke: root.arc-color;
+        stroke-width: 2px;
+        fill: transparent;
+    }
+    Text {
+        text: root.label;
+        color: root.active ? #ffffff : #ffffff66;
+        font-size: 8px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        width: 100%;
+        height: 100%;
+    }
+}
+
 component PlayerRowItem inherits Rectangle {
     in property <Row> entry;
     in property <bool> highlight-local;
@@ -214,27 +262,9 @@ component PlayerRowItem inherits Rectangle {
                 vertical-alignment: center;
                 horizontal-stretch: 1;
             }
-            // 食事/シロップ バフ使用バッジ（使用中=色付き / 未使用=薄表示）
-            VerticalLayout {
-                alignment: center;
-                Rectangle {
-                    width: 14px;
-                    height: 14px;
-                    border-radius: 3px;
-                    background: root.entry.has-food ? #2e7d32 : #ffffff12;
-                    Text { text: "食"; color: root.entry.has-food ? #ffffff : #ffffff33; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; }
-                }
-            }
-            VerticalLayout {
-                alignment: center;
-                Rectangle {
-                    width: 14px;
-                    height: 14px;
-                    border-radius: 3px;
-                    background: root.entry.has-syrup ? #6a3a9c : #ffffff12;
-                    Text { text: "シ"; color: root.entry.has-syrup ? #ffffff : #ffffff33; font-size: 8px; horizontal-alignment: center; vertical-alignment: center; }
-                }
-            }
+            // 食事/シロップ バフの円形タイマーバッジ（残量が時計回りに減る）
+            VerticalLayout { alignment: center; ConsumableBadge { active: root.entry.food-active; arc: root.entry.food-arc; label: "食"; arc-color: #66bb6a; } }
+            VerticalLayout { alignment: center; ConsumableBadge { active: root.entry.syrup-active; arc: root.entry.syrup-arc; label: "シ"; arc-color: #b07cff; } }
         }
         if root.show-graph-col: Rectangle {
             width: 60px;

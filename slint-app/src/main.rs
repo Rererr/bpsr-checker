@@ -126,6 +126,19 @@ fn build_rows(
         if !is_local {
             non_local_above += 1;
         }
+        // 食事/シロップの残量アーク（時計回りに減衰）
+        let food_act = p.food_duration_ms > 0.0 && p.food_remaining_ms > 0.0;
+        let food_arc = if food_act {
+            deplete_cw_arc((p.food_remaining_ms / p.food_duration_ms) as f32)
+        } else {
+            String::new()
+        };
+        let syrup_act = p.syrup_duration_ms > 0.0 && p.syrup_remaining_ms > 0.0;
+        let syrup_arc = if syrup_act {
+            deplete_cw_arc((p.syrup_remaining_ms / p.syrup_duration_ms) as f32)
+        } else {
+            String::new()
+        };
         let display = if privacy {
             format::mask_player_name(p.uid as i64)
         } else {
@@ -166,8 +179,10 @@ fn build_rows(
             .into(),
             watched: watched.contains(&(p.uid as i64)),
             spark_commands: spark.into(),
-            has_food: p.has_food,
-            has_syrup: p.has_syrup,
+            food_active: food_act,
+            food_arc: food_arc.into(),
+            syrup_active: syrup_act,
+            syrup_arc: syrup_arc.into(),
         });
     }
     out
@@ -692,6 +707,31 @@ fn buff_arc(ratio: f32) -> String {
     let end_y = cy - r * theta.cos();
     let large = if p > 0.5 { 1 } else { 0 };
     format!("M {cx} {} A {r} {r} 0 {large} 1 {end_x:.2} {end_y:.2}", cy - r)
+}
+
+/// 残量 p(0..1) を「時計回りに消えていく」アークで返す。12時から時計回りに空に
+/// なり、残量は反時計回り側(左)に残る。viewbox 28・中心14・半径12.5。
+fn deplete_cw_arc(p: f32) -> String {
+    let p = p.clamp(0.0, 1.0);
+    let (cx, cy, r) = (14.0_f32, 14.0_f32, 12.5_f32);
+    if p <= 0.0001 {
+        return String::new();
+    }
+    if p >= 0.999 {
+        // ほぼ満タンは真円（半円アーク2つ）
+        return format!(
+            "M {cx} {} A {r} {r} 0 1 1 {cx} {} A {r} {r} 0 1 1 {cx} {} Z",
+            cy - r,
+            cy + r,
+            cy - r
+        );
+    }
+    // 残量の開始角(12時からの時計回り角)。終点は常に12時。
+    let a0 = (1.0 - p) * std::f32::consts::TAU;
+    let x0 = cx + r * a0.sin();
+    let y0 = cy - r * a0.cos();
+    let large = if p > 0.5 { 1 } else { 0 };
+    format!("M {x0:.2} {y0:.2} A {r} {r} 0 {large} 1 {cx} {:.2}", cy - r)
 }
 
 fn buff_cell(snap: Option<&bpsr_core::models::SelfBuffSnapshot>, kind_hex: u32) -> BuffCell {
@@ -1377,12 +1417,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
-    // 履歴クリア。
+    // 履歴クリア。食事/シロップの表示も一緒に消す。
     {
         let hr = history_rows.clone();
         let he = history_expanded.clone();
+        let enc_ch = enc.clone();
         main.on_clear_history(move || {
             compute::clear_history();
+            compute::clear_consumables(&enc_ch);
             he.set(None);
             hr.set_vec(Vec::new());
         });
@@ -1631,6 +1673,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
+
+        // 食事/シロップ残時間ストアを更新（戦闘終了をまたいで保持・失効除去）
+        compute::refresh_consumables(&enc_poll);
 
         // ライブ集計を反映（共有セルの現在タブに応じて取得）
         let header = compute::get_header_info(&enc_poll);

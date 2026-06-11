@@ -133,7 +133,7 @@ pub fn get_header_info(enc: &EncounterMutex) -> HeaderInfo {
 
 pub fn get_dps_players(enc: &EncounterMutex) -> PlayersWindow {
     let mut window = match enc.lock() {
-        Ok(e) => build_players_window_unsorted(&*e, StatType::Dmg),
+        Ok(e) => build_players_window_unsorted(&*e, StatType::Dmg, true),
         Err(e) => {
             log::error!("Lock poisoned in get_dps_players: {e}");
             return PlayersWindow::default();
@@ -145,7 +145,7 @@ pub fn get_dps_players(enc: &EncounterMutex) -> PlayersWindow {
 
 pub fn get_dps_boss_players(enc: &EncounterMutex) -> PlayersWindow {
     let mut window = match enc.lock() {
-        Ok(e) => build_players_window_unsorted(&*e, StatType::DmgBossOnly),
+        Ok(e) => build_players_window_unsorted(&*e, StatType::DmgBossOnly, true),
         Err(e) => {
             log::error!("Lock poisoned in get_dps_boss_players: {e}");
             return PlayersWindow::default();
@@ -157,7 +157,7 @@ pub fn get_dps_boss_players(enc: &EncounterMutex) -> PlayersWindow {
 
 pub fn get_heal_players(enc: &EncounterMutex) -> PlayersWindow {
     let mut window = match enc.lock() {
-        Ok(e) => build_players_window_unsorted(&*e, StatType::Heal),
+        Ok(e) => build_players_window_unsorted(&*e, StatType::Heal, true),
         Err(e) => {
             log::error!("Lock poisoned in get_heal_players: {e}");
             return PlayersWindow::default();
@@ -169,7 +169,7 @@ pub fn get_heal_players(enc: &EncounterMutex) -> PlayersWindow {
 
 pub fn get_dmg_taken_players(enc: &EncounterMutex) -> PlayersWindow {
     let mut window = match enc.lock() {
-        Ok(e) => build_players_window_unsorted(&*e, StatType::DmgTaken),
+        Ok(e) => build_players_window_unsorted(&*e, StatType::DmgTaken, true),
         Err(e) => {
             log::error!("Lock poisoned in get_dmg_taken_players: {e}");
             return PlayersWindow::default();
@@ -331,7 +331,14 @@ fn attacker_display_name(encounter: &Encounter, attacker_uid: i64) -> String {
 }
 
 /// ロック保持中に呼ぶ。ソートはロック解放後に呼び出し元で行う。
-fn build_players_window_unsorted(encounter: &Encounter, stat_type: StatType) -> PlayersWindow {
+/// `include_idle_consumable` が true なら、ダメージ0でも食事/シロップを持つ
+/// プレイヤー行を含める（ライブ表示用。戦闘前/非ダメージの使用者を表示）。
+/// 履歴スナップショットでは false にしてダメージ実績行のみ残す。
+fn build_players_window_unsorted(
+    encounter: &Encounter,
+    stat_type: StatType,
+    include_idle_consumable: bool,
+) -> PlayersWindow {
     let selected = selected_uid::get();
     if selected.is_some() && !encounter.has_selected_participant {
         return PlayersWindow::default();
@@ -363,14 +370,20 @@ fn build_players_window_unsorted(encounter: &Encounter, stat_type: StatType) -> 
             StatType::DmgTaken => &entity.dmg_taken_stats,
         };
 
-        if entity.entity_type != EntityKind::Player || entity_stats.total == 0 {
+        if entity.entity_type != EntityKind::Player {
+            continue;
+        }
+
+        let pc = encounter.consumables.get(&entity_uid);
+        let has_consumable = pc.is_some_and(|c| c.food.is_some() || c.syrup.is_some());
+        // ダメージ0の行は通常除外するが、食事/シロップ使用者はライブ表示で残す。
+        if entity_stats.total == 0 && !(include_idle_consumable && has_consumable) {
             continue;
         }
 
         window.top_value = window.top_value.max(entity_stats.total as f64);
 
         let now = crate::engine::processor::now_ms();
-        let pc = encounter.consumables.get(&entity_uid);
         let consumable = ConsumableTimes {
             food_remaining_ms: pc
                 .and_then(|c| c.food)
@@ -592,7 +605,7 @@ pub fn build_encounter_snapshot(encounter: &Encounter) -> EncounterSnapshot {
         0.0
     };
 
-    let mut window = build_players_window_unsorted(encounter, StatType::Dmg);
+    let mut window = build_players_window_unsorted(encounter, StatType::Dmg, false);
     window.player_rows.sort_by(|a, b| {
         b.total_value
             .partial_cmp(&a.total_value)
@@ -978,6 +991,7 @@ mod tests {
             remaining_ms,
             layer: 1,
             count: 1,
+            create_time_server: 0,
         }
     }
 

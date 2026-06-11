@@ -33,6 +33,9 @@ pub struct BuffStateSnapshot {
     pub remaining_ms: i64,
     pub layer: i32,
     pub count: i32,
+    /// サーバ付与時刻。付与の同一性キー（新規付与・重ねがけの判別）に使う。
+    /// BuffTick 経由では 0 で来ることがある点に注意。
+    pub create_time_server: i64,
 }
 
 impl BuffTracker {
@@ -252,6 +255,7 @@ fn make_snapshots(player_buffs: &HashMap<i32, BuffState>, now_ms: u128) -> Vec<B
                 remaining_ms,
                 layer: state.layer,
                 count: state.count,
+                create_time_server: state.create_time_server,
             }
         })
         .collect()

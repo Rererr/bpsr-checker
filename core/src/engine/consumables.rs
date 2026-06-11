@@ -1,9 +1,14 @@
-//! 食事(food)/シロップ(alchemy)バフの判定。
-//! base_id 集合は ConsumableBuffIds.json を埋め込む（姉妹リポ ../resonance-logs-cn の
-//! BuffName.json で Icon が `buff_food_up*`=食事 / `buff_agentia_up*`=シロップ のものを抽出）。
+//! 食事(food)/シロップ(alchemy)バフの判定と、戦闘終了をまたいで残時間を保持する
+//! 永続ストア。base_id 集合は ConsumableBuffIds.json を埋め込む（姉妹リポ
+//! ../resonance-logs-cn の BuffName.json で Icon が `buff_food_up*`=食事 /
+//! `buff_agentia_up*`=シロップ のものを抽出）。
+//!
+//! clear_combat_stats は buff_tracker を消すため、戦闘終了→新規戦闘で食事バフを
+//! 忘れてしまう。ゲーム内では効果が継続するので、観測時に終了時刻を控えて
+//! buff_tracker が消えても保持し、自然失効/手動リセット/履歴クリアで消す。
 
 use crate::engine::buff_tracker::BuffTracker;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 #[derive(serde::Deserialize)]
@@ -21,25 +26,70 @@ static IDS: LazyLock<(HashSet<i32>, HashSet<i32>)> = LazyLock::new(|| {
     )
 });
 
-/// プレイヤーの現在のバフから (食事あり, シロップあり) を判定する。
-pub fn detect(tracker: &BuffTracker, player_uid: i64, now_ms: u128) -> (bool, bool) {
+/// 1バフの終了時刻と総時間（円形タイマーの比率算出用）。
+#[derive(Clone, Copy, Debug)]
+pub struct Timing {
+    pub expire_at_ms: u128,
+    pub duration_ms: u128,
+}
+
+impl Timing {
+    pub fn remaining_ms(&self, now_ms: u128) -> i64 {
+        (self.expire_at_ms as i128 - now_ms as i128) as i64
+    }
+}
+
+/// プレイヤーの食事/シロップ状態。
+#[derive(Clone, Copy, Default, Debug)]
+pub struct PlayerConsumables {
+    pub food: Option<Timing>,
+    pub syrup: Option<Timing>,
+}
+
+/// buff_tracker の観測でストアを更新し、失効分を除去する。
+/// buff_tracker に無い（戦闘終了で消えた）バフは保持し続け、now が終了時刻を
+/// 過ぎたら除去する。
+pub fn refresh(store: &mut HashMap<i64, PlayerConsumables>, tracker: &BuffTracker, now_ms: u128) {
     let (food_ids, syrup_ids) = &*IDS;
-    let mut food = false;
-    let mut syrup = false;
-    for s in tracker.snapshot_for(player_uid, now_ms) {
-        // 有効中のみ（無期限 duration_ms==0 は有効扱い）
-        if s.duration_ms != 0 && s.remaining_ms <= 0 {
-            continue;
+    for (uid, snaps) in tracker.snapshot_all(now_ms) {
+        let mut food: Option<Timing> = None;
+        let mut syrup: Option<Timing> = None;
+        for s in &snaps {
+            if s.duration_ms <= 0 {
+                continue; // 無期限はタイマー対象外
+            }
+            let t = Timing {
+                expire_at_ms: s.received_at_local_ms + s.duration_ms as u128,
+                duration_ms: s.duration_ms as u128,
+            };
+            if food_ids.contains(&s.base_id) && food.is_none_or(|f| t.expire_at_ms > f.expire_at_ms)
+            {
+                food = Some(t);
+            }
+            if syrup_ids.contains(&s.base_id)
+                && syrup.is_none_or(|f| t.expire_at_ms > f.expire_at_ms)
+            {
+                syrup = Some(t);
+            }
         }
-        if !food && food_ids.contains(&s.base_id) {
-            food = true;
-        }
-        if !syrup && syrup_ids.contains(&s.base_id) {
-            syrup = true;
-        }
-        if food && syrup {
-            break;
+        if food.is_some() || syrup.is_some() {
+            let e = store.entry(uid).or_default();
+            if food.is_some() {
+                e.food = food;
+            }
+            if syrup.is_some() {
+                e.syrup = syrup;
+            }
         }
     }
-    (food, syrup)
+    // 失効除去
+    for pc in store.values_mut() {
+        if pc.food.is_some_and(|f| now_ms >= f.expire_at_ms) {
+            pc.food = None;
+        }
+        if pc.syrup.is_some_and(|f| now_ms >= f.expire_at_ms) {
+            pc.syrup = None;
+        }
+    }
+    store.retain(|_, pc| pc.food.is_some() || pc.syrup.is_some());
 }

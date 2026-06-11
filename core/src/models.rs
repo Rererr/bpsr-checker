@@ -43,11 +43,15 @@ pub struct PlayerRow {
     pub lucky_value_rate: f64,
     pub hits: f64,
     pub hits_per_minute: f64,
-    // 食事/シロップ(錬金)バフを使用中か
+    // 食事/シロップ(錬金)バフの残時間・総時間（円形タイマー用。0=未使用）
     #[serde(default)]
-    pub has_food: bool,
+    pub food_remaining_ms: f64,
     #[serde(default)]
-    pub has_syrup: bool,
+    pub food_duration_ms: f64,
+    #[serde(default)]
+    pub syrup_remaining_ms: f64,
+    #[serde(default)]
+    pub syrup_duration_ms: f64,
     pub time_series: Vec<TimeSeriesPoint>,
 }
 

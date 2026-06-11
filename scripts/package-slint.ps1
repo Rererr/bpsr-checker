@@ -46,7 +46,14 @@ Compress-Archive -Path (Join-Path $out "*") -DestinationPath $zip
 Write-Host "Portable artifact: $zip"
 
 # NSIS インストーラ（makensis があれば生成）。OutFile は絶対パスで明示。
+# PATH 未登録でも標準導入先を探索する（CI の choco install 直後は PATH が未更新で
+# Get-Command が空振りするため。choco の nsis は Program Files (x86)\NSIS に入る）。
 $makensis = Get-Command makensis -ErrorAction SilentlyContinue
+if (-not $makensis) {
+    foreach ($p in @("$env:ProgramFiles\NSIS\makensis.exe", "${env:ProgramFiles(x86)}\NSIS\makensis.exe")) {
+        if (Test-Path $p) { $makensis = Get-Command $p; break }
+    }
+}
 if ($makensis) {
     Write-Host "Building NSIS installer..."
     $setup = Join-Path $root "dist-slint/bpsr-checker-setup-$ver.exe"

@@ -171,7 +171,7 @@ component SegButton inherits TouchArea {
 component ConsumableBadge inherits Rectangle {
     in property <bool> active;
     in property <string> arc;
-    in property <string> label;
+    in property <image> icon;
     in property <color> arc-color;
     width: 16px;
     height: 16px;
@@ -202,14 +202,14 @@ component ConsumableBadge inherits Rectangle {
         stroke-width: 2px;
         fill: transparent;
     }
-    Text {
-        text: root.label;
-        color: root.active ? #ffffff : #ffffff66;
-        font-size: 8px;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-        width: 100%;
-        height: 100%;
+    // 中央アイコン（言語非依存。SVGを白で表示）
+    Image {
+        source: root.icon;
+        width: 9px;
+        height: 9px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        colorize: root.active ? #ffffff : #ffffffcc;
     }
 }
 
@@ -263,8 +263,8 @@ component PlayerRowItem inherits Rectangle {
                 horizontal-stretch: 1;
             }
             // 食事/シロップ バフの円形タイマーバッジ（残量が時計回りに減る）
-            VerticalLayout { alignment: center; ConsumableBadge { active: root.entry.food-active; arc: root.entry.food-arc; label: "食"; arc-color: #66bb6a; } }
-            VerticalLayout { alignment: center; ConsumableBadge { active: root.entry.syrup-active; arc: root.entry.syrup-arc; label: "シ"; arc-color: #b07cff; } }
+            VerticalLayout { alignment: center; ConsumableBadge { active: root.entry.food-active; arc: root.entry.food-arc; icon: @image-url("icons/food.svg"); arc-color: #66bb6a; } }
+            VerticalLayout { alignment: center; ConsumableBadge { active: root.entry.syrup-active; arc: root.entry.syrup-arc; icon: @image-url("icons/syrup.svg"); arc-color: #b07cff; } }
         }
         if root.show-graph-col: Rectangle {
             width: 60px;

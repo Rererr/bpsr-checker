@@ -7,7 +7,7 @@
 //! 忘れてしまう。ゲーム内では効果が継続するので、観測時に終了時刻を控えて
 //! buff_tracker が消えても保持し、自然失効/手動リセット/履歴クリアで消す。
 
-use crate::engine::buff_tracker::BuffTracker;
+use crate::engine::buff_tracker::{BuffStateSnapshot, BuffTracker};
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
@@ -27,11 +27,15 @@ static IDS: LazyLock<(HashSet<i32>, HashSet<i32>)> = LazyLock::new(|| {
 });
 
 /// 1バフの終了時刻・総時間（残量比率算出用）と種類解決用の base_id。
+/// `create_time`/`layer` は付与の同一性キー。受動再観測では expire を凍結し、
+/// 新規付与（create_time 変化）・重ねがけ（layer 増）でのみ更新するために使う。
 #[derive(Clone, Copy, Debug)]
 pub struct Timing {
     pub expire_at_ms: u128,
     pub duration_ms: u128,
     pub base_id: i32,
+    pub create_time: i64,
+    pub layer: i32,
 }
 
 impl Timing {
@@ -50,38 +54,36 @@ pub struct PlayerConsumables {
 /// buff_tracker の観測でストアを更新し、失効分を除去する。
 /// buff_tracker に無い（戦闘終了で消えた）バフは保持し続け、now が終了時刻を
 /// 過ぎたら除去する。
+///
+/// 残り時間はゲームが送る duration を尊重し、新規付与（create_time 変化）・
+/// 重ねがけ（layer 増）でのみ更新する。受動的な BuffTick/Snapshot 再観測は
+/// `received_at_local_ms` を再ベースするが、ここでは expire を凍結して
+/// 残り時間が膨張・リセットしないようにする（ゲーム実値と食い違わせない）。
 pub fn refresh(store: &mut HashMap<i64, PlayerConsumables>, tracker: &BuffTracker, now_ms: u128) {
     let (food_ids, syrup_ids) = &*IDS;
     for (uid, snaps) in tracker.snapshot_all(now_ms) {
-        let mut food: Option<Timing> = None;
-        let mut syrup: Option<Timing> = None;
+        // 食事/シロップそれぞれ、終了時刻が最も遅い候補を代表（重ねがけ後の最新）とする。
+        let mut food_cand: Option<&BuffStateSnapshot> = None;
+        let mut syrup_cand: Option<&BuffStateSnapshot> = None;
         for s in &snaps {
             if s.duration_ms <= 0 {
                 continue; // 無期限はタイマー対象外
             }
-            let t = Timing {
-                expire_at_ms: s.received_at_local_ms + s.duration_ms as u128,
-                duration_ms: s.duration_ms as u128,
-                base_id: s.base_id,
-            };
-            if food_ids.contains(&s.base_id) && food.is_none_or(|f| t.expire_at_ms > f.expire_at_ms)
-            {
-                food = Some(t);
+            if food_ids.contains(&s.base_id) && later_expire(s, food_cand) {
+                food_cand = Some(s);
             }
-            if syrup_ids.contains(&s.base_id)
-                && syrup.is_none_or(|f| t.expire_at_ms > f.expire_at_ms)
-            {
-                syrup = Some(t);
+            if syrup_ids.contains(&s.base_id) && later_expire(s, syrup_cand) {
+                syrup_cand = Some(s);
             }
         }
+
+        let existing = store.get(&uid).copied().unwrap_or_default();
+        let food = merge(existing.food, food_cand, now_ms);
+        let syrup = merge(existing.syrup, syrup_cand, now_ms);
         if food.is_some() || syrup.is_some() {
             let e = store.entry(uid).or_default();
-            if food.is_some() {
-                e.food = food;
-            }
-            if syrup.is_some() {
-                e.syrup = syrup;
-            }
+            e.food = food;
+            e.syrup = syrup;
         }
     }
     // 失効除去
@@ -94,4 +96,125 @@ pub fn refresh(store: &mut HashMap<i64, PlayerConsumables>, tracker: &BuffTracke
         }
     }
     store.retain(|_, pc| pc.food.is_some() || pc.syrup.is_some());
+}
+
+/// `s` の終了時刻が現候補より遅ければ true（無期限は上で除外済み）。
+fn later_expire(s: &BuffStateSnapshot, cand: Option<&BuffStateSnapshot>) -> bool {
+    let s_expire = s.received_at_local_ms + s.duration_ms as u128;
+    cand.is_none_or(|c| s_expire > c.received_at_local_ms + c.duration_ms as u128)
+}
+
+/// 既存 Timing と観測候補から、更新後の Timing を決める。
+/// - 候補なし: 既存を保持（戦闘クリアで buff_tracker が消えても凍結）。
+/// - 既存なし: 観測値で初期化。
+/// - 既存失効済み: 観測値で再付与扱い。
+/// - 重ねがけ（layer 増）/ 新規付与（create_time が両者非0で変化）: 観測値で更新。
+/// - それ以外（受動再観測・create_time=0 等）: 既存 expire を凍結。
+fn merge(existing: Option<Timing>, cand: Option<&BuffStateSnapshot>, now_ms: u128) -> Option<Timing> {
+    let Some(s) = cand else {
+        return existing;
+    };
+    let fresh = || Timing {
+        expire_at_ms: s.received_at_local_ms + s.duration_ms as u128,
+        duration_ms: s.duration_ms as u128,
+        base_id: s.base_id,
+        create_time: s.create_time_server,
+        layer: s.layer,
+    };
+    let Some(e) = existing else {
+        return Some(fresh());
+    };
+    if now_ms >= e.expire_at_ms {
+        return Some(fresh()); // 既存は失効済み → 新規付与として採用
+    }
+    if s.layer > e.layer {
+        return Some(fresh()); // 重ねがけ（スタック増）
+    }
+    if s.create_time_server != 0 && e.create_time != 0 && s.create_time_server != e.create_time {
+        return Some(fresh()); // 別付与（create_time 変化）
+    }
+    Some(e) // 受動再観測 → 凍結
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::buff_tracker::BuffTracker;
+    use crate::protocol::pb;
+
+    const FOOD_ID: i32 = 700083; // ConsumableBuffIds.json food[0]
+    const UID: i64 = 5000;
+
+    fn food_info(duration: i32, create_time: i64, layer: i32) -> pb::BuffSnapshot {
+        pb::BuffSnapshot {
+            buff_uuid: 1,
+            base_id: FOOD_ID,
+            level: 1,
+            host_uuid: 0,
+            table_uuid: 0,
+            create_time,
+            fire_uuid: 0,
+            layer,
+            part_id: 0,
+            count: 1,
+            duration,
+            fight_source_info: None,
+        }
+    }
+
+    // 受動 BuffTick（create_time=0 で received_at を再ベース）では expire を凍結する。
+    #[test]
+    fn passive_reobservation_does_not_rebase() {
+        let mut tracker = BuffTracker::new();
+        let mut store = HashMap::new();
+        tracker.apply_buff_add(1, &food_info(600_000, 1000, 1), 0, UID);
+        refresh(&mut store, &tracker, 0);
+        assert_eq!(store[&UID].food.unwrap().remaining_ms(0), 600_000);
+
+        // create_time=0 の受動 tick で now=100s に再ベース
+        let tick = pb::BuffTick {
+            host_uuid: (UID << 16) | 640,
+            buff_uuid: 1,
+            base_id: FOOD_ID,
+            duration: 600_000,
+            create_time: 0,
+            layer: 1,
+        };
+        tracker.apply_change(&tick, 100_000);
+        refresh(&mut store, &tracker, 100_000);
+        // 凍結されていれば残 500s（再ベースされると 600s に膨張する）
+        assert_eq!(store[&UID].food.unwrap().remaining_ms(100_000), 500_000);
+    }
+
+    // 重ねがけ（layer 増）で expire を更新する。
+    #[test]
+    fn stacking_layer_increase_refreshes() {
+        let mut tracker = BuffTracker::new();
+        let mut store = HashMap::new();
+        tracker.apply_buff_add(1, &food_info(600_000, 1000, 1), 0, UID);
+        refresh(&mut store, &tracker, 0);
+
+        let change = pb::BuffChange { layer: 2, duration: 600_000, create_time: 2000 };
+        tracker.apply_buff_change(UID, 1, &change, 100_000);
+        refresh(&mut store, &tracker, 100_000);
+        // 100s + 600s = 700s 終了 → 残 600s、layer=2
+        assert_eq!(store[&UID].food.unwrap().remaining_ms(100_000), 600_000);
+        assert_eq!(store[&UID].food.unwrap().layer, 2);
+    }
+
+    // buff_tracker.clear（戦闘終了）後も保持し、失効時に除去する。
+    #[test]
+    fn persists_across_clear_until_expiry() {
+        let mut tracker = BuffTracker::new();
+        let mut store = HashMap::new();
+        tracker.apply_buff_add(1, &food_info(600_000, 1000, 1), 0, UID);
+        refresh(&mut store, &tracker, 0);
+
+        tracker.clear(); // 戦闘終了で buff_tracker が空に
+        refresh(&mut store, &tracker, 300_000);
+        assert_eq!(store[&UID].food.unwrap().remaining_ms(300_000), 300_000);
+
+        refresh(&mut store, &tracker, 600_000); // 失効
+        assert!(store.get(&UID).is_none());
+    }
 }

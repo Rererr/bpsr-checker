@@ -19,7 +19,7 @@ mod window_state;
 use bpsr_core::compute;
 use bpsr_core::engine;
 use bpsr_core::engine::encounter::EncounterMutex;
-use slint::{ComponentHandle, Timer, TimerMode, VecModel};
+use slint::{ComponentHandle, Model, Timer, TimerMode, VecModel};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -91,9 +91,23 @@ fn apply_player_rows(
     built: Vec<Row>,
 ) {
     let half = built.len().div_ceil(2);
-    left.set_vec(built[..half].to_vec());
-    right.set_vec(built[half..].to_vec());
-    rows.set_vec(built);
+    sync_rows(left, &built[..half]);
+    sync_rows(right, &built[half..]);
+    sync_rows(rows, &built);
+}
+
+/// 行数が同じならデリゲートを再生成せず in-place 更新する。
+/// set_vec はモデルをリセットしリピータが要素を作り直すため、ホバー中の
+/// 食事/シロップ ツールチップ（PopupWindow）が毎poll閉じ開きしてちらつく。
+/// 行数が一致する間は set_row_data でデータのみ差し替え、ホバー状態を保つ。
+fn sync_rows(model: &slint::VecModel<Row>, data: &[Row]) {
+    if model.row_count() == data.len() {
+        for (i, r) in data.iter().enumerate() {
+            model.set_row_data(i, r.clone());
+        }
+    } else {
+        model.set_vec(data.to_vec());
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -136,7 +150,7 @@ fn build_rows(
             0.0
         };
         let food_time = if food_act {
-            format::format_remaining(p.food_remaining_ms as i64, p.food_duration_ms as i64)
+            format::format_consumable_remaining(p.food_remaining_ms as i64, p.food_duration_ms as i64)
         } else {
             String::new()
         };
@@ -152,7 +166,7 @@ fn build_rows(
             0.0
         };
         let syrup_time = if syrup_act {
-            format::format_remaining(p.syrup_remaining_ms as i64, p.syrup_duration_ms as i64)
+            format::format_consumable_remaining(p.syrup_remaining_ms as i64, p.syrup_duration_ms as i64)
         } else {
             String::new()
         };

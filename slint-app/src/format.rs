@@ -86,6 +86,26 @@ pub fn format_remaining(remaining_ms: i64, duration_ms: i64) -> String {
     }
 }
 
+/// 食事/シロップ残時間表示。30分/10分など長時間が多いため分+秒（例 29m3s）で表す。
+pub fn format_consumable_remaining(remaining_ms: i64, duration_ms: i64) -> String {
+    if duration_ms == 0 {
+        return "∞".to_string();
+    }
+    if remaining_ms <= 0 {
+        return "0s".to_string();
+    }
+    let total_sec = (remaining_ms as f64 / 1000.0).ceil() as i64;
+    let min = total_sec / 60;
+    let sec = total_sec % 60;
+    if min == 0 {
+        format!("{sec}s")
+    } else if sec == 0 {
+        format!("{min}m")
+    } else {
+        format!("{min}m{sec}s")
+    }
+}
+
 /// 名前マスク（utils.ts maskPlayerName）。
 pub fn mask_player_name(uid: i64) -> String {
     format!("Player#{:04X}", uid & 0xffff)
@@ -247,4 +267,22 @@ pub fn format_row_template(d: &CopyRowData, template: &str, abbreviate: bool) ->
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_consumable_remaining;
+
+    #[test]
+    fn consumable_remaining_minutes_and_seconds() {
+        // 29m3s（端数は切り上げ）
+        assert_eq!(format_consumable_remaining(1_742_500, 1_800_000), "29m3s");
+        // ちょうど分は秒を省く
+        assert_eq!(format_consumable_remaining(600_000, 1_800_000), "10m");
+        // 1分未満は秒のみ
+        assert_eq!(format_consumable_remaining(45_000, 600_000), "45s");
+        // 無期限・失効
+        assert_eq!(format_consumable_remaining(100, 0), "∞");
+        assert_eq!(format_consumable_remaining(0, 600_000), "0s");
+    }
 }

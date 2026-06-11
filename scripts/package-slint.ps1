@@ -58,7 +58,10 @@ if ($makensis) {
     Write-Host "Building NSIS installer..."
     $setup = Join-Path $root "dist-slint/bpsr-checker-setup-$ver.exe"
     & $makensis.Source "/DVERSION=$ver" "/DSRCDIR=$out" "/DOUTFILE=$setup" (Join-Path $root "installer/installer.nsi")
-    if (Test-Path $setup) { Write-Host "Installer: $setup" }
+    # makensis 失敗(構文エラー等)を黙殺するとインストーラ欠落のまま公開されるため明示的に失敗させる。
+    if ($LASTEXITCODE -ne 0) { throw "makensis failed (exit $LASTEXITCODE)" }
+    if (-not (Test-Path $setup)) { throw "installer not produced: $setup" }
+    Write-Host "Installer: $setup"
 } else {
     Write-Host "makensis not found; skipped installer (portable zip のみ生成)."
 }

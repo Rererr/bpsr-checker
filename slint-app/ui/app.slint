@@ -547,7 +547,7 @@ component ToggleRow inherits TouchArea {
                     }
                 }
             }
-            Text { text: root.label; color: #ddd; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; }
+            Text { text: root.label; color: #ddd; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
         }
     }
 }
@@ -559,7 +559,7 @@ component OpacityRow inherits Rectangle {
     height: 30px;
     HorizontalLayout {
         padding-left: 10px;
-        padding-right: 12px;
+        padding-right: 10px;
         spacing: 10px;
         Text { text: @tr("不透明度"); color: #ddd; font-size: 12px; vertical-alignment: center; width: 80px; }
         VerticalLayout {
@@ -600,7 +600,7 @@ component StepperRow inherits Rectangle {
         padding-left: 10px;
         padding-right: 10px;
         spacing: 6px;
-        Text { text: root.label; color: #ddd; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; }
+        Text { text: root.label; color: #ddd; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
         dec-btn := TouchArea {
             width: 22px;
             clicked => { root.dec(); }
@@ -610,7 +610,7 @@ component StepperRow inherits Rectangle {
                 Text { text: "-"; color: white; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
             }
         }
-        Text { text: root.value-text; color: #cdd; font-size: 12px; width: 58px; horizontal-alignment: center; vertical-alignment: center; }
+        Text { text: root.value-text; color: #cdd; font-size: 12px; width: 44px; horizontal-alignment: center; vertical-alignment: center; }
         inc-btn := TouchArea {
             width: 22px;
             clicked => { root.inc(); }
@@ -671,6 +671,167 @@ component TemplateField inherits VerticalLayout {
     }
     if root.hint != "": Text { text: root.hint; color: #666; font-size: 9px; wrap: word-wrap; }
     Text { text: root.preview; color: #cfcfe0; font-size: 10px; wrap: word-wrap; }
+}
+
+// ── 設定パネルのセクション群（レスポンシブ多列レイアウトの単位）──
+// 各セクションは VerticalLayout を継承し、必要な構造体/コールバックのみを公開する。
+// MainWindow 側で最大3カラムへ振り分け、同じ定義を列ごとに条件配置する。
+
+// キャラクター（自キャラUID入力・解決名・候補チップ・ヒント）
+component CharacterSection inherits VerticalLayout {
+    in property <string> uid-value;
+    in property <string> uid-name;
+    in property <[UidCandidate]> candidates;
+    callback set-uid(string); // 空文字=クリア
+    spacing: 1px;
+    Text { text: @tr("キャラクター"); color: #888; font-size: 10px; }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 6px;
+        height: 28px;
+        Text { text: @tr("自キャラUID"); color: #ddd; font-size: 12px; vertical-alignment: center; width: 76px; }
+        Rectangle {
+            horizontal-stretch: 1;
+            background: #ffffff14;
+            border-width: 1px;
+            border-color: uidti.has-focus ? #4fc3f7 : #ffffff26;
+            border-radius: 3px;
+            uidti := TextInput {
+                x: 5px;
+                width: parent.width - 10px;
+                height: 100%;
+                vertical-alignment: center;
+                color: #ddd;
+                font-size: 12px;
+                input-type: number;
+                text: root.uid-value;
+                // Enter で確定（毎キーで set すると集計リセットされるため）
+                accepted => { root.set-uid(self.text); }
+            }
+        }
+        uidclear := TouchArea {
+            width: 44px;
+            clicked => { root.set-uid(""); }
+            Rectangle {
+                background: uidclear.has-hover ? #ffffff28 : #ffffff12;
+                border-radius: 3px;
+                Text { text: @tr("クリア"); color: #cdd; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; }
+            }
+        }
+    }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 6px;
+        Rectangle { width: 76px; }
+        Text { text: root.uid-name; color: #aaa; font-size: 11px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+    }
+    if root.candidates.length > 0: HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 6px;
+        height: 24px;
+        Text { text: @tr("候補"); color: #777; font-size: 10px; vertical-alignment: center; width: 76px; }
+        Flickable {
+            horizontal-stretch: 1;
+            viewport-width: candbox.preferred-width;
+            candbox := HorizontalLayout {
+                spacing: 4px;
+                for cand in root.candidates: CandidateChip { c: cand; pick(u) => { root.set-uid(u); } }
+            }
+        }
+    }
+    Text { text: @tr("自動判定が外れた時に手動で自分を指定（Enterで確定）"); color: #555; font-size: 9px; wrap: word-wrap; }
+}
+
+// 表示列（一覧に出す列のトグル）
+component DisplayColsSection inherits VerticalLayout {
+    in property <SettingsUi> cfg;
+    callback set-bool(string, bool);
+    spacing: 1px;
+    Text { text: @tr("表示列"); color: #888; font-size: 10px; }
+    ToggleRow { label: @tr("会心率"); checked: root.cfg.show-crit; toggled => { root.set-bool("show-crit", !root.cfg.show-crit); } }
+    ToggleRow { label: @tr("会心ダメ率"); checked: root.cfg.show-crit-value; toggled => { root.set-bool("show-crit-value", !root.cfg.show-crit-value); } }
+    ToggleRow { label: @tr("幸運率"); checked: root.cfg.show-lucky; toggled => { root.set-bool("show-lucky", !root.cfg.show-lucky); } }
+    ToggleRow { label: @tr("幸運ダメ率"); checked: root.cfg.show-lucky-value; toggled => { root.set-bool("show-lucky-value", !root.cfg.show-lucky-value); } }
+    ToggleRow { label: @tr("ヒット数"); checked: root.cfg.show-hits; toggled => { root.set-bool("show-hits", !root.cfg.show-hits); } }
+    ToggleRow { label: @tr("毎分ヒット数"); checked: root.cfg.show-hpm; toggled => { root.set-bool("show-hpm", !root.cfg.show-hpm); } }
+    ToggleRow { label: @tr("戦力"); checked: root.cfg.show-score; toggled => { root.set-bool("show-score", !root.cfg.show-score); } }
+}
+
+// 表示（強調・省略・マスク・フォントサイズ・起動タブ）
+component DisplaySection inherits VerticalLayout {
+    in property <SettingsUi> cfg;
+    in property <SettingsNumUi> nums;
+    callback set-bool(string, bool);
+    callback bump-num(string, int);
+    callback set-str(string, string);
+    spacing: 1px;
+    Text { text: @tr("表示"); color: #888; font-size: 10px; }
+    ToggleRow { label: @tr("自分を強調"); checked: root.cfg.highlight-local; toggled => { root.set-bool("highlight-local", !root.cfg.highlight-local); } }
+    ToggleRow { label: @tr("スコア省略(K/M)"); checked: root.cfg.abbreviate-scores; toggled => { root.set-bool("abbreviate-scores", !root.cfg.abbreviate-scores); } }
+    ToggleRow { label: @tr("名前マスク"); checked: root.cfg.privacy-mask; toggled => { root.set-bool("privacy-mask", !root.cfg.privacy-mask); } }
+    ToggleRow { label: @tr("軽量分割表示"); checked: root.cfg.compact-split; toggled => { root.set-bool("compact-split", !root.cfg.compact-split); } }
+    StepperRow { label: @tr("フォントサイズ"); value-text: root.nums.font-size; dec => { root.bump-num("font-size", -1); } inc => { root.bump-num("font-size", 1); } }
+    // 起動時のタブ: ラベルを上・セグボタンを下に縦積み（狭幅列でもラベルが潰れない）
+    VerticalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 3px;
+        Text { text: @tr("起動時のタブ"); color: #ddd; font-size: 12px; }
+        HorizontalLayout {
+            spacing: 6px;
+            SegButton { label: @tr("DPS"); active: root.cfg.startup-tab == "dps"; clicked => { root.set-str("startup-tab", "dps"); } }
+            SegButton { label: @tr("回復"); active: root.cfg.startup-tab == "heal"; clicked => { root.set-str("startup-tab", "heal"); } }
+            SegButton { label: @tr("履歴"); active: root.cfg.startup-tab == "history"; clicked => { root.set-str("startup-tab", "history"); } }
+            // 余白を吸収し、固定幅セグボタンによる行の max-width(150px) 制限を解除する。
+            // これがないと DisplaySection→中央列が ~150px で頭打ちになり伸縮しない。
+            Rectangle { horizontal-stretch: 1; }
+        }
+    }
+}
+
+// オーバーレイ（バフ/デバフ窓・最前面）。不透明度は全幅化のため setbox 側へ分離。
+component OverlaySection inherits VerticalLayout {
+    in property <SettingsUi> cfg;
+    callback set-bool(string, bool);
+    spacing: 1px;
+    Text { text: @tr("オーバーレイ"); color: #888; font-size: 10px; }
+    ToggleRow { label: @tr("自キャラ バフ/デバフ"); checked: root.cfg.self-status; toggled => { root.set-bool("self-status-overlay", !root.cfg.self-status); } }
+    ToggleRow { label: @tr("イマジンデバフタイマー"); checked: root.cfg.buff-overlay; toggled => { root.set-bool("buff-overlay", !root.cfg.buff-overlay); } }
+    ToggleRow { label: @tr("イマジン専用モード"); checked: root.cfg.imagine-only; toggled => { root.set-bool("imagine-only", !root.cfg.imagine-only); } }
+    ToggleRow { label: @tr("常に最前面"); checked: root.cfg.aot; toggled => { root.set-bool("aot", !root.cfg.aot); } }
+}
+
+// 戦闘（終了判定・更新間隔・3分計測）
+component CombatSection inherits VerticalLayout {
+    in property <SettingsUi> cfg;
+    in property <SettingsNumUi> nums;
+    callback set-bool(string, bool);
+    callback bump-num(string, int);
+    spacing: 1px;
+    Text { text: @tr("戦闘"); color: #888; font-size: 10px; }
+    StepperRow { label: @tr("戦闘終了(秒)"); value-text: root.nums.combat-exit; dec => { root.bump-num("combat-exit", -1); } inc => { root.bump-num("combat-exit", 1); } }
+    StepperRow { label: @tr("更新間隔(ms)"); value-text: root.nums.poll-interval; dec => { root.bump-num("poll-interval", -1); } inc => { root.bump-num("poll-interval", 1); } }
+    StepperRow { label: @tr("3分計測(秒)"); value-text: root.nums.three-min-dur; dec => { root.bump-num("three-min-dur", -1); } inc => { root.bump-num("three-min-dur", 1); } }
+    ToggleRow { label: @tr("3分計測を自動で開く"); checked: root.cfg.three-min-auto-open; toggled => { root.set-bool("three-min-auto-open", !root.cfg.three-min-auto-open); } }
+}
+
+// 履歴・グラフ
+component HistorySection inherits VerticalLayout {
+    in property <SettingsUi> cfg;
+    in property <SettingsNumUi> nums;
+    callback set-bool(string, bool);
+    callback bump-num(string, int);
+    spacing: 1px;
+    Text { text: @tr("履歴・グラフ"); color: #888; font-size: 10px; }
+    StepperRow { label: @tr("履歴保持数"); value-text: root.nums.history-limit; dec => { root.bump-num("history-limit", -1); } inc => { root.bump-num("history-limit", 1); } }
+    StepperRow { label: @tr("グラフ標本数"); value-text: root.nums.ts-samples; dec => { root.bump-num("ts-samples", -1); } inc => { root.bump-num("ts-samples", 1); } }
+    StepperRow { label: @tr("グラフ間隔(ms)"); value-text: root.nums.ts-interval; dec => { root.bump-num("ts-interval", -1); } inc => { root.bump-num("ts-interval", 1); } }
+    StepperRow { label: @tr("グラフ表示人数"); value-text: root.nums.graph-count; dec => { root.bump-num("graph-count", -1); } inc => { root.bump-num("graph-count", 1); } }
+    ToggleRow { label: @tr("ヘッダーにグラフ"); checked: root.cfg.header-sparkline; toggled => { root.set-bool("header-sparkline", !root.cfg.header-sparkline); } }
+    ToggleRow { label: @tr("自分のグラフを表示"); checked: root.cfg.graph-for-local; toggled => { root.set-bool("graph-for-local", !root.cfg.graph-for-local); } }
 }
 
 // no-frame 窓の縁/角リサイズ用ハンドル。
@@ -767,6 +928,19 @@ export component MainWindow inherits Window {
     callback copy-result();
     callback restart-measure();
     callback select-result-player(string);
+
+    // 設定パネルの列数（窓幅でレスポンシブに 1/2/3）。短ラベルが多いので幅があれば3列まで。
+    property <int> set-cols: root.width >= 660px ? 3 : (root.width >= 440px ? 2 : 1);
+    // セクション index(0=キャラ,1=表示列,2=表示,3=オーバーレイ,4=戦闘,5=履歴) の所属カラムを返す。
+    pure function scol(i: int) -> int {
+        if (root.set-cols <= 1) {
+            return 0;
+        }
+        if (root.set-cols == 2) {
+            return i <= 2 ? 0 : 1;
+        }
+        return i <= 1 ? 0 : (i <= 3 ? 1 : 2);
+    }
 
     title: @tr("DPSメーター");
     default-font-family: "Yu Gothic UI"; // femtovg は ClearType 非対応のため可読性重視の和文フォントを既定に
@@ -1126,110 +1300,70 @@ export component MainWindow inherits Window {
                 vertical-stretch: 1;
                 max-height: 100000px;
                 viewport-height: setbox.preferred-height;
+                // 横は Flickable 幅に固定（横スクロール無効＝内側の列レイアウトが窓幅へ
+                // 逆流しないようにし、set-cols(root.width依存) との binding loop を断つ）
+                viewport-width: self.width;
                 setbox := VerticalLayout {
                     padding: 4px;
-                    spacing: 1px;
-                    Text { text: @tr("キャラクター"); color: #888; font-size: 10px; }
+                    spacing: 6px;
+                    // 横の layoutinfo を定数化し、列数(set-cols)→窓幅→set-cols の binding loop を断つ。
+                    // 実幅は親 Flickable の viewport-width(=自幅)で決まるので各値は表示に影響しない。
+                    min-width: 0px;
+                    preferred-width: 0px;
+                    max-width: 100000px;
+                    // ── 設定セクションのレスポンシブ多列グリッド（窓幅で 1/2/3 列）──
+                    // 6セクションを scol(i) で各カラムへ振り分け。同じ定義を列ごとに条件配置する。
                     HorizontalLayout {
-                        padding-left: 10px;
-                        padding-right: 10px;
-                        spacing: 6px;
-                        height: 28px;
-                        Text { text: @tr("自キャラUID"); color: #ddd; font-size: 12px; vertical-alignment: center; width: 76px; }
-                        Rectangle {
+                        spacing: 8px;
+                        // ── 列0 ──
+                        VerticalLayout {
                             horizontal-stretch: 1;
-                            background: #ffffff14;
-                            border-width: 1px;
-                            border-color: uidti.has-focus ? #4fc3f7 : #ffffff26;
-                            border-radius: 3px;
-                            uidti := TextInput {
-                                x: 5px;
-                                width: parent.width - 10px;
-                                height: 100%;
-                                vertical-alignment: center;
-                                color: #ddd;
-                                font-size: 12px;
-                                input-type: number;
-                                text: root.selected-uid-value;
-                                // Enter で確定（毎キーで set すると集計リセットされるため）
-                                accepted => { root.set-selected-uid(self.text); }
-                            }
+                            // preferred 幅を内容非依存(0)にして全カラムを完全な等幅にする。
+                            // （内容の preferred 差で stretch 配分が偏り、表示列が狭くなるのを防ぐ）
+                            min-width: 0px;
+                            preferred-width: 0px;
+                            alignment: start; // 上詰め（カラム間の高さ差で見出し直下に隙間が出るのを防ぐ）
+                            spacing: 1px;
+                            if root.scol(0) == 0: CharacterSection { uid-value: root.selected-uid-value; uid-name: root.selected-uid-name; candidates: root.uid-candidates; set-uid(u) => { root.set-selected-uid(u); } }
+                            if root.scol(1) == 0: DisplayColsSection { cfg: root.cfg-ui; set-bool(k, v) => { root.set-bool(k, v); } }
+                            if root.scol(2) == 0: DisplaySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } }
+                            if root.scol(3) == 0: OverlaySection { cfg: root.cfg-ui; set-bool(k, v) => { root.set-bool(k, v); } }
+                            if root.scol(4) == 0: CombatSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
+                            if root.scol(5) == 0: HistorySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
                         }
-                        uidclear := TouchArea {
-                            width: 44px;
-                            clicked => { root.set-selected-uid(""); }
-                            Rectangle {
-                                background: uidclear.has-hover ? #ffffff28 : #ffffff12;
-                                border-radius: 3px;
-                                Text { text: @tr("クリア"); color: #cdd; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; }
-                            }
-                        }
-                    }
-                    HorizontalLayout {
-                        padding-left: 10px;
-                        padding-right: 10px;
-                        spacing: 6px;
-                        Rectangle { width: 76px; }
-                        Text { text: root.selected-uid-name; color: #aaa; font-size: 11px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
-                    }
-                    if root.uid-candidates.length > 0: HorizontalLayout {
-                        padding-left: 10px;
-                        padding-right: 10px;
-                        spacing: 6px;
-                        height: 24px;
-                        Text { text: @tr("候補"); color: #777; font-size: 10px; vertical-alignment: center; width: 76px; }
-                        Flickable {
+                        // ── 列1（2列以上のとき）──
+                        if root.set-cols >= 2: VerticalLayout {
                             horizontal-stretch: 1;
-                            viewport-width: candbox.preferred-width;
-                            candbox := HorizontalLayout {
-                                spacing: 4px;
-                                for cand in root.uid-candidates: CandidateChip { c: cand; pick(u) => { root.set-selected-uid(u); } }
-                            }
+                            min-width: 0px;
+                            preferred-width: 0px;
+                            alignment: start;
+                            spacing: 1px;
+                            if root.scol(0) == 1: CharacterSection { uid-value: root.selected-uid-value; uid-name: root.selected-uid-name; candidates: root.uid-candidates; set-uid(u) => { root.set-selected-uid(u); } }
+                            if root.scol(1) == 1: DisplayColsSection { cfg: root.cfg-ui; set-bool(k, v) => { root.set-bool(k, v); } }
+                            if root.scol(2) == 1: DisplaySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } }
+                            if root.scol(3) == 1: OverlaySection { cfg: root.cfg-ui; set-bool(k, v) => { root.set-bool(k, v); } }
+                            if root.scol(4) == 1: CombatSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
+                            if root.scol(5) == 1: HistorySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
+                        }
+                        // ── 列2（3列のとき）──
+                        if root.set-cols >= 3: VerticalLayout {
+                            horizontal-stretch: 1;
+                            min-width: 0px;
+                            preferred-width: 0px;
+                            alignment: start;
+                            spacing: 1px;
+                            if root.scol(0) == 2: CharacterSection { uid-value: root.selected-uid-value; uid-name: root.selected-uid-name; candidates: root.uid-candidates; set-uid(u) => { root.set-selected-uid(u); } }
+                            if root.scol(1) == 2: DisplayColsSection { cfg: root.cfg-ui; set-bool(k, v) => { root.set-bool(k, v); } }
+                            if root.scol(2) == 2: DisplaySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } }
+                            if root.scol(3) == 2: OverlaySection { cfg: root.cfg-ui; set-bool(k, v) => { root.set-bool(k, v); } }
+                            if root.scol(4) == 2: CombatSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
+                            if root.scol(5) == 2: HistorySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
                         }
                     }
-                    Text { text: @tr("自動判定が外れた時に手動で自分を指定（Enterで確定）"); color: #555; font-size: 9px; }
-                    Text { text: @tr("表示列"); color: #888; font-size: 10px; }
-                    ToggleRow { label: @tr("会心率"); checked: root.cfg-ui.show-crit; toggled => { root.set-bool("show-crit", !root.cfg-ui.show-crit); } }
-                    ToggleRow { label: @tr("会心ダメ率"); checked: root.cfg-ui.show-crit-value; toggled => { root.set-bool("show-crit-value", !root.cfg-ui.show-crit-value); } }
-                    ToggleRow { label: @tr("幸運率"); checked: root.cfg-ui.show-lucky; toggled => { root.set-bool("show-lucky", !root.cfg-ui.show-lucky); } }
-                    ToggleRow { label: @tr("幸運ダメ率"); checked: root.cfg-ui.show-lucky-value; toggled => { root.set-bool("show-lucky-value", !root.cfg-ui.show-lucky-value); } }
-                    ToggleRow { label: @tr("ヒット数"); checked: root.cfg-ui.show-hits; toggled => { root.set-bool("show-hits", !root.cfg-ui.show-hits); } }
-                    ToggleRow { label: @tr("毎分ヒット数"); checked: root.cfg-ui.show-hpm; toggled => { root.set-bool("show-hpm", !root.cfg-ui.show-hpm); } }
-                    ToggleRow { label: @tr("戦力"); checked: root.cfg-ui.show-score; toggled => { root.set-bool("show-score", !root.cfg-ui.show-score); } }
-                    Text { text: @tr("表示"); color: #888; font-size: 10px; }
-                    ToggleRow { label: @tr("自分を強調"); checked: root.cfg-ui.highlight-local; toggled => { root.set-bool("highlight-local", !root.cfg-ui.highlight-local); } }
-                    ToggleRow { label: @tr("スコア省略(K/M)"); checked: root.cfg-ui.abbreviate-scores; toggled => { root.set-bool("abbreviate-scores", !root.cfg-ui.abbreviate-scores); } }
-                    ToggleRow { label: @tr("名前マスク"); checked: root.cfg-ui.privacy-mask; toggled => { root.set-bool("privacy-mask", !root.cfg-ui.privacy-mask); } }
-                    ToggleRow { label: @tr("軽量分割表示"); checked: root.cfg-ui.compact-split; toggled => { root.set-bool("compact-split", !root.cfg-ui.compact-split); } }
-                    StepperRow { label: @tr("フォントサイズ"); value-text: root.nums.font-size; dec => { root.bump-num("font-size", -1); } inc => { root.bump-num("font-size", 1); } }
-                    HorizontalLayout {
-                        padding-left: 10px;
-                        padding-right: 10px;
-                        spacing: 6px;
-                        height: 28px;
-                        Text { text: @tr("起動時のタブ"); color: #ddd; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; }
-                        SegButton { label: @tr("DPS"); active: root.cfg-ui.startup-tab == "dps"; clicked => { root.set-str("startup-tab", "dps"); } }
-                        SegButton { label: @tr("回復"); active: root.cfg-ui.startup-tab == "heal"; clicked => { root.set-str("startup-tab", "heal"); } }
-                        SegButton { label: @tr("履歴"); active: root.cfg-ui.startup-tab == "history"; clicked => { root.set-str("startup-tab", "history"); } }
-                    }
-                    Text { text: @tr("オーバーレイ"); color: #888; font-size: 10px; }
-                    ToggleRow { label: @tr("自キャラ バフ/デバフ"); checked: root.cfg-ui.self-status; toggled => { root.set-bool("self-status-overlay", !root.cfg-ui.self-status); } }
-                    ToggleRow { label: @tr("イマジンデバフタイマー"); checked: root.cfg-ui.buff-overlay; toggled => { root.set-bool("buff-overlay", !root.cfg-ui.buff-overlay); } }
-                    ToggleRow { label: @tr("イマジン専用モード"); checked: root.cfg-ui.imagine-only; toggled => { root.set-bool("imagine-only", !root.cfg-ui.imagine-only); } }
-                    ToggleRow { label: @tr("常に最前面"); checked: root.cfg-ui.aot; toggled => { root.set-bool("aot", !root.cfg-ui.aot); } }
+                    // ── 不透明度（常に全幅。2列以上のときは複数列ぶんの横幅で操作しやすく）──
+                    // ラベル「不透明度」は OpacityRow 内に持つため見出しは付けない。
                     OpacityRow { value: root.win-opacity; changed(v) => { root.set-opacity(v); } }
-                    Text { text: @tr("戦闘"); color: #888; font-size: 10px; }
-                    StepperRow { label: @tr("戦闘終了(秒)"); value-text: root.nums.combat-exit; dec => { root.bump-num("combat-exit", -1); } inc => { root.bump-num("combat-exit", 1); } }
-                    StepperRow { label: @tr("更新間隔(ms)"); value-text: root.nums.poll-interval; dec => { root.bump-num("poll-interval", -1); } inc => { root.bump-num("poll-interval", 1); } }
-                    StepperRow { label: @tr("3分計測(秒)"); value-text: root.nums.three-min-dur; dec => { root.bump-num("three-min-dur", -1); } inc => { root.bump-num("three-min-dur", 1); } }
-                    ToggleRow { label: @tr("3分計測を自動で開く"); checked: root.cfg-ui.three-min-auto-open; toggled => { root.set-bool("three-min-auto-open", !root.cfg-ui.three-min-auto-open); } }
-                    Text { text: @tr("履歴・グラフ"); color: #888; font-size: 10px; }
-                    StepperRow { label: @tr("履歴保持数"); value-text: root.nums.history-limit; dec => { root.bump-num("history-limit", -1); } inc => { root.bump-num("history-limit", 1); } }
-                    StepperRow { label: @tr("グラフ標本数"); value-text: root.nums.ts-samples; dec => { root.bump-num("ts-samples", -1); } inc => { root.bump-num("ts-samples", 1); } }
-                    StepperRow { label: @tr("グラフ間隔(ms)"); value-text: root.nums.ts-interval; dec => { root.bump-num("ts-interval", -1); } inc => { root.bump-num("ts-interval", 1); } }
-                    StepperRow { label: @tr("グラフ表示人数"); value-text: root.nums.graph-count; dec => { root.bump-num("graph-count", -1); } inc => { root.bump-num("graph-count", 1); } }
-                    ToggleRow { label: @tr("ヘッダーにグラフ"); checked: root.cfg-ui.header-sparkline; toggled => { root.set-bool("header-sparkline", !root.cfg-ui.header-sparkline); } }
-                    ToggleRow { label: @tr("自分のグラフを表示"); checked: root.cfg-ui.graph-for-local; toggled => { root.set-bool("graph-for-local", !root.cfg-ui.graph-for-local); } }
+                    // ── テンプレート（常に全幅）──
                     Text { text: @tr("テンプレート"); color: #888; font-size: 10px; }
                     TemplateField {
                         label: @tr("名前列テンプレ");

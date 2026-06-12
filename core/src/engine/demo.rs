@@ -415,6 +415,8 @@ pub fn spawn(enc: Arc<EncounterMutex>) {
 
     let builder = thread::Builder::new().name("bpsr-demo".into());
     let spawn_result = builder.spawn(move || {
+        // 観測ステータスもデモで再現する（緑ドット＝ゲーム通信受信中）
+        crate::capture::status::set_state(crate::capture::status::STATE_RUNNING);
         let mut rng = Rng::new();
         prime_entities(&enc);
         ensure_all_buffs(&enc, &mut rng, true);
@@ -427,6 +429,8 @@ pub fn spawn(enc: Arc<EncounterMutex>) {
         let mut tick_count: u64 = 0;
 
         loop {
+            crate::capture::status::mark_packet();
+            crate::capture::status::mark_game_packet();
             let t = start.elapsed().as_secs_f64();
             let mut boss_damages: Vec<pb::DamageRecord> = Vec::new();
             let mut heal_deltas: Vec<pb::SceneDelta> = Vec::new();

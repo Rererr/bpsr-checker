@@ -1567,6 +1567,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 復元から SETTLE_TICKS 経過後に保存対象へ含める。非表示で None に戻す。
     let mut self_rtick: Option<u64> = None;
     let mut buff_rtick: Option<u64> = None;
+    // 復元が実際に適用した（クランプ後の）矩形。settle 期間中はこのサイズを
+    // 毎tick 再適用して、Slint の preferred 再アサートによる上書きを打ち消す。
+    let mut restored_main: Option<window_state::WinRect> = None;
+    let mut restored_self: Option<window_state::WinRect> = None;
+    let mut restored_buffs: Option<window_state::WinRect> = None;
     let tab_cell_poll = tab_cell.clone();
     let drill_poll = drill.clone();
     let skill_rows_poll = skill_rows.clone();
@@ -1605,7 +1610,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if !setup_done {
             let mons = overlay::monitors(m.window());
             if !mons.is_empty() {
-                window_state::restore(m.window(), saved.main.as_ref(), &mons, 0, (520, 350));
+                restored_main =
+                    Some(window_state::restore(m.window(), saved.main.as_ref(), &mons, 0, (520, 350)));
                 setup_done = true;
                 setup_tick = tick;
                 log::info!("window restored on {} monitor(s)", mons.len());
@@ -1626,38 +1632,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(o) = self_overlay_w.upgrade() {
                         let mons = overlay::monitors(o.window());
                         if !mons.is_empty() {
-                            window_state::restore(
+                            restored_self = Some(window_state::restore(
                                 o.window(),
                                 last_saved.borrow().self_status.as_ref(),
                                 &mons,
                                 0,
                                 (220, 180),
-                            );
+                            ));
                             self_rtick = Some(tick);
                         }
                     }
                 }
             } else {
                 self_rtick = None;
+                restored_self = None;
             }
             if c.show_buff_overlay {
                 if buff_rtick.is_none() {
                     if let Some(o) = buff_overlay_w.upgrade() {
                         let mons = overlay::monitors(o.window());
                         if !mons.is_empty() {
-                            window_state::restore(
+                            restored_buffs = Some(window_state::restore(
                                 o.window(),
                                 last_saved.borrow().buffs.as_ref(),
                                 &mons,
                                 0,
                                 (250, 150),
-                            );
+                            ));
                             buff_rtick = Some(tick);
                         }
                     }
                 }
             } else {
                 buff_rtick = None;
+                restored_buffs = None;
             }
         }
 
@@ -1844,6 +1852,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let uids: Vec<f64> = watched_i.iter().map(|&u| u as f64).collect();
                     let t = compute::get_tracked_buffs(&enc_poll, uids);
                     buff_players_poll.set_vec(build_buff_rows(&t, &watched_i));
+                }
+            }
+        }
+
+        // 起動/表示直後、Slint が preferred サイズを再アサートして保存サイズを
+        // 上書きすることがあるため、settle 期間中は毎tick 再適用して確実に効かせる。
+        // （保存ガードの return より手前に置くこと。サイズ一致時は no-op。）
+        if setup_done && tick < setup_tick + SETTLE_TICKS {
+            if let Some(r) = &restored_main {
+                window_state::enforce_size(m.window(), r);
+            }
+        }
+        if let (Some(rt), Some(r)) = (self_rtick, restored_self.as_ref()) {
+            if tick < rt + SETTLE_TICKS {
+                if let Some(o) = self_overlay_w.upgrade() {
+                    window_state::enforce_size(o.window(), r);
+                }
+            }
+        }
+        if let (Some(rt), Some(r)) = (buff_rtick, restored_buffs.as_ref()) {
+            if tick < rt + SETTLE_TICKS {
+                if let Some(o) = buff_overlay_w.upgrade() {
+                    window_state::enforce_size(o.window(), r);
                 }
             }
         }

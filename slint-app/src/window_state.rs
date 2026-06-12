@@ -118,7 +118,7 @@ pub fn restore(
     monitors: &[MonitorRect],
     default_monitor: usize,
     default_size: (u32, u32),
-) {
+) -> WinRect {
     let rect = match saved {
         Some(r) if intersects_any(r, monitors) => r.clone(),
         _ => default_rect(monitors, default_monitor, default_size),
@@ -131,10 +131,21 @@ pub fn restore(
     // Window の preferred-width/height に上書きされて効かないため、winit の
     // request_inner_size で直接適用する（ドラッグリサイズと同じ経路＝確実に効く）。
     window.set_position(PhysicalPosition::new(rect.x, rect.y));
+    enforce_size(window, &rect);
+    log::info!("restore: saved={saved:?} applied rect={rect:?} (size は winit 適用)");
+    rect
+}
+
+/// 保存サイズを winit 経由で再適用（preferred 再アサートによる上書き対策）。
+/// 現在サイズが一致していれば何もしない（チラつき・不要な OS 呼び出しを避ける）。
+pub fn enforce_size(window: &slint::Window, target: &WinRect) {
+    let cur = window.size();
+    if cur.width == target.w && cur.height == target.h {
+        return;
+    }
     window.with_winit_window(|w| {
         let _ = w.request_inner_size(i_slint_backend_winit::winit::dpi::PhysicalSize::new(
-            rect.w, rect.h,
+            target.w, target.h,
         ));
     });
-    log::info!("restore: saved={saved:?} applied rect={rect:?} (size は winit 適用)");
 }

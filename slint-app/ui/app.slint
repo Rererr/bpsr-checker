@@ -62,6 +62,7 @@ struct SettingsUi {
     header-sparkline: bool,
     graph-for-local: bool,
     startup-tab: string,
+    accent-theme: string,
 }
 
 // 数値設定の表示用（Rust が cfg から整形して set）。ステッパーで増減する。
@@ -150,11 +151,18 @@ struct ResultSkillRowUi {
     selected: bool,
 }
 
+// アクセントカラーテーマ。設定の accent-theme プリセットに応じて Rust が起動時/変更時に set する。
+// accent=文字・枠・選択ハイライト系 / accent-strong=塗りつぶし系（タブ・チェック・スライダー）。
+export global Theme {
+    in-out property <color> accent: #4fc3f7;
+    in-out property <color> accent-strong: #2d6cdf;
+}
+
 component TabButton inherits TouchArea {
     in property <string> label;
     in property <bool> active;
     Rectangle {
-        background: root.active ? #2d6cdf66 : (root.has-hover ? #ffffff14 : transparent);
+        background: root.active ? Theme.accent-strong.with-alpha(0.4) : (root.has-hover ? #ffffff14 : transparent);
         border-radius: 4px;
         HorizontalLayout {
             padding-left: 9px;
@@ -176,7 +184,7 @@ component SegButton inherits TouchArea {
     width: 50px;
     height: 22px;
     Rectangle {
-        background: root.active ? #2d6cdf : (root.has-hover ? #ffffff20 : #ffffff10);
+        background: root.active ? Theme.accent-strong : (root.has-hover ? #ffffff20 : #ffffff10);
         border-radius: 3px;
         Text { text: root.label; color: root.active ? white : #bbb; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
     }
@@ -338,7 +346,7 @@ component PlayerRowItem inherits Rectangle {
             }
         }
         Text { text: root.entry.dmg-text; color: #e6e6f0; font-size: 12px * root.font-scale; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
-        Text { text: root.entry.dps-text; color: #4fc3f7; font-size: 12px * root.font-scale; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.entry.dps-text; color: Theme.accent; font-size: 12px * root.font-scale; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
         Text { text: root.entry.pct-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
         if root.cols.crit: Text { text: root.entry.crit-text; color: #f39c12; font-size: 11px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
         if root.cols.crit-value: Text { text: root.entry.crit-value-text; color: #f39c12; font-size: 11px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
@@ -357,8 +365,8 @@ component PlayerRowItem inherits Rectangle {
                 height: 9px;
                 border-radius: 4.5px;
                 border-width: 1px;
-                border-color: root.entry.watched ? #4fc3f7 : (watch.has-hover ? #888888 : #ffffff00);
-                background: root.entry.watched ? #4fc3f7 : transparent;
+                border-color: root.entry.watched ? Theme.accent : (watch.has-hover ? #888888 : #ffffff00);
+                background: root.entry.watched ? Theme.accent : transparent;
             }
         }
     }
@@ -395,7 +403,7 @@ component CompactRowItem inherits Rectangle {
             Text { text: root.entry.name; color: white; font-size: 11px * root.font-scale; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
         }
         Text { text: root.entry.dmg-text; color: #e6e6f0; font-size: 11px * root.font-scale; width: 56px; horizontal-alignment: right; vertical-alignment: center; }
-        Text { text: root.entry.dps-text; color: #4fc3f7; font-size: 11px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.entry.dps-text; color: Theme.accent; font-size: 11px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
     }
 }
 
@@ -427,7 +435,7 @@ component SkillRowItem inherits Rectangle {
             Text { text: root.entry.name; color: white; font-size: 12px * root.font-scale; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; }
         }
         Text { text: root.entry.total-text; color: #e6e6f0; font-size: 12px * root.font-scale; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
-        Text { text: root.entry.dps-text; color: #4fc3f7; font-size: 12px * root.font-scale; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.entry.dps-text; color: Theme.accent; font-size: 12px * root.font-scale; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
         Text { text: root.entry.pct-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
     }
     ta := TouchArea {
@@ -465,14 +473,14 @@ component HistoryRowItem inherits Rectangle {
         spacing: 8px;
         // ── 見出し ──
         if root.e.is-header: Text { text: root.e.duration-text; color: #888; font-size: 10px * root.font-scale; width: 40px; vertical-alignment: center; }
-        if root.e.is-header: Text { text: root.e.dps-text + " DPS"; color: #4fc3f7; font-size: 11px * root.font-scale; width: 90px; vertical-alignment: center; }
+        if root.e.is-header: Text { text: root.e.dps-text + " DPS"; color: Theme.accent; font-size: 11px * root.font-scale; width: 90px; vertical-alignment: center; }
         if root.e.is-header: Text { text: root.e.dmg-text; color: #aaa; font-size: 10px * root.font-scale; width: 60px; vertical-alignment: center; }
         if root.e.is-header: Text { text: root.e.count-text + @tr("人"); color: #666; font-size: 10px * root.font-scale; horizontal-stretch: 1; vertical-alignment: center; }
         if root.e.is-header: Text { text: root.e.expanded ? "▲" : "▼"; color: #555; font-size: 9px * root.font-scale; vertical-alignment: center; }
         // ── プレイヤー行 ──
         if !root.e.is-header: Text { text: root.e.rank-text; color: #555; font-size: 10px * root.font-scale; width: 18px; vertical-alignment: center; }
         if !root.e.is-header: Text { text: root.e.name; color: root.e.class-color; font-size: 11px * root.font-scale; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
-        if !root.e.is-header: Text { text: root.e.p-dps-text; color: #4fc3f7; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+        if !root.e.is-header: Text { text: root.e.p-dps-text; color: Theme.accent; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
         if !root.e.is-header: Text { text: root.e.p-pct-text; color: #aaa; font-size: 10px * root.font-scale; width: 40px; horizontal-alignment: right; vertical-alignment: center; }
     }
 }
@@ -482,9 +490,9 @@ component ResultRow inherits Rectangle {
     in property <ResultRowUi> e;
     callback activate(string);
     height: 18px;
-    background: root.e.selected ? #4fc3f72e : (rta.has-hover ? #ffffff18 : #ffffff0a);
+    background: root.e.selected ? Theme.accent.with-alpha(0.18) : (rta.has-hover ? #ffffff18 : #ffffff0a);
     border-width: 1px;
-    border-color: root.e.selected ? #4fc3f7aa : #ffffff00;
+    border-color: root.e.selected ? Theme.accent.with-alpha(0.667) : #ffffff00;
     border-radius: 2px;
     rta := TouchArea {
         mouse-cursor: pointer;
@@ -496,7 +504,7 @@ component ResultRow inherits Rectangle {
         spacing: 8px;
         Text { text: root.e.rank-text; color: #666; width: 18px; font-size: 10px; horizontal-alignment: right; vertical-alignment: center; }
         Text { text: root.e.name; color: root.e.class-color; font-size: 11px; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
-        Text { text: root.e.dps-text; color: #4fc3f7; font-size: 10px; width: 56px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.e.dps-text; color: Theme.accent; font-size: 10px; width: 56px; horizontal-alignment: right; vertical-alignment: center; }
         Text { text: root.e.dmg-text; color: #aaa; font-size: 10px; width: 60px; horizontal-alignment: right; vertical-alignment: center; }
         Text { text: root.e.pct-text; color: #777; font-size: 10px; width: 40px; horizontal-alignment: right; vertical-alignment: center; }
     }
@@ -507,9 +515,9 @@ component ResultSkillRow inherits Rectangle {
     in property <ResultSkillRowUi> e;
     callback activate(string);
     height: 18px;
-    background: root.e.selected ? #4fc3f72e : (rsta.has-hover ? #ffffff18 : #ffffff0a);
+    background: root.e.selected ? Theme.accent.with-alpha(0.18) : (rsta.has-hover ? #ffffff18 : #ffffff0a);
     border-width: 1px;
-    border-color: root.e.selected ? #4fc3f7aa : #ffffff00;
+    border-color: root.e.selected ? Theme.accent.with-alpha(0.667) : #ffffff00;
     border-radius: 2px;
     rsta := TouchArea {
         mouse-cursor: pointer;
@@ -611,15 +619,33 @@ component CandidateChip inherits TouchArea {
     height: 20px;
     clicked => { root.pick(root.c.uid-str); }
     Rectangle {
-        background: root.c.selected ? #4fc3f733 : (root.has-hover ? #ffffff20 : #ffffff10);
+        background: root.c.selected ? Theme.accent.with-alpha(0.2) : (root.has-hover ? #ffffff20 : #ffffff10);
         border-width: 1px;
-        border-color: root.c.selected ? #4fc3f7 : #ffffff26;
+        border-color: root.c.selected ? Theme.accent : #ffffff26;
         border-radius: 3px;
         HorizontalLayout {
             padding-left: 6px;
             padding-right: 6px;
-            Text { text: root.c.label; color: root.c.selected ? #4fc3f7 : #bbb; font-size: 10px; vertical-alignment: center; }
+            Text { text: root.c.label; color: root.c.selected ? Theme.accent : #bbb; font-size: 10px; vertical-alignment: center; }
         }
+    }
+}
+
+// アクセントカラーのプリセットスウォッチ（設定パネル・クリックで即適用）
+component ThemeSwatch inherits TouchArea {
+    in property <color> c;
+    in property <bool> selected;
+    width: 20px;
+    height: 20px;
+    Rectangle {
+        x: 1px;
+        y: 1px;
+        width: 18px;
+        height: 18px;
+        border-radius: 9px;
+        background: root.c;
+        border-width: root.selected ? 2px : 1px;
+        border-color: root.selected ? white : (root.has-hover ? #ffffffaa : #ffffff40);
     }
 }
 
@@ -644,7 +670,7 @@ component ToggleRow inherits TouchArea {
                     border-width: 1px;
                     border-color: #777;
                     border-radius: 3px;
-                    background: root.checked ? #2d6cdf : transparent;
+                    background: root.checked ? Theme.accent-strong : transparent;
                     // チェックマークはフォント依存(✓はDingbatsで欠落環境あり)を避け Path 描画
                     if root.checked: Path {
                         width: 16px;
@@ -686,7 +712,7 @@ component OpacityRow inherits Rectangle {
                     x: 0;
                     width: parent.width * root.value;
                     height: 100%;
-                    background: #2d6cdf;
+                    background: Theme.accent-strong;
                     border-radius: 3px;
                 }
                 ta := TouchArea {
@@ -757,7 +783,7 @@ component TemplateField inherits VerticalLayout {
             height: 34px;
             background: #ffffff14;
             border-width: 1px;
-            border-color: ti.has-focus ? #4fc3f7 : #ffffff26;
+            border-color: ti.has-focus ? Theme.accent : #ffffff26;
             border-radius: 3px;
             ti := TextInput {
                 x: 5px;
@@ -808,7 +834,7 @@ component CharacterSection inherits VerticalLayout {
             horizontal-stretch: 1;
             background: #ffffff14;
             border-width: 1px;
-            border-color: uidti.has-focus ? #4fc3f7 : #ffffff26;
+            border-color: uidti.has-focus ? Theme.accent : #ffffff26;
             border-radius: 3px;
             uidti := TextInput {
                 x: 5px;
@@ -900,6 +926,24 @@ component DisplaySection inherits VerticalLayout {
             SegButton { label: @tr("履歴"); active: root.cfg.startup-tab == "history"; clicked => { root.set-str("startup-tab", "history"); } }
             // 余白を吸収し、固定幅セグボタンによる行の max-width(150px) 制限を解除する。
             // これがないと DisplaySection→中央列が ~150px で頭打ちになり伸縮しない。
+            Rectangle { horizontal-stretch: 1; }
+        }
+    }
+    // アクセントカラー: プリセットスウォッチ（クリックで即適用・全ウィンドウ再起動不要）
+    VerticalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 3px;
+        Text { text: @tr("アクセントカラー"); color: #ddd; font-size: 12px; }
+        HorizontalLayout {
+            spacing: 6px;
+            ThemeSwatch { c: #4fc3f7; selected: root.cfg.accent-theme == "sky"; clicked => { root.set-str("accent-theme", "sky"); } }
+            ThemeSwatch { c: #34d399; selected: root.cfg.accent-theme == "emerald"; clicked => { root.set-str("accent-theme", "emerald"); } }
+            ThemeSwatch { c: #fbc02d; selected: root.cfg.accent-theme == "amber"; clicked => { root.set-str("accent-theme", "amber"); } }
+            ThemeSwatch { c: #fb7185; selected: root.cfg.accent-theme == "rose"; clicked => { root.set-str("accent-theme", "rose"); } }
+            ThemeSwatch { c: #a78bfa; selected: root.cfg.accent-theme == "violet"; clicked => { root.set-str("accent-theme", "violet"); } }
+            ThemeSwatch { c: #cfd2dc; selected: root.cfg.accent-theme == "mono"; clicked => { root.set-str("accent-theme", "mono"); } }
+            // 固定幅スウォッチ列による行の max-width 制限を解除（起動時のタブと同じ対策）
             Rectangle { horizontal-stretch: 1; }
         }
     }
@@ -1026,6 +1070,9 @@ export component MainWindow inherits Window {
     in property <string> result-skill-axis-top;     // エリア4 Y軸: 最大DPS
     in property <string> result-skill-axis-mid;     // エリア4 Y軸: 最大DPSの半分
     in property <float> result-duration-ms;         // 折れ線 X軸 時間ラベル用（計測全体の長さ）
+    in property <int> capture-state;  // 0=起動中 1=待機(ゲーム通信なし) 2=受信中 3=開始失敗
+    in property <string> app-version;        // 結果モーダルの透かし（画像コピーに写り込む）
+    in property <bool> result-img-copied;    // 画像コピー直後の一時フィードバック
     callback quit();
     callback start-drag();
     callback start-resize(int);
@@ -1049,6 +1096,7 @@ export component MainWindow inherits Window {
     callback reset-encounter();
     callback close-result();
     callback copy-result();
+    callback copy-result-image();
     callback restart-measure();
     callback select-result-player(string);
     callback select-result-skill(string);
@@ -1104,6 +1152,20 @@ export component MainWindow inherits Window {
                         vertical-alignment: center;
                     }
                 }
+                // 観測ステータスドット（緑=ゲーム通信受信中 / 青=待機 / 赤=開始失敗 / 灰=起動中）
+                Rectangle {
+                    width: 12px;
+                    Rectangle {
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        width: 7px;
+                        height: 7px;
+                        border-radius: 3.5px;
+                        background: root.capture-state == 2 ? #4caf50
+                                  : (root.capture-state == 3 ? #e05252
+                                  : (root.capture-state == 1 ? #5a8fd8 : #777777));
+                    }
+                }
                 pause-btn := TouchArea {
                     width: 40px;
                     clicked => { root.toggle-pause(); }
@@ -1152,7 +1214,7 @@ export component MainWindow inherits Window {
                         viewbox-width: 100;
                         viewbox-height: 16;
                         commands: root.spark-commands;
-                        stroke: #4fc3f7;
+                        stroke: Theme.accent;
                         stroke-width: 1.2px;
                         fill: transparent;
                     }
@@ -1233,13 +1295,47 @@ export component MainWindow inherits Window {
                         activate(u) => { root.open-drill(u); }
                         toggle-watch(u) => { root.toggle-watch(u); }
                     }
-                    if root.rows.length == 0: Text {
-                        text: @tr("データなし");
-                        color: #666;
-                        font-size: 12px;
-                        height: 40px;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
+                    // 空状態: 観測ステータスに応じた案内（初回ユーザーの「動いているのか」を解消）
+                    if root.rows.length == 0: VerticalLayout {
+                        padding-top: 18px;
+                        spacing: 5px;
+                        Text {
+                            text: root.capture-state == 3 ? @tr("パケット観測の開始に失敗しました")
+                                : (root.capture-state == 2 ? @tr("ゲーム通信を検出中") : @tr("ゲーム通信を待機中"));
+                            color: root.capture-state == 3 ? #e05252 : #999;
+                            font-size: 12px;
+                            horizontal-alignment: center;
+                        }
+                        if root.capture-state != 3: Text {
+                            text: @tr("戦闘を開始すると自動的に表示されます");
+                            color: #777;
+                            font-size: 11px;
+                            horizontal-alignment: center;
+                        }
+                        if root.capture-state != 3 && root.capture-state != 2: Text {
+                            text: @tr("検出されない場合はゾーン移動か再ログインで検出が始まります");
+                            color: #666;
+                            font-size: 10px;
+                            horizontal-alignment: center;
+                        }
+                        if root.capture-state != 3 && root.capture-state != 2: Text {
+                            text: @tr("VPN / ExitLag / NoPing 等の使用中は検出できないことがあります");
+                            color: #666;
+                            font-size: 10px;
+                            horizontal-alignment: center;
+                        }
+                        if root.capture-state == 3: Text {
+                            text: @tr("管理者権限で起動しているか確認してください");
+                            color: #888;
+                            font-size: 10px;
+                            horizontal-alignment: center;
+                        }
+                        if root.capture-state == 3: Text {
+                            text: @tr("WinDivert.dll / WinDivert64.sys が exe と同じフォルダにあるか確認してください");
+                            color: #888;
+                            font-size: 10px;
+                            horizontal-alignment: center;
+                        }
                     }
                 }
             }
@@ -1541,7 +1637,7 @@ export component MainWindow inherits Window {
                 padding: 12px;
                 spacing: 8px;
                 HorizontalLayout {
-                    Text { text: @tr("3分計測 結果"); color: #4fc3f7; font-size: 13px; horizontal-stretch: 1; vertical-alignment: center; }
+                    Text { text: @tr("3分計測 結果"); color: Theme.accent; font-size: 13px; horizontal-stretch: 1; vertical-alignment: center; }
                     rclose := TouchArea {
                         width: 24px;
                         clicked => { root.close-result(); }
@@ -1555,7 +1651,7 @@ export component MainWindow inherits Window {
                 // サマリ（総合DPS/総ダメ/計測時間）はヘッダー直下にコンパクトに残す
                 HorizontalLayout {
                     spacing: 22px;
-                    VerticalLayout { spacing: 1px; Text { text: "DPS"; color: #888; font-size: 10px; } Text { text: root.result-dps; color: #4fc3f7; font-size: 14px; } }
+                    VerticalLayout { spacing: 1px; Text { text: "DPS"; color: #888; font-size: 10px; } Text { text: root.result-dps; color: Theme.accent; font-size: 14px; } }
                     VerticalLayout { spacing: 1px; Text { text: @tr("総ダメ"); color: #888; font-size: 10px; } Text { text: root.result-dmg; color: #e6e6f0; font-size: 14px; } }
                     VerticalLayout { spacing: 1px; Text { text: @tr("計測時間"); color: #888; font-size: 10px; } Text { text: root.result-duration; color: #e6e6f0; font-size: 14px; } }
                 }
@@ -1589,7 +1685,7 @@ export component MainWindow inherits Window {
                         vertical-stretch: 1;
                         visible-graph: root.result-char-spark-visible;
                         commands: root.result-char-spark;
-                        line-color: #4fc3f7;
+                        line-color: Theme.accent;
                         axis-top: root.result-char-axis-top;
                         axis-mid: root.result-char-axis-mid;
                         duration-ms: root.result-duration-ms;
@@ -1687,8 +1783,22 @@ export component MainWindow inherits Window {
                     }
                 }
                 HorizontalLayout {
-                    alignment: end;
                     spacing: 8px;
+                    // 透かし（画像コピーに写り込む小さなクレジット）。stretch で余白を吸収しボタンを右寄せ
+                    Text {
+                        text: root.app-version;
+                        color: #555;
+                        font-size: 9px;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                        overflow: elide;
+                    }
+                    copy-img-r := TouchArea {
+                        width: 76px;
+                        height: 24px;
+                        clicked => { root.copy-result-image(); }
+                        Rectangle { background: root.result-img-copied ? #2e7d32 : (copy-img-r.has-hover ? #ffffff20 : #ffffff10); border-radius: 4px; Text { text: root.result-img-copied ? @tr("済") : @tr("画像コピー"); color: #ccc; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; } }
+                    }
                     copy-r := TouchArea {
                         width: 64px;
                         height: 24px;
@@ -1705,7 +1815,7 @@ export component MainWindow inherits Window {
                         width: 64px;
                         height: 24px;
                         clicked => { root.close-result(); }
-                        Rectangle { background: closebtn-r.has-hover ? #4fc3f733 : #4fc3f722; border-width: 1px; border-color: #4fc3f773; border-radius: 4px; Text { text: @tr("閉じる"); color: #4fc3f7; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; } }
+                        Rectangle { background: closebtn-r.has-hover ? Theme.accent.with-alpha(0.2) : Theme.accent.with-alpha(0.133); border-width: 1px; border-color: Theme.accent.with-alpha(0.45); border-radius: 4px; Text { text: @tr("閉じる"); color: Theme.accent; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; } }
                     }
                 }
             }

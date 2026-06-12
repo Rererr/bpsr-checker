@@ -170,4 +170,7 @@ pub struct SkillRow {
     pub lucky_value_rate: f64,
     pub hits: f64,
     pub hits_per_minute: f64,
+    // スキル別ダメージ推移（結果画面の折れ線グラフ用。3分計測の finalize 前に捕捉）
+    #[serde(default)]
+    pub time_series: Vec<TimeSeriesPoint>,
 }

@@ -139,6 +139,17 @@ struct SkillLegendUi {
     pct-text: string,
 }
 
+// 3分計測 結果パネル エリア2 のスキル行（クリックで折れ線の対象スキルに）。
+struct ResultSkillRowUi {
+    uid-str: string,
+    name: string,
+    elem-text: string,
+    elem-color: color,
+    dmg-text: string,
+    pct-text: string,
+    selected: bool,
+}
+
 component TabButton inherits TouchArea {
     in property <string> label;
     in property <bool> active;
@@ -488,6 +499,108 @@ component ResultRow inherits Rectangle {
         Text { text: root.e.dps-text; color: #4fc3f7; font-size: 10px; width: 56px; horizontal-alignment: right; vertical-alignment: center; }
         Text { text: root.e.dmg-text; color: #aaa; font-size: 10px; width: 60px; horizontal-alignment: right; vertical-alignment: center; }
         Text { text: root.e.pct-text; color: #777; font-size: 10px; width: 40px; horizontal-alignment: right; vertical-alignment: center; }
+    }
+}
+
+// 3分計測 結果パネル エリア2 のスキル行（クリックで折れ線の対象スキルに）
+component ResultSkillRow inherits Rectangle {
+    in property <ResultSkillRowUi> e;
+    callback activate(string);
+    height: 18px;
+    background: root.e.selected ? #4fc3f72e : (rsta.has-hover ? #ffffff18 : #ffffff0a);
+    border-width: 1px;
+    border-color: root.e.selected ? #4fc3f7aa : #ffffff00;
+    border-radius: 2px;
+    rsta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.activate(root.e.uid-str); }
+    }
+    HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 6px;
+        spacing: 6px;
+        Text { text: root.e.elem-text; color: root.e.elem-color; font-size: 10px; width: 14px; horizontal-alignment: center; vertical-alignment: center; }
+        Text { text: root.e.name; color: white; font-size: 11px; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
+        Text { text: root.e.dmg-text; color: #e6e6f0; font-size: 10px; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.e.pct-text; color: #777; font-size: 10px; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
+    }
+}
+
+// 折れ線グラフ＋左Y軸目安(上=最大/中=半分/下=0)＋時間X軸(区切り本数は横幅で可変)＋グリッド線。
+component SparkGraph inherits VerticalLayout {
+    in property <bool> visible-graph;
+    in property <string> commands;
+    in property <color> line-color;
+    in property <string> axis-top;
+    in property <string> axis-mid;
+    in property <string> empty-text;
+    in property <float> duration-ms;                 // X軸の総時間（ms）
+    // X軸の区切り本数（横幅で可変。約80pxごとに1区切り、2〜7本）。
+    property <int> x-ticks: Math.max(2, Math.min(7, Math.floor(plot.width / 80px)));
+    spacing: 2px;
+
+    // 主行: 左Y軸 ＋ グラフ
+    HorizontalLayout {
+        vertical-stretch: 1;
+        spacing: 4px;
+        VerticalLayout {
+            width: 42px;
+            Text { text: root.axis-top; color: #777; font-size: 8px; horizontal-alignment: right; }
+            Rectangle { vertical-stretch: 1; }
+            Text { text: root.axis-mid; color: #777; font-size: 8px; horizontal-alignment: right; }
+            Rectangle { vertical-stretch: 1; }
+            Text { text: "0"; color: #777; font-size: 8px; horizontal-alignment: right; }
+        }
+        plot := Rectangle {
+            horizontal-stretch: 1;
+            clip: true;
+            // 横グリッド（上/中/下）
+            Rectangle { y: 0; width: 100%; height: 1px; background: #ffffff14; }
+            Rectangle { y: parent.height / 2; width: 100%; height: 1px; background: #ffffff10; }
+            Rectangle { y: parent.height - 1px; width: 100%; height: 1px; background: #ffffff14; }
+            // 縦グリッド（時間区切り・本数は横幅で可変）
+            for i in root.x-ticks: Rectangle {
+                property <float> f: root.x-ticks > 1 ? (i * 1.0) / (root.x-ticks - 1) : 0;
+                x: plot.width * self.f;
+                y: 0;
+                width: 1px;
+                height: 100%;
+                background: #ffffff0c;
+            }
+            if root.visible-graph: Path {
+                width: 100%;
+                height: 100%;
+                viewbox-x: 0;
+                viewbox-y: 0;
+                viewbox-width: 100;
+                viewbox-height: 16;
+                commands: root.commands;
+                stroke: root.line-color;
+                stroke-width: 1px;
+                fill: transparent;
+            }
+            if !root.visible-graph: Text { text: root.empty-text; color: #555; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; }
+        }
+    }
+    // X軸: 時間ラベル（M:SS）。区切り位置に合わせて配置。
+    HorizontalLayout {
+        height: 11px;
+        spacing: 4px;
+        Rectangle { width: 42px; }   // Y軸列ぶんのスペーサ
+        xaxis := Rectangle {
+            horizontal-stretch: 1;
+            for i in root.x-ticks: Text {
+                property <float> f: root.x-ticks > 1 ? (i * 1.0) / (root.x-ticks - 1) : 0;
+                property <int> sec: Math.round(root.duration-ms / 1000 * self.f);
+                property <int> mins: Math.floor(self.sec / 60);
+                property <int> rem: self.sec - self.mins * 60;
+                property <string> rem-str: self.rem < 10 ? "0\{self.rem}" : "\{self.rem}";
+                x: Math.max(0px, Math.min(xaxis.width - self.width, xaxis.width * self.f - self.width / 2));
+                color: #777;
+                font-size: 8px;
+                text: "\{self.mins}:\{self.rem-str}";
+            }
+        }
     }
 }
 
@@ -897,12 +1010,22 @@ export component MainWindow inherits Window {
     in property <string> result-dps;
     in property <string> result-dmg;
     in property <string> result-duration;
-    in property <string> result-spark;
-    in property <bool> result-spark-visible;
-    in property <[ResultRowUi]> result-rows;
-    in property <[PieSlice]> result-pie;
+    in property <string> result-char-spark;        // エリア1: 選択キャラの累積合計ダメージ折れ線
+    in property <bool> result-char-spark-visible;
+    in property <[ResultRowUi]> result-rows;        // エリア1: キャラ一覧（最大5）
+    in property <[ResultSkillRowUi]> result-skill-rows; // エリア2: スキル内訳
+    in property <string> result-skill-spark;        // エリア2: 選択スキルの累積ダメージ折れ線
+    in property <bool> result-skill-spark-visible;
+    in property <[PieSlice]> result-pie;            // エリア3: TOP10+その他 円グラフ
     in property <[SkillLegendUi]> result-legend;
     in property <string> result-pie-title;
+    in property <string> result-char-name;          // エリア1 折れ線ラベル: 選択キャラ名
+    in property <string> result-skill-name;         // エリア4 折れ線ラベル: 選択スキル名
+    in property <string> result-char-axis-top;      // エリア1 Y軸: 最大DPS
+    in property <string> result-char-axis-mid;      // エリア1 Y軸: 最大DPSの半分
+    in property <string> result-skill-axis-top;     // エリア4 Y軸: 最大DPS
+    in property <string> result-skill-axis-mid;     // エリア4 Y軸: 最大DPSの半分
+    in property <float> result-duration-ms;         // 折れ線 X軸 時間ラベル用（計測全体の長さ）
     callback quit();
     callback start-drag();
     callback start-resize(int);
@@ -928,6 +1051,7 @@ export component MainWindow inherits Window {
     callback copy-result();
     callback restart-measure();
     callback select-result-player(string);
+    callback select-result-skill(string);
 
     // 設定パネルの列数（窓幅でレスポンシブに 1/2/3）。短ラベルが多いので幅があれば3列まで。
     property <int> set-cols: root.width >= 660px ? 3 : (root.width >= 440px ? 2 : 1);
@@ -1428,56 +1552,81 @@ export component MainWindow inherits Window {
                         }
                     }
                 }
-                // 上 30%: サマリ（総合DPS/総ダメ/計測時間）＋ 折線グラフ
+                // サマリ（総合DPS/総ダメ/計測時間）はヘッダー直下にコンパクトに残す
+                HorizontalLayout {
+                    spacing: 22px;
+                    VerticalLayout { spacing: 1px; Text { text: "DPS"; color: #888; font-size: 10px; } Text { text: root.result-dps; color: #4fc3f7; font-size: 14px; } }
+                    VerticalLayout { spacing: 1px; Text { text: @tr("総ダメ"); color: #888; font-size: 10px; } Text { text: root.result-dmg; color: #e6e6f0; font-size: 14px; } }
+                    VerticalLayout { spacing: 1px; Text { text: @tr("計測時間"); color: #888; font-size: 10px; } Text { text: root.result-duration; color: #e6e6f0; font-size: 14px; } }
+                }
+                // ── エリア1（フル幅）: 選択キャラ折れ線ラベル ＋ キャラ一覧（最大5・3行超は縦スクロール）＋ 累積合計ダメージ折れ線 ──
                 VerticalLayout {
                     vertical-stretch: 30;
-                    spacing: 6px;
-                    HorizontalLayout {
-                        spacing: 22px;
-                        VerticalLayout { spacing: 1px; Text { text: "DPS"; color: #888; font-size: 10px; } Text { text: root.result-dps; color: #4fc3f7; font-size: 14px; } }
-                        VerticalLayout { spacing: 1px; Text { text: @tr("総ダメ"); color: #888; font-size: 10px; } Text { text: root.result-dmg; color: #e6e6f0; font-size: 14px; } }
-                        VerticalLayout { spacing: 1px; Text { text: @tr("計測時間"); color: #888; font-size: 10px; } Text { text: root.result-duration; color: #e6e6f0; font-size: 14px; } }
-                    }
-                    // 折線（上部の残り高さいっぱいに拡大）
+                    spacing: 4px;
+                    // キャラ一覧（高さ≒3行ぶん。超過は縦スクロール）
                     Rectangle {
-                        vertical-stretch: 1;
-                        if root.result-spark-visible: Path {
+                        height: 58px;
+                        Flickable {
                             width: 100%;
                             height: 100%;
-                            viewbox-x: 0;
-                            viewbox-y: 0;
-                            viewbox-width: 100;
-                            viewbox-height: 16;
-                            commands: root.result-spark;
-                            stroke: #4fc3f7;
-                            stroke-width: 1px;
-                            fill: transparent;
+                            viewport-height: charbox.preferred-height;
+                            charbox := VerticalLayout {
+                                spacing: 2px;
+                                for r in root.result-rows: ResultRow { e: r; activate(u) => { root.select-result-player(u); } }
+                                if root.result-rows.length == 0: Text { text: @tr("ダメージなし"); color: #555; font-size: 11px; height: 30px; horizontal-alignment: center; vertical-alignment: center; }
+                            }
                         }
+                    }
+                    // 選択キャラの区間DPS折れ線ラベル
+                    Text {
+                        text: root.result-char-name == "" ? @tr("DPS推移") : @tr("DPS推移") + " — " + root.result-char-name;
+                        color: #888;
+                        font-size: 10px;
+                        overflow: elide;
+                    }
+                    // 選択キャラの区間DPS折れ線（残り高さいっぱい・左にY軸目安）
+                    SparkGraph {
+                        vertical-stretch: 1;
+                        visible-graph: root.result-char-spark-visible;
+                        commands: root.result-char-spark;
+                        line-color: #4fc3f7;
+                        axis-top: root.result-char-axis-top;
+                        axis-mid: root.result-char-axis-mid;
+                        duration-ms: root.result-duration-ms;
+                        empty-text: "";
                     }
                 }
-                // 下 70%: 左右分割（詳細｜円グラフ）
+                // ── 中段: エリア2(65%)＝スキル内訳 ｜ エリア3(35%)＝円グラフ ──
                 HorizontalLayout {
-                    vertical-stretch: 70;
+                    vertical-stretch: 50;
                     spacing: 8px;
-                    // 左 65%: ダメージ詳細（プレイヤー行）
-                    Flickable {
+                    // エリア2（65%）: スキル内訳（残り高さいっぱい・超過は縦スクロール）
+                    VerticalLayout {
                         horizontal-stretch: 0.65;
-                        max-height: 100000px;
-                        viewport-height: resbox.preferred-height;
-                        resbox := VerticalLayout {
-                            spacing: 2px;
-                            for r in root.result-rows: ResultRow { e: r; activate(u) => { root.select-result-player(u); } }
-                            if root.result-rows.length == 0: Text { text: @tr("ダメージなし"); color: #555; font-size: 11px; height: 30px; horizontal-alignment: center; vertical-alignment: center; }
+                        spacing: 4px;
+                        Text { text: root.result-pie-title; color: #cdd; font-size: 10px; overflow: elide; }
+                        Rectangle {
+                            vertical-stretch: 1;
+                            Flickable {
+                                width: 100%;
+                                height: 100%;
+                                viewport-height: resskillbox.preferred-height;
+                                resskillbox := VerticalLayout {
+                                    spacing: 2px;
+                                    for s in root.result-skill-rows: ResultSkillRow { e: s; activate(u) => { root.select-result-skill(u); } }
+                                    if root.result-skill-rows.length == 0: Text { text: @tr("スキルなし"); color: #555; font-size: 11px; height: 30px; horizontal-alignment: center; vertical-alignment: center; }
+                                }
+                            }
                         }
                     }
-                    // 右 35%: 選択プレイヤーのスキル内訳（タイトル＋円グラフ＋凡例）
+                    // エリア3（35%）: TOP10＋その他 の円グラフ＋凡例
                     VerticalLayout {
                         horizontal-stretch: 0.35;
                         spacing: 4px;
-                        Text { text: root.result-pie-title; color: #cdd; font-size: 10px; overflow: elide; horizontal-alignment: center; }
-                        // 円グラフ（列幅基準の正方形）。区切り線は灰色で外周に届かない。
+                        // 円グラフ（領域内に収まる正方形。区切り線は灰色で外周に届かない）。
+                        // 凡例より高さ配分を多めにして円を大きく見せる（円:凡例 = 2:1）。
                         pie-col := Rectangle {
-                            height: self.width;
+                            vertical-stretch: 2;
                             property <length> sz: self.width < self.height ? self.width : self.height;
                             Rectangle {
                                 width: pie-col.sz;
@@ -1514,6 +1663,27 @@ export component MainWindow inherits Window {
                                 }
                             }
                         }
+                    }
+                }
+                // ── エリア4（フル幅）: 選択スキル折れ線ラベル ＋ 区間DPS折れ線 ──
+                VerticalLayout {
+                    vertical-stretch: 20;
+                    spacing: 4px;
+                    Text {
+                        text: root.result-skill-name == "" ? @tr("スキルDPS推移") : @tr("スキルDPS推移") + " — " + root.result-skill-name;
+                        color: #888;
+                        font-size: 10px;
+                        overflow: elide;
+                    }
+                    SparkGraph {
+                        vertical-stretch: 1;
+                        visible-graph: root.result-skill-spark-visible;
+                        commands: root.result-skill-spark;
+                        line-color: #66bb6a;
+                        axis-top: root.result-skill-axis-top;
+                        axis-mid: root.result-skill-axis-mid;
+                        duration-ms: root.result-duration-ms;
+                        empty-text: @tr("スキルを選択");
                     }
                 }
                 HorizontalLayout {

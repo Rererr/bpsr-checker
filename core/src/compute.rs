@@ -559,6 +559,11 @@ pub fn reset_encounter(enc: &EncounterMutex) {
         Ok(mut encounter) => {
             encounter.clear_combat_stats();
             encounter.consumables.clear(); // 手動リセットで食事/シロップ表示も消す
+            // 3分計測中に初期化された場合は計測そのものを破棄する。
+            // measure_mode を残すと armed_at_ms が古いまま固定され、
+            // 次の計測クリックが開始ではなくキャンセルとして処理されたり、
+            // 締切が早まり計測時間が3分未満になる不整合が起きる。
+            encounter.measure_mode = crate::engine::encounter::MeasureMode::Normal;
             info!("Encounter reset");
         }
         Err(e) => log::error!("Lock poisoned in reset_encounter: {e}"),

@@ -1,5 +1,6 @@
 pub mod binary_reader;
 pub mod server;
+pub mod status;
 pub mod tcp_reassembler;
 #[cfg(target_os = "windows")]
 pub mod windivert;

@@ -1,6 +1,6 @@
 [package]
 name = "bpsr-app"
-version = "1.2.0"
+version = "1.2.1"
 description = "Blue Protocol: Star Resonance 向け軽量DPSチェッカー (Slint版)"
 edition = "2024"
 license = "GPL-3.0-only"

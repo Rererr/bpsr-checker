@@ -689,6 +689,32 @@ fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::SceneDelta) {
                     entity.time_series.pop_front();
                 }
                 entity.last_sample_total_dmg = entity.dmg_stats.total;
+
+                // Per-skill sampling（スキル別の累積/窓DPS を採取。借用衝突回避のため先に値を収集）
+                let skill_samples: Vec<(i32, i64)> = entity
+                    .skill_uid_to_dps_stats
+                    .iter()
+                    .map(|(&uid, s)| (uid, s.total))
+                    .collect();
+                for (skill_uid, skill_total) in skill_samples {
+                    let last = entity.skill_last_sample_total_dmg.entry(skill_uid).or_insert(0);
+                    let skill_delta = skill_total - *last;
+                    *last = skill_total;
+                    let skill_dps = if interval_actual > 0 {
+                        (skill_delta as f64) * 1000.0 / (interval_actual as f64)
+                    } else {
+                        0.0
+                    };
+                    let series = entity.skill_time_series.entry(skill_uid).or_default();
+                    series.push_back(crate::models::TimeSeriesPoint {
+                        t_ms: elapsed_since_start as f64,
+                        total_dmg: skill_total as f64,
+                        total_dps: skill_dps.max(0.0),
+                    });
+                    while series.len() > cap {
+                        series.pop_front();
+                    }
+                }
             }
 
             encounter.last_sample_ms = ts;

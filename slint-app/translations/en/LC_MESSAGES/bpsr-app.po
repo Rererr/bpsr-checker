@@ -249,6 +249,18 @@ msgstr "Duration"
 msgid "ダメージなし"
 msgstr "No damage"
 
+msgid "スキルなし"
+msgstr "No skills"
+
+msgid "スキルを選択"
+msgstr "Select a skill"
+
+msgid "DPS推移"
+msgstr "DPS trend"
+
+msgid "スキルDPS推移"
+msgstr "Skill DPS trend"
+
 msgid "再計測"
 msgstr "Restart"
 

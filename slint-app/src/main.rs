@@ -1029,13 +1029,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     engine::selected_uid::init(dir.join("selected_uid.json"));
 
     // 共有エンカウンター＋パケット観測スレッド
+    // BPSR_DEMO=1 のときは観測の代わりに合成データを流す（撮影・UI確認用）
+    let demo_mode = std::env::var("BPSR_DEMO").is_ok_and(|v| v == "1");
     let enc = Arc::new(EncounterMutex::default());
     if let Some(uid) = engine::selected_uid::get() {
         if let Ok(mut e) = enc.lock() {
             e.local_player_uid = uid;
         }
     }
-    capture::spawn(enc.clone());
+    if demo_mode {
+        bpsr_core::engine::demo::spawn(enc.clone());
+    } else {
+        capture::spawn(enc.clone());
+    }
 
     // 設定（%APPDATA%\bpsr-checker\settings.json）。UIスレッドで共有・編集する。
     let cfg = Rc::new(RefCell::new(settings::load()));
@@ -1150,6 +1156,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         compute::set_history_limit(c.history_limit);
         compute::set_time_series_config(c.time_series_samples, c.time_series_interval_ms);
         compute::set_imagine_only_mode(&enc, c.imagine_only_mode);
+    }
+
+    // デモモードの撮影補助: 設定パネルを開いた状態にする / 3分計測を自動開始する
+    if demo_mode {
+        if std::env::var("BPSR_DEMO_OPEN_SETTINGS").is_ok_and(|v| v == "1") {
+            main.set_settings_open(true);
+        }
+        let demo_3min = std::env::var("BPSR_DEMO_3MIN")
+            .ok()
+            .and_then(|s| s.parse::<f64>().ok());
+        if let Some(secs) = demo_3min {
+            if secs > 0.0 {
+                compute::start_3min_measure_mode(&enc, secs);
+            }
+        }
     }
 
     main.on_quit(|| {

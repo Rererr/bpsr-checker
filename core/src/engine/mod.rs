@@ -5,6 +5,7 @@ pub mod calculator;
 pub mod class;
 pub mod combat_stats;
 pub mod consumables;
+pub mod demo;
 pub mod encounter;
 pub mod entity;
 pub mod event;

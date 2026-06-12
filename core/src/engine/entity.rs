@@ -55,4 +55,8 @@ pub struct Entity {
     // Per-entity DPS time series (sampled alongside encounter-wide series)
     pub time_series: VecDeque<TimeSeriesPoint>,
     pub last_sample_total_dmg: i64,
+
+    // Per-skill DPS time series（スキル別の推移グラフ用。entity の time_series と同タイミングで採取）
+    pub skill_time_series: HashMap<i32, VecDeque<TimeSeriesPoint>>,
+    pub skill_last_sample_total_dmg: HashMap<i32, i64>,
 }

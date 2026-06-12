@@ -89,6 +89,7 @@ fn skill_row_for(
         lucky_value_rate: ratio_pct(stats.lucky_value, stats.total),
         hits: stats.hit_count as f64,
         hits_per_minute: rate_per_minute(stats.hit_count, elapsed_secs),
+        time_series: Vec::new(),
     }
 }
 
@@ -528,7 +529,7 @@ pub fn get_skills(
     for (&skill_uid, skill_stat) in &player.skill_uid_to_dps_stats {
         skill_window.top_value = skill_window.top_value.max(skill_stat.total as f64);
         let meta = player.skill_meta.get(&skill_uid).copied().unwrap_or_default();
-        let row = skill_row_for(
+        let mut row = skill_row_for(
             f64::from(skill_uid),
             get_skill_name(skill_uid),
             meta.property,
@@ -537,6 +538,11 @@ pub fn get_skills(
             elapsed_secs,
             player_stats.total,
         );
+        row.time_series = player
+            .skill_time_series
+            .get(&skill_uid)
+            .map(|d| d.iter().cloned().collect())
+            .unwrap_or_default();
         skill_window.skill_rows.push(row);
     }
     drop(encounter);

@@ -44,6 +44,7 @@ pub struct Settings {
     pub show_element: bool,
     pub show_damage_mode: bool,
     pub compact_split_mode: bool,
+    pub accent_theme: String,
 }
 
 impl Default for Settings {
@@ -83,6 +84,7 @@ impl Default for Settings {
             show_element: true,
             show_damage_mode: true,
             compact_split_mode: false,
+            accent_theme: "sky".to_string(),
         }
     }
 }

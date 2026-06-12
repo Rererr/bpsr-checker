@@ -380,7 +380,7 @@ fn process_local_delta_batch(encounter: &mut Encounter, msg: pb::LocalDeltaBatch
     process_scene_delta(encounter, base_delta);
 }
 
-fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::SceneDelta) {
+pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::SceneDelta) {
     let target_uuid = scene_delta.uuid;
     if target_uuid == 0 {
         return;

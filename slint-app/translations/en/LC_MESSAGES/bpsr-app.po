@@ -269,3 +269,33 @@ msgstr "Close"
 
 msgid "残り {}"
 msgstr "Left {}"
+
+msgid "アクセントカラー"
+msgstr "Accent color"
+
+msgid "画像コピー"
+msgstr "Copy image"
+
+msgid "パケット観測の開始に失敗しました"
+msgstr "Failed to start packet capture"
+
+msgid "ゲーム通信を検出中"
+msgstr "Game traffic detected"
+
+msgid "ゲーム通信を待機中"
+msgstr "Waiting for game traffic"
+
+msgid "戦闘を開始すると自動的に表示されます"
+msgstr "Data appears automatically once combat starts"
+
+msgid "検出されない場合はゾーン移動か再ログインで検出が始まります"
+msgstr "If nothing shows up, change zones or relog to start detection"
+
+msgid "VPN / ExitLag / NoPing 等の使用中は検出できないことがあります"
+msgstr "Detection may fail while VPN / ExitLag / NoPing is active"
+
+msgid "管理者権限で起動しているか確認してください"
+msgstr "Make sure the app is running as administrator"
+
+msgid "WinDivert.dll / WinDivert64.sys が exe と同じフォルダにあるか確認してください"
+msgstr "Make sure WinDivert.dll / WinDivert64.sys are next to the exe"

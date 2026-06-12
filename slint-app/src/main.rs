@@ -780,8 +780,25 @@ fn show_drill(
     m.set_view(1);
 }
 
+/// アクセントカラーのプリセット名 → (accent, accent-strong)（0xAARRGGBB）。
+/// 未知の値は既定の sky にフォールバックする。
+fn accent_colors(theme: &str) -> (u32, u32) {
+    match theme {
+        "emerald" => (0xff34d399, 0xff0f9d6e),
+        "amber" => (0xfffbc02d, 0xffb07a1e),
+        "rose" => (0xfffb7185, 0xffc23a5c),
+        "violet" => (0xffa78bfa, 0xff6d4fd9),
+        "mono" => (0xffcfd2dc, 0xff5a5f6e),
+        _ => (0xff4fc3f7, 0xff2d6cdf), // sky（既定）
+    }
+}
+
 /// 設定の表示系を UI へ反映（列フラグ・自分強調・最前面・パネルのトグル状態）。
 fn apply_settings(m: &MainWindow, c: &settings::Settings) {
+    let (accent, accent_strong) = accent_colors(&c.accent_theme);
+    let theme = m.global::<Theme>();
+    theme.set_accent(slint::Color::from_argb_encoded(accent));
+    theme.set_accent_strong(slint::Color::from_argb_encoded(accent_strong));
     m.set_cols(ColumnFlags {
         crit: c.show_crit,
         crit_value: c.show_crit_value,
@@ -815,6 +832,7 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         header_sparkline: c.show_header_sparkline,
         graph_for_local: c.graph_for_local_player,
         startup_tab: c.startup_tab.clone().into(),
+        accent_theme: c.accent_theme.clone().into(),
     });
     let int_str = |v: f64| -> slint::SharedString { format!("{}", v as i64).into() };
     m.set_nums(SettingsNumUi {
@@ -1052,6 +1070,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let main = MainWindow::new()?;
     // 言語選択（既定は日本語。将来は設定から）。最初のコンポーネント生成後に呼ぶ。
     let _ = slint::select_bundled_translation("ja");
+    // 結果モーダルの透かし（画像コピーに写り込むクレジット）
+    main.set_app_version(format!("bpsr-checker v{}", env!("CARGO_PKG_VERSION")).into());
     let rows = Rc::new(VecModel::<Row>::default());
     main.set_rows(rows.clone().into());
     // 軽量分割表示の左右カラム（rows を前半/後半に分配）
@@ -1521,6 +1541,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "name-template" => c.name_template = val.to_string(),
                     "copy-template" => c.copy_template = val.to_string(),
                     "startup-tab" => c.startup_tab = val.to_string(),
+                    "accent-theme" => c.accent_theme = val.to_string(),
                     other => log::warn!("unknown str key: {other}"),
                 }
             }
@@ -1775,6 +1796,56 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             compute::start_3min_measure_mode(&enc_rm, cfg_rm.borrow().three_min_duration_sec);
         });
     }
+    // 結果画面の画像コピー（ウィンドウのスナップショット→モーダル矩形へクロップ→クリップボード）。
+    // ウィンドウは半透明合成のため α=255 を強制しないと貼り付け先で透ける。
+    {
+        let w = main.as_weak();
+        main.on_copy_result_image(move || {
+            let Some(m) = w.upgrade() else { return };
+            let win = m.window();
+            let snap = match win.take_snapshot() {
+                Ok(s) => s,
+                Err(e) => {
+                    log::warn!("result image: snapshot failed: {e}");
+                    return;
+                }
+            };
+            // モーダルは論理 12px マージン（app.slint の結果モーダル矩形と一致させる）
+            let margin = (12.0 * win.scale_factor()).round() as usize;
+            let (full_w, full_h) = (snap.width() as usize, snap.height() as usize);
+            let crop_w = full_w.saturating_sub(margin * 2);
+            let crop_h = full_h.saturating_sub(margin * 2);
+            if crop_w == 0 || crop_h == 0 {
+                log::warn!("result image: window too small to crop ({full_w}x{full_h})");
+                return;
+            }
+            let src = snap.as_slice();
+            let mut bytes = Vec::with_capacity(crop_w * crop_h * 4);
+            for row in margin..margin + crop_h {
+                let line = &src[row * full_w + margin..row * full_w + margin + crop_w];
+                for px in line {
+                    bytes.extend_from_slice(&[px.r, px.g, px.b, 255]);
+                }
+            }
+            let img = arboard::ImageData {
+                width: crop_w,
+                height: crop_h,
+                bytes: bytes.into(),
+            };
+            match arboard::Clipboard::new().and_then(|mut cb| cb.set_image(img)) {
+                Ok(()) => {
+                    m.set_result_img_copied(true);
+                    let wk = m.as_weak();
+                    Timer::single_shot(Duration::from_millis(800), move || {
+                        if let Some(m) = wk.upgrade() {
+                            m.set_result_img_copied(false);
+                        }
+                    });
+                }
+                Err(e) => log::warn!("clipboard image copy failed: {e}"),
+            }
+        });
+    }
 
     main.show()?;
     if cfg.borrow().show_self_status_overlay {
@@ -1936,6 +2007,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let header = compute::get_header_info(&enc_poll);
         m.set_total_text(format::format_dps(header.total_dps).into());
         m.set_elapsed_text(format::format_elapsed(header.elapsed_ms).into());
+
+        // 観測ステータス（0=起動中 1=待機 2=受信中 3=失敗）。
+        // 「受信中」はゲームサーバのパケットを直近10秒以内に処理した場合のみ。
+        let cs = compute::get_capture_status();
+        m.set_capture_state(match cs.state {
+            2 => 3,
+            1 if (0.0..10_000.0).contains(&cs.ms_since_last_game_packet) => 2,
+            1 => 1,
+            _ => 0,
+        });
 
         // ヘッダースパークライン（有効時のみ time_series を取得して折れ線へ）
         if cfg_poll.borrow().show_header_sparkline {

@@ -700,6 +700,32 @@ pub fn clear_history() {
     crate::engine::history::clear();
 }
 
+// ─── capture status ──────────────────────────────────────────────────────────
+
+#[derive(serde::Serialize, specta::Type, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureStatusDto {
+    /// 0=初期化中 1=観測中 2=開始失敗（capture::status::STATE_*）
+    pub state: u8,
+    pub packets_total: f64,
+    /// 最後に TCP パケットを観測してからの経過 ms（-1.0=未観測）
+    pub ms_since_last_packet: f64,
+    /// 最後にゲームサーバのパケットを処理してからの経過 ms（-1.0=未観測）
+    pub ms_since_last_game_packet: f64,
+}
+
+pub fn get_capture_status() -> CaptureStatusDto {
+    use crate::capture::status;
+    use std::sync::atomic::Ordering;
+    let since = |v: u64| status::ms_since(v).map(|ms| ms as f64).unwrap_or(-1.0);
+    CaptureStatusDto {
+        state: status::state(),
+        packets_total: status::PACKETS_TOTAL.load(Ordering::Relaxed) as f64,
+        ms_since_last_packet: since(status::LAST_PACKET_UNIX_MS.load(Ordering::Relaxed)),
+        ms_since_last_game_packet: since(status::LAST_GAME_PACKET_UNIX_MS.load(Ordering::Relaxed)),
+    }
+}
+
 pub fn get_self_buff_status(enc: &EncounterMutex) -> SelfStatusData {
     use crate::engine::buff_dictionary::{self, DisplayPriority};
     use crate::engine::processor::now_ms;

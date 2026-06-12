@@ -134,10 +134,12 @@ fn read_packets_blocking(
     ) {
         Ok(handle) => {
             info!("WinDivert handle opened");
+            crate::capture::status::set_state(crate::capture::status::STATE_RUNNING);
             handle
         }
         Err(e) => {
             error!("Failed to initialize WinDivert: {e}");
+            crate::capture::status::set_state(crate::capture::status::STATE_FAILED);
             return;
         }
     };
@@ -153,6 +155,7 @@ fn read_packets_blocking(
     let mut subnet_reassemblers: HashMap<Server, TcpReassembler> = HashMap::new();
 
     while let Ok(packet) = windivert.recv(Some(&mut windivert_buffer)) {
+        crate::capture::status::mark_packet();
         let Ok(network_slices) = SlicedPacket::from_ip(packet.data.as_ref()) else {
             continue;
         };
@@ -279,6 +282,7 @@ fn read_packets_blocking(
                             }
                         }
                         if let Some(reassembler) = subnet_reassemblers.get_mut(&curr_server) {
+                            crate::capture::status::mark_game_packet();
                             reassemble_and_process(
                                 reassembler,
                                 &tcp_packet,
@@ -294,6 +298,7 @@ fn read_packets_blocking(
         }
 
         // Primary server reassembly
+        crate::capture::status::mark_game_packet();
         reassemble_and_process(
             &mut tcp_reassembler,
             &tcp_packet,

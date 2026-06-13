@@ -44,6 +44,15 @@ pub struct Settings {
     pub show_damage_mode: bool,
     pub compact_split_mode: bool,
     pub accent_theme: String,
+    /// イマジンデバフタイマーへ全プレイヤーを自動追加するか（旧Tauri版の挙動）。
+    pub auto_add_players: bool,
+    /// イマジンデバフタイマーで表示するイマジン列（4種を個別にON/OFF）。
+    pub show_imagine_tina: bool,
+    pub show_imagine_aluna: bool,
+    pub show_imagine_tarta: bool,
+    pub show_imagine_basilisk: bool,
+    /// DPS一覧の名前列に食事/シロップバッジを表示するか。
+    pub show_consumable: bool,
 }
 
 impl Default for Settings {
@@ -83,6 +92,12 @@ impl Default for Settings {
             show_damage_mode: true,
             compact_split_mode: false,
             accent_theme: "sky".to_string(),
+            auto_add_players: true,
+            show_imagine_tina: true,
+            show_imagine_aluna: true,
+            show_imagine_tarta: true,
+            show_imagine_basilisk: true,
+            show_consumable: true,
         }
     }
 }

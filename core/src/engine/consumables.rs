@@ -27,13 +27,15 @@ static IDS: LazyLock<(HashSet<i32>, HashSet<i32>)> = LazyLock::new(|| {
 });
 
 /// 1バフの終了時刻・総時間（残量比率算出用）と種類解決用の base_id。
-/// `create_time`/`layer` は付与の同一性キー。受動再観測では expire を凍結し、
-/// 新規付与（create_time 変化）・重ねがけ（layer 増）でのみ更新するために使う。
+/// `buff_uuid`/`create_time`/`layer` は付与の同一性キー。受動再観測では expire を
+/// 凍結し、別インスタンスの再付与（buff_uuid 変化＝再食）・同一インスタンスの
+/// タイマーリフレッシュ（create_time 変化）・重ねがけ（layer 増）でのみ更新する。
 #[derive(Clone, Copy, Debug)]
 pub struct Timing {
     pub expire_at_ms: u128,
     pub duration_ms: u128,
     pub base_id: i32,
+    pub buff_uuid: i32,
     pub create_time: i64,
     pub layer: i32,
 }
@@ -108,8 +110,9 @@ fn later_expire(s: &BuffStateSnapshot, cand: Option<&BuffStateSnapshot>) -> bool
 /// - 候補なし: 既存を保持（戦闘クリアで buff_tracker が消えても凍結）。
 /// - 既存なし: 観測値で初期化。
 /// - 既存失効済み: 観測値で再付与扱い。
-/// - 重ねがけ（layer 増）/ 新規付与（create_time が両者非0で変化）: 観測値で更新。
-/// - それ以外（受動再観測・create_time=0 等）: 既存 expire を凍結。
+/// - 別インスタンスの再付与（buff_uuid 変化＝再食）/ 重ねがけ（layer 増）/
+///   同一インスタンスのリフレッシュ（create_time が両者非0で変化）: 観測値で更新。
+/// - それ以外（受動再観測・同一 buff_uuid・create_time 据置/0）: 既存 expire を凍結。
 fn merge(existing: Option<Timing>, cand: Option<&BuffStateSnapshot>, now_ms: u128) -> Option<Timing> {
     let Some(s) = cand else {
         return existing;
@@ -118,6 +121,7 @@ fn merge(existing: Option<Timing>, cand: Option<&BuffStateSnapshot>, now_ms: u12
         expire_at_ms: s.received_at_local_ms + s.duration_ms as u128,
         duration_ms: s.duration_ms as u128,
         base_id: s.base_id,
+        buff_uuid: s.buff_uuid,
         create_time: s.create_time_server,
         layer: s.layer,
     };
@@ -127,11 +131,22 @@ fn merge(existing: Option<Timing>, cand: Option<&BuffStateSnapshot>, now_ms: u12
     if now_ms >= e.expire_at_ms {
         return Some(fresh()); // 既存は失効済み → 新規付与として採用
     }
+    if s.buff_uuid != e.buff_uuid {
+        // 別インスタンスの再付与（再食＝新規付与）。残時間の長短は比較せず、観測された
+        // 現行インスタンスを信頼する。候補は refresh 側の later_expire が現スナップショット
+        // 群から最遅 expire を選んでおり、より長い既存インスタンスが tracker に残っていれば
+        // そちらが候補になる。新 uuid が候補に選ばれる＝旧インスタンスは既に tracker から
+        // 消えている＝新 uuid が正規バフ、なので過大評価された旧 expire を実値へ補正する。
+        // 伸長時のみ採用するガードは、古い expire に凍結したままグレーへ戻る不具合を
+        // 別経路で再発させるため入れない。
+        return Some(fresh());
+    }
     if s.layer > e.layer {
         return Some(fresh()); // 重ねがけ（スタック増）
     }
+    // ここに到達するのは buff_uuid が一致する場合のみ（再食は上で処理済み）。
     if s.create_time_server != 0 && e.create_time != 0 && s.create_time_server != e.create_time {
-        return Some(fresh()); // 別付与（create_time 変化）
+        return Some(fresh()); // 同一 buff_uuid のタイマーリフレッシュ（create_time 変化）
     }
     Some(e) // 受動再観測 → 凍結
 }
@@ -143,12 +158,13 @@ mod tests {
     use crate::protocol::pb;
 
     const FOOD_ID: i32 = 700083; // ConsumableBuffIds.json food[0]
+    const SYRUP_ID: i32 = 681836; // ConsumableBuffIds.json syrup[0]
     const UID: i64 = 5000;
 
-    fn food_info(duration: i32, create_time: i64, layer: i32) -> pb::BuffSnapshot {
+    fn buff_info(base_id: i32, duration: i32, create_time: i64, layer: i32) -> pb::BuffSnapshot {
         pb::BuffSnapshot {
             buff_uuid: 1,
-            base_id: FOOD_ID,
+            base_id,
             level: 1,
             host_uuid: 0,
             table_uuid: 0,
@@ -160,6 +176,10 @@ mod tests {
             duration,
             fight_source_info: None,
         }
+    }
+
+    fn food_info(duration: i32, create_time: i64, layer: i32) -> pb::BuffSnapshot {
+        buff_info(FOOD_ID, duration, create_time, layer)
     }
 
     // 受動 BuffTick（create_time=0 で received_at を再ベース）では expire を凍結する。
@@ -200,6 +220,56 @@ mod tests {
         // 100s + 600s = 700s 終了 → 残 600s、layer=2
         assert_eq!(store[&UID].food.unwrap().remaining_ms(100_000), 600_000);
         assert_eq!(store[&UID].food.unwrap().layer, 2);
+    }
+
+    // 再食（別 buff_uuid の新規付与）は古い残時間に固まらず expire を延長する。
+    // ＝ ボス戦リセット後に再食してもアイコンがグレーへ戻らない。
+    #[test]
+    fn reeat_new_instance_extends() {
+        let mut tracker = BuffTracker::new();
+        let mut store = HashMap::new();
+        // 最初の食事: buff_uuid=1, 残 600s
+        tracker.apply_buff_add(1, &food_info(600_000, 1000, 1), 0, UID);
+        refresh(&mut store, &tracker, 0);
+        assert_eq!(store[&UID].food.unwrap().remaining_ms(0), 600_000);
+
+        // 300s 後に再食: 別インスタンス buff_uuid=2, 残 600s（古いインスタンスは残存）
+        tracker.apply_buff_add(2, &food_info(600_000, 2000, 1), 300_000, UID);
+        refresh(&mut store, &tracker, 300_000);
+        // 300s + 600s = 900s 終了 → 残 600s に延長され、新インスタンスが採用される
+        assert_eq!(store[&UID].food.unwrap().remaining_ms(300_000), 600_000);
+        assert_eq!(store[&UID].food.unwrap().buff_uuid, 2);
+    }
+
+    // create_time=0 の受動再食でも buff_uuid が変われば延長する（create_time に依存しない）。
+    #[test]
+    fn reeat_zero_create_time_still_extends_via_buff_uuid() {
+        let mut tracker = BuffTracker::new();
+        let mut store = HashMap::new();
+        tracker.apply_buff_add(1, &food_info(600_000, 0, 1), 0, UID);
+        refresh(&mut store, &tracker, 0);
+
+        tracker.apply_buff_add(2, &food_info(600_000, 0, 1), 300_000, UID);
+        refresh(&mut store, &tracker, 300_000);
+        assert_eq!(store[&UID].food.unwrap().remaining_ms(300_000), 600_000);
+    }
+
+    // 片方（食事）のみ再食しても、もう片方（シロップ）の凍結残時間は影響を受けない。
+    #[test]
+    fn reeat_food_does_not_disturb_syrup() {
+        let mut tracker = BuffTracker::new();
+        let mut store = HashMap::new();
+        tracker.apply_buff_add(10, &food_info(600_000, 0, 1), 0, UID);
+        tracker.apply_buff_add(20, &buff_info(SYRUP_ID, 600_000, 0, 1), 0, UID);
+        refresh(&mut store, &tracker, 0);
+        assert_eq!(store[&UID].food.unwrap().remaining_ms(0), 600_000);
+        assert_eq!(store[&UID].syrup.unwrap().remaining_ms(0), 600_000);
+
+        // 300s 後に食事のみ再食（シロップは再観測されるが据え置き）
+        tracker.apply_buff_add(11, &food_info(600_000, 0, 1), 300_000, UID);
+        refresh(&mut store, &tracker, 300_000);
+        assert_eq!(store[&UID].food.unwrap().remaining_ms(300_000), 600_000); // 延長
+        assert_eq!(store[&UID].syrup.unwrap().remaining_ms(300_000), 300_000); // 凍結維持
     }
 
     // buff_tracker.clear（戦闘終了）後も保持し、失効時に除去する。

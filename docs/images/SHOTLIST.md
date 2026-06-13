@@ -26,8 +26,9 @@ cargo run -p bpsr-app
 ```
 
 撮影メモ:
-- スパークラインが溜まるまで 2〜3 分待つ。3分計測グラフをフル尺で出すには
-  デモ用 settings.json で `"timeSeriesSamples": 200` 以上にする（既定60＝直近60秒のみ）。
+- メイン画面のライブ行スパークラインが溜まるまで 2〜3 分待つ（`timeSeriesSamples` の
+  ローリング窓ぶん）。3分計測 結果グラフは設定値に関わらず計測ウィンドウ全体を保持するため
+  `timeSeriesSamples` を上げる必要はない（計測開始〜末尾まで端から端に描画される）。
 - `debuff-timer.png` は auto-add が全員（デバフ無しの空行も）を追加してしまうため、
   デモ用 settings.json で `"autoAddPlayers": false`、watchlist.json の `watched` を
   デバフ保持者の `[90001, 90002, 90003, 90004]`（ソラ/カエデ/ハヤテ/ノクス）に固定する

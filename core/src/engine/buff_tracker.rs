@@ -96,14 +96,21 @@ impl BuffTracker {
             source_config_id: 0,
         });
 
-        // v0.8.3 以前と同様、create_time のガードなしで無条件更新。
+        // v0.8.3 以前と同様、duration/layer は create_time のガードなしで無条件更新。
         // サーバが BuffTick に create_time を付与しない実装の場合（0 で到来）、
         // 旧ガードは全 tick をスキップし残り秒数が凍結していた。
         entry.received_at_local_ms = now_ms;
         entry.duration_ms = change.duration;
         entry.layer = change.layer;
         entry.base_id = change.base_id;
-        entry.create_time_server = change.create_time;
+        // create_time は付与の同一性キー。BuffTick は 0 で来ることがあり、0 で
+        // 上書きすると AddBuff/Snapshot で得た正規の付与時刻が消える。すると
+        // 食事/シロップの再付与（再食）を判別できず残時間が古いまま凍結し、
+        // 残時間があるのにアイコンがグレーへ戻る。非0 のときのみ更新して保持する
+        // （apply_buff_change と同規約）。
+        if change.create_time != 0 {
+            entry.create_time_server = change.create_time;
+        }
     }
 
     /// buff_list (BuffEffect) の AddBuff (LogicEffect.EffectType == 18) を追跡。
@@ -415,6 +422,35 @@ mod tests {
         assert_eq!(snaps[0].remaining_ms, 400);
         assert_eq!(snaps[0].layer, 3);
         assert_eq!(snaps[0].base_id, 30001);
+    }
+
+    // BuffTick が create_time=0 で来ても、既存の正規 create_time を 0 で潰さない。
+    // ＝ 食事/シロップの再付与判定が受動 tick で壊れない（残時間がグレーへ戻らない）。
+    #[test]
+    fn test_buff_tick_zero_create_time_preserves_existing() {
+        let mut tracker = BuffTracker::new();
+        let uuid = player_uuid(1);
+        let uid = entity::get_player_uid(uuid);
+
+        // AddBuff/Snapshot 相当: 正規の create_time=1234 を持つ
+        let mut info = make_buff_info(7, uuid, 5000);
+        info.create_time = 1234;
+        tracker.apply_full_info(&info, 0);
+
+        // BuffTick が create_time=0 で到来
+        let tick = pb::BuffTick {
+            host_uuid: uuid,
+            buff_uuid: 7,
+            base_id: 30001,
+            duration: 5000,
+            create_time: 0,
+            layer: 1,
+        };
+        tracker.apply_change(&tick, 1000);
+
+        let snaps = tracker.snapshot_for(uid, 1000);
+        assert_eq!(snaps.len(), 1);
+        assert_eq!(snaps[0].create_time_server, 1234); // 0 で潰されていない
     }
 
     // 未追跡 BuffUuid への BuffChange は無視する（base_id 不明で表示できないため）。

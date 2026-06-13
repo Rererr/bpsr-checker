@@ -261,6 +261,7 @@ component ConsumableBadge inherits Rectangle {
     in property <string> tip-time;  // ホバー: 残り時間（例 45s）
     in property <string> tip-label; // ホバー: 種類ラベル（例 物攻 +15。空=非表示）
     in property <float> font-scale: 1.0;
+    callback clicked();
     property <float> elapsed: 1.0 - root.remaining;  // 経過割合（上から色が消える境界）
     // アイコン径＝メインのフォントサイズ（font_size = 12px*font_scale）に一致
     width: 12px * root.font-scale;
@@ -281,6 +282,13 @@ component ConsumableBadge inherits Rectangle {
     // ホバーで残り時間＋種類をアイコンの下に表示。PopupWindow=最前面・行にクリップ
     // されないため最上段でも見切れない。ポップはアイコンの下に出すので hover を奪わない。
     ta := TouchArea {
+        // アイコン(約12px)はホバー判定が狭く、少しのカーソルずれで tip が消えて
+        // ちらつく。行高さいっぱい＋左右に余白を取った判定に広げて安定させる。
+        // 行クリックは下層の rowta が拾えなくなるため clicked を転送して維持する。
+        width: root.width + 10px;
+        height: 20px * root.font-scale;
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2;
         changed has-hover => {
             if (self.has-hover && root.active) {
                 tip.show();
@@ -288,6 +296,7 @@ component ConsumableBadge inherits Rectangle {
                 tip.close();
             }
         }
+        clicked => { root.clicked(); }
     }
     tip := PopupWindow {
         x: 0;
@@ -379,6 +388,7 @@ component PlayerRowItem inherits Rectangle {
                 tip-label: root.entry.food-label;
                 font-scale: root.font-scale;
                 icon: "M8.1 13.34l2.83-2.83L3.91 3.5c-1.56 1.56-1.56 4.09 0 5.66l4.19 4.18zm6.78-1.81c1.53.71 3.68.21 5.27-1.38 1.91-1.91 2.28-4.65.81-6.12-1.46-1.46-4.2-1.1-6.12.81-1.59 1.59-2.09 3.74-1.38 5.27L3.7 19.87l1.41 1.41L12 14.41l6.88 6.88 1.41-1.41L13.41 13l1.47-1.47z";
+                clicked => { root.activate(root.entry.uid-str); }
             } }
             if root.show-consumable: VerticalLayout { alignment: center; ConsumableBadge {
                 active: root.entry.syrup-active;
@@ -388,6 +398,7 @@ component PlayerRowItem inherits Rectangle {
                 tip-label: root.entry.syrup-label;
                 font-scale: root.font-scale;
                 icon: "M19.8 18.4L14 10.67V6.5l1.35-1.69c.26-.33.03-.81-.39-.81H9.04c-.42 0-.65.48-.39.81L10 6.5v4.17L4.2 18.4c-.49.66-.02 1.6.8 1.6h14c.82 0 1.29-.94.8-1.6z";
+                clicked => { root.activate(root.entry.uid-str); }
             } }
         }
         if root.show-graph-col: Rectangle {

@@ -1312,6 +1312,10 @@ export component MainWindow inherits Window {
                     icon-fill: true;
                     show-icon: root.narrow-header;
                     active: root.aot;
+                    // 最前面はデフォルトON＝常時表示状態。警告色の黄ではなく
+                    // アクセント色で控えめに示す（設定ボタンと同様の抑えたトーン）。
+                    active-bg: #ffffff20;
+                    active-fg: Theme.accent;
                     clicked => { root.set-bool("aot", !root.aot); }
                 }
                 min-btn := TouchArea {

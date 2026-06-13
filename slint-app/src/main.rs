@@ -520,37 +520,55 @@ fn build_result_skill_rows(
 }
 
 /// 区間DPS の折れ線を「時間軸」で配置（x = t_ms/duration）。結果画面の X軸時間ラベルと整合させる。
-/// 途中参戦スキルも実時間の位置に描かれる（index 等間隔だと全幅に伸びて誤解を招くため）。
+/// バーストの起伏は実時間位置で描く（index 等間隔だと全幅へ引き伸ばして誤解を招くため）。
+/// ただし左端は 0:00 へ接地する: 初使用が 0:00 より後の系列（途中から使ったスキル/途中参戦
+/// キャラ）は (x=0, dps=0) から初使用直前まで底辺の平坦線を引き、折れ線を必ず左端へ届かせる。
+/// 右端は確定時の終端サンプル（compute::seal_3min_series）で計測末尾へ接地済み。
+/// 折れ線パスを「プロット実寸(px)座標」で生成する（M/L コマンド文字列）。
+/// SparkGraph 側は viewbox をプロット実寸に一致させるため、ここでも実寸 vw×vh で座標を出す
+/// （Slint Path の縦横比保持による中央寄せ・横潰れを回避＝X全幅・Y軸グリッドと整合）。
+/// 実寸が変わったら再生成が必要（SparkGraph.resized 経由で呼ぶ）。
 fn build_spark_dps_time(
     points: &[bpsr_core::models::TimeSeriesPoint],
     duration_ms: f64,
     vw: f32,
     vh: f32,
 ) -> String {
-    if points.len() < 2 {
+    if points.len() < 2 || vw <= 0.0 || vh <= 0.0 {
         return String::new();
     }
     let max = points.iter().map(|p| p.total_dps).fold(1.0_f64, f64::max);
     let dur = duration_ms.max(1.0);
-    let mut s = String::with_capacity(points.len() * 12);
-    for (i, p) in points.iter().enumerate() {
+    let mut s = String::with_capacity((points.len() + 2) * 14);
+
+    // 左端接地: 最初のサンプルが 0:00 より後（途中から使ったスキル/途中参戦キャラ）なら、
+    // (x=0, dps=0) から初使用直前まで底辺の平坦線を引き、折れ線を必ず左端へ届かせる。
+    // 未使用区間=0 の表現なので誤解はなく、右端は終端サンプルで既に接地している。
+    let first_x = (points[0].t_ms / dur).clamp(0.0, 1.0) as f32 * vw;
+    let mut drawn = false;
+    if first_x > 0.5 {
+        s.push_str(&format!("M 0.0 {vh:.1} L {first_x:.2} {vh:.1}"));
+        drawn = true;
+    }
+    for p in points {
         let x = (p.t_ms / dur).clamp(0.0, 1.0) as f32 * vw;
         let y = vh - (p.total_dps / max) as f32 * vh;
-        if i == 0 {
-            s.push_str(&format!("M {x:.1} {y:.1}"));
+        if drawn {
+            s.push_str(&format!(" L {x:.2} {y:.2}"));
         } else {
-            s.push_str(&format!(" L {x:.1} {y:.1}"));
+            s.push_str(&format!("M {x:.2} {y:.2}"));
+            drawn = true;
         }
     }
     s
 }
 
 /// 選択キャラの区間DPS折れ線（エリア1）。snap の player_rows[uid] の time_series から。
-fn build_char_spark(snap: &bpsr_core::models::EncounterSnapshot, uid: i64) -> String {
+fn build_char_spark(snap: &bpsr_core::models::EncounterSnapshot, uid: i64, vw: f32, vh: f32) -> String {
     snap.player_rows
         .iter()
         .find(|p| p.uid as i64 == uid)
-        .map(|p| build_spark_dps_time(&p.time_series, snap.duration_ms, 100.0, 16.0))
+        .map(|p| build_spark_dps_time(&p.time_series, snap.duration_ms, vw, vh))
         .unwrap_or_default()
 }
 
@@ -559,11 +577,13 @@ fn build_skill_spark(
     skills: &[bpsr_core::models::SkillRow],
     selected_skill_uid: i64,
     duration_ms: f64,
+    vw: f32,
+    vh: f32,
 ) -> String {
     skills
         .iter()
         .find(|s| s.uid as i64 == selected_skill_uid)
-        .map(|s| build_spark_dps_time(&s.time_series, duration_ms, 100.0, 16.0))
+        .map(|s| build_spark_dps_time(&s.time_series, duration_ms, vw, vh))
         .unwrap_or_default()
 }
 
@@ -599,9 +619,10 @@ fn apply_result_skill_selection(
     selected_skill_uid: i64,
     result_skill_rows: &slint::VecModel<ResultSkillRowUi>,
     duration_ms: f64,
+    skill_dims: (f32, f32),
 ) {
     result_skill_rows.set_vec(build_result_skill_rows(skills, selected_skill_uid));
-    let spark = build_skill_spark(skills, selected_skill_uid, duration_ms);
+    let spark = build_skill_spark(skills, selected_skill_uid, duration_ms, skill_dims.0, skill_dims.1);
     m.set_result_skill_spark_visible(!spark.is_empty());
     m.set_result_skill_spark(spark.into());
     let (stop, smid) = skill_axis_labels(skills, selected_skill_uid);
@@ -631,11 +652,13 @@ fn apply_result_selection(
     selected_player: &std::cell::Cell<i64>,
     selected_skill: &std::cell::Cell<i64>,
     privacy: bool,
+    char_dims: (f32, f32),
+    skill_dims: (f32, f32),
 ) {
     selected_player.set(uid);
     result_rows.set_vec(build_result_rows(snap, uid, privacy));
-    // エリア1: 選択キャラの累積合計ダメージ折れ線
-    let char_spark = build_char_spark(snap, uid);
+    // エリア1: 選択キャラの区間DPS折れ線
+    let char_spark = build_char_spark(snap, uid, char_dims.0, char_dims.1);
     m.set_result_char_spark_visible(!char_spark.is_empty());
     m.set_result_char_spark(char_spark.into());
     let (ctop, cmid) = char_axis_labels(snap, uid);
@@ -661,7 +684,7 @@ fn apply_result_selection(
     let skills = captured.get(&uid).unwrap_or(&empty);
     let default_skill = skills.first().map(|s| s.uid as i64).unwrap_or(0);
     selected_skill.set(default_skill);
-    apply_result_skill_selection(m, skills, default_skill, result_skill_rows, snap.duration_ms);
+    apply_result_skill_selection(m, skills, default_skill, result_skill_rows, snap.duration_ms, skill_dims);
     // エリア3: TOP10＋その他 の円グラフ＋凡例
     let entries = top10_with_other(skills);
     let colored: Vec<(slint::Color, f64)> = entries.iter().map(|(_, c, v)| (*c, *v)).collect();
@@ -683,6 +706,8 @@ fn show_result(
     selected_player: &std::cell::Cell<i64>,
     selected_skill: &std::cell::Cell<i64>,
     privacy: bool,
+    char_dims: (f32, f32),
+    skill_dims: (f32, f32),
 ) {
     m.set_result_dps(format::format_dps(snap.total_dps).into());
     m.set_result_dmg(format::format_number(snap.total_dmg).into());
@@ -700,6 +725,8 @@ fn show_result(
         selected_player,
         selected_skill,
         privacy,
+        char_dims,
+        skill_dims,
     );
     m.set_result_open(true);
 }
@@ -1117,6 +1144,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 結果パネルの選択状態（エリア1=キャラ / エリア2=スキル）
     let selected_result_player = Rc::new(std::cell::Cell::<i64>::new(0));
     let selected_result_skill = Rc::new(std::cell::Cell::<i64>::new(0));
+    // 折れ線プロットの実寸(px)。SparkGraph.resized で更新し、再生成時の座標スケールに使う。
+    // 初期値は初回レイアウト前の暫定（resized 発火で実値に置換される）。
+    let char_plot_dims = Rc::new(Cell::new((600.0_f32, 40.0_f32)));
+    let skill_plot_dims = Rc::new(Cell::new((600.0_f32, 40.0_f32)));
 
     // 自キャラUID 候補モデル
     let uid_candidates = Rc::new(VecModel::<UidCandidate>::default());
@@ -1771,6 +1802,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let sel_p = selected_result_player.clone();
         let sel_s = selected_result_skill.clone();
         let cfg_sp = cfg.clone();
+        let cdim = char_plot_dims.clone();
+        let sdim = skill_plot_dims.clone();
         main.on_select_result_player(move |uid_str| {
             let uid: i64 = uid_str.as_str().parse().unwrap_or(0);
             let snap = lr.borrow();
@@ -1790,6 +1823,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     &sel_p,
                     &sel_s,
                     cfg_sp.borrow().privacy_mask_names,
+                    cdim.get(),
+                    sdim.get(),
                 );
             }
         });
@@ -1801,6 +1836,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let rsr = result_skill_rows.clone();
         let sel_p = selected_result_player.clone();
         let sel_s = selected_result_skill.clone();
+        let sdim = skill_plot_dims.clone();
         main.on_select_result_skill(move |uid_str| {
             let skill_uid: i64 = uid_str.as_str().parse().unwrap_or(0);
             sel_s.set(skill_uid);
@@ -1809,8 +1845,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let skills = captured.get(&sel_p.get()).unwrap_or(&empty);
             if let Some(m) = w.upgrade() {
                 let dur = m.get_result_duration_ms() as f64;
-                apply_result_skill_selection(&m, skills, skill_uid, &rsr, dur);
+                apply_result_skill_selection(&m, skills, skill_uid, &rsr, dur, sdim.get());
             }
+        });
+    }
+    // 3分計測 結果パネル: キャラ折れ線プロットの実寸変化→実寸座標でパス再生成
+    {
+        let w = main.as_weak();
+        let lr = last_result.clone();
+        let sel_p = selected_result_player.clone();
+        let cdim = char_plot_dims.clone();
+        main.on_result_char_spark_resized(move |pw, ph| {
+            cdim.set((pw, ph));
+            let Some(m) = w.upgrade() else { return; };
+            let snap = lr.borrow();
+            let Some(snap) = snap.as_ref() else { return; };
+            let s = build_char_spark(snap, sel_p.get(), pw, ph);
+            m.set_result_char_spark_visible(!s.is_empty());
+            m.set_result_char_spark(s.into());
+        });
+    }
+    // 3分計測 結果パネル: スキル折れ線プロットの実寸変化→実寸座標でパス再生成
+    {
+        let w = main.as_weak();
+        let lr = last_result.clone();
+        let cs = captured_skills.clone();
+        let sel_p = selected_result_player.clone();
+        let sel_s = selected_result_skill.clone();
+        let sdim = skill_plot_dims.clone();
+        main.on_result_skill_spark_resized(move |pw, ph| {
+            sdim.set((pw, ph));
+            let Some(m) = w.upgrade() else { return; };
+            let dur = lr.borrow().as_ref().map(|s| s.duration_ms).unwrap_or(1.0);
+            let captured = cs.borrow();
+            let empty = Vec::new();
+            let skills = captured.get(&sel_p.get()).unwrap_or(&empty);
+            let s = build_skill_spark(skills, sel_s.get(), dur, pw, ph);
+            m.set_result_skill_spark_visible(!s.is_empty());
+            m.set_result_skill_spark(s.into());
         });
     }
     // 3分計測 結果パネル: 上位10行を copy_template でコピー
@@ -1951,6 +2023,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let selected_result_skill_poll = selected_result_skill.clone();
     let captured_skills_poll = captured_skills.clone();
     let last_result_poll = last_result.clone();
+    let char_plot_dims_poll = char_plot_dims.clone();
+    let skill_plot_dims_poll = skill_plot_dims.clone();
     let compact_left_poll = compact_left.clone();
     let compact_right_poll = compact_right.clone();
     let uid_candidates_poll = uid_candidates.clone();
@@ -2112,6 +2186,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let rem = ms.remaining_ms.unwrap_or(0.0).max(0.0);
             m.set_measure_text(format::format_elapsed(rem).into());
             if rem <= 0.0 {
+                // 折れ線を右端(=計測末尾)まで届かせるため、捕捉・確定の前に終端サンプルを足す。
+                // （スキル内訳は下の get_skills で確定前に取得されるため順序が重要）
+                compute::seal_3min_series(&enc_poll);
                 // finalize で集計が消えるため、直前にライブのスキル内訳と自分uidを捕捉。
                 let pw = compute::get_dps_players(&enc_poll);
                 let local_uid = pw.local_player_uid as i64;
@@ -2148,6 +2225,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             &selected_result_player_poll,
                             &selected_result_skill_poll,
                             c.privacy_mask_names,
+                            char_plot_dims_poll.get(),
+                            skill_plot_dims_poll.get(),
                         );
                     }
                 }

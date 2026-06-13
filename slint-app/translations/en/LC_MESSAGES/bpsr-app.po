@@ -69,6 +69,9 @@ msgstr "Score"
 msgid "設定"
 msgstr "Settings"
 
+msgid "前面"
+msgstr "Pin"
+
 msgid "表示列"
 msgstr "Columns"
 
@@ -197,9 +200,6 @@ msgstr "Font size"
 
 msgid "起動時のタブ"
 msgstr "Startup tab"
-
-msgid "ヘッダーにグラフ"
-msgstr "Header graph"
 
 msgid "自分のグラフを表示"
 msgstr "Graph for self"

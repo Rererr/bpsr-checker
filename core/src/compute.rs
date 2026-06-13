@@ -835,6 +835,20 @@ pub fn finalize_3min_locked(encounter: &mut Encounter) -> EncounterSnapshot {
     snapshot
 }
 
+/// 3分計測の確定直前に、全系列（global/entity/skill）へ終端サンプルを1点足し、
+/// 末尾を計測末尾（= 軸の最大値 duration_ms）へ揃える（折れ線を右端まで届かせる）。
+/// スキル内訳は finalize 前に get_skills で取得されるため、取得・確定の **前** に呼ぶ。
+/// measure_mode が Active3Min のうちに採取すること（clear_combat_stats 前）。
+pub fn seal_3min_series(enc: &EncounterMutex) {
+    match enc.lock() {
+        Ok(mut e) => {
+            let end_ts = e.time_last_combat_packet_ms;
+            crate::engine::processor::take_time_series_sample(&mut e, end_ts, true);
+        }
+        Err(err) => log::error!("Lock poisoned in seal_3min_series: {err}"),
+    }
+}
+
 /// 3分計測を確定し snapshot を返す（履歴 push・mode=Normal は finalize_3min_locked 内）。
 /// 旧 Tauri 版はイベント発火だったが、Slint 版はポーリングで残0を検知して本関数を呼ぶ。
 pub fn finalize_3min_measure_mode(enc: &EncounterMutex) -> Option<EncounterSnapshot> {

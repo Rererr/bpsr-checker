@@ -610,14 +610,22 @@ component ResultSkillRow inherits Rectangle {
 // 折れ線グラフ＋左Y軸目安(上=最大/中=半分/下=0)＋時間X軸(区切り本数は横幅で可変)＋グリッド線。
 component SparkGraph inherits VerticalLayout {
     in property <bool> visible-graph;
+    // パスコマンド（M/L）。座標は viewbox=プロット実寸(px) に一致させた「ピクセル座標」。
+    // Slint の Path は viewbox を縦横比保持でスケールするため、viewbox を要素実寸に合わせ、
+    // パスも実寸座標で渡すことで等倍描画（X全幅・Y軸グリッド整合）にする。実寸が変わると
+    // パスを作り直す必要があるため resized で通知する。
     in property <string> commands;
     in property <color> line-color;
     in property <string> axis-top;
     in property <string> axis-mid;
     in property <string> empty-text;
     in property <float> duration-ms;                 // X軸の総時間（ms）
+    // プロット実寸(px)が変わったら通知（呼び出し側がこの寸法でパスを再生成する）。
+    callback resized(float /* width-px */, float /* height-px */);
     // X軸の区切り本数（横幅で可変。約80pxごとに1区切り、2〜7本）。
     property <int> x-ticks: Math.max(2, Math.min(7, Math.floor(plot.width / 80px)));
+    property <float> vbw: plot.width / 1px;
+    property <float> vbh: plot.height / 1px;
     spacing: 2px;
 
     // 主行: 左Y軸 ＋ グラフ
@@ -635,6 +643,8 @@ component SparkGraph inherits VerticalLayout {
         plot := Rectangle {
             horizontal-stretch: 1;
             clip: true;
+            changed width => { root.resized(self.width / 1px, self.height / 1px); }
+            changed height => { root.resized(self.width / 1px, self.height / 1px); }
             // 横グリッド（上/中/下）
             Rectangle { y: 0; width: 100%; height: 1px; background: #ffffff14; }
             Rectangle { y: parent.height / 2; width: 100%; height: 1px; background: #ffffff10; }
@@ -653,8 +663,8 @@ component SparkGraph inherits VerticalLayout {
                 height: 100%;
                 viewbox-x: 0;
                 viewbox-y: 0;
-                viewbox-width: 100;
-                viewbox-height: 16;
+                viewbox-width: root.vbw;
+                viewbox-height: root.vbh;
                 commands: root.commands;
                 stroke: root.line-color;
                 stroke-width: 1px;
@@ -1133,12 +1143,14 @@ export component MainWindow inherits Window {
     in property <string> result-dps;
     in property <string> result-dmg;
     in property <string> result-duration;
-    in property <string> result-char-spark;        // エリア1: 選択キャラの累積合計ダメージ折れ線
+    in property <string> result-char-spark;         // エリア1: 選択キャラの区間DPS折れ線（実寸px座標）
     in property <bool> result-char-spark-visible;
+    callback result-char-spark-resized(float, float); // プロット実寸(px)変化→Rustが再生成
     in property <[ResultRowUi]> result-rows;        // エリア1: キャラ一覧（最大5）
     in property <[ResultSkillRowUi]> result-skill-rows; // エリア2: スキル内訳
-    in property <string> result-skill-spark;        // エリア2: 選択スキルの累積ダメージ折れ線
+    in property <string> result-skill-spark;        // エリア2: 選択スキルの区間DPS折れ線（実寸px座標）
     in property <bool> result-skill-spark-visible;
+    callback result-skill-spark-resized(float, float); // プロット実寸(px)変化→Rustが再生成
     in property <[PieSlice]> result-pie;            // エリア3: TOP10+その他 円グラフ
     in property <[SkillLegendUi]> result-legend;
     in property <string> result-pie-title;
@@ -1776,6 +1788,7 @@ export component MainWindow inherits Window {
                         vertical-stretch: 1;
                         visible-graph: root.result-char-spark-visible;
                         commands: root.result-char-spark;
+                        resized(w, h) => { root.result-char-spark-resized(w, h); }
                         line-color: Theme.accent;
                         axis-top: root.result-char-axis-top;
                         axis-mid: root.result-char-axis-mid;
@@ -1866,6 +1879,7 @@ export component MainWindow inherits Window {
                         vertical-stretch: 1;
                         visible-graph: root.result-skill-spark-visible;
                         commands: root.result-skill-spark;
+                        resized(w, h) => { root.result-skill-spark-resized(w, h); }
                         line-color: #66bb6a;
                         axis-top: root.result-skill-axis-top;
                         axis-mid: root.result-skill-axis-mid;

@@ -629,98 +629,128 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
     }
     encounter.time_last_combat_packet_ms = ts;
 
-    // Time-series sampling
+    // Time-series sampling（間隔ゲート付き。実体は take_time_series_sample に集約）
+    take_time_series_sample(encounter, ts, false);
+}
+
+/// 時系列サンプルを1点採取する。通常は間隔ゲート（`TS_INTERVAL_MS`）で間引くが、
+/// `force=true` のときはゲートを無視して採取する（3分計測の確定時に終端を計測末尾へ
+/// 揃え、結果グラフの折れ線を右端まで届かせるため）。
+///
+/// `ts` は now_ms() ドメインの時刻。サンプルの `t_ms` は `ts - time_fight_start_ms`。
+pub(crate) fn take_time_series_sample(encounter: &mut Encounter, ts: u128, force: bool) {
     let interval_ms = u128::from(
         crate::engine::runtime_settings::TS_INTERVAL_MS.load(std::sync::atomic::Ordering::Relaxed),
     );
-    if interval_ms > 0 {
-        let due = encounter.last_sample_ms == 0
-            || ts.saturating_sub(encounter.last_sample_ms) >= interval_ms;
-        if due {
-            // When first sample, use interval_ms as the window so DPS isn't artificially inflated
-            let interval_actual = if encounter.last_sample_ms == 0 {
-                interval_ms
-            } else {
-                ts.saturating_sub(encounter.last_sample_ms)
-            };
-            let elapsed_since_start = ts.saturating_sub(encounter.time_fight_start_ms);
-            let cap = crate::engine::runtime_settings::TS_SAMPLES
-                .load(std::sync::atomic::Ordering::Relaxed);
+    if interval_ms == 0 {
+        return;
+    }
+    let gap = ts.saturating_sub(encounter.last_sample_ms);
+    let due = encounter.last_sample_ms == 0 || gap >= interval_ms;
+    if !due && !force {
+        return;
+    }
+    // 確定時の終端サンプル: 直近サンプルと同時刻なら既に末尾が採れているので二重採取しない
+    // （同一 x への dps=0 点が右端で下向きのヒゲになるのを防ぐ）。
+    if force && !due && gap == 0 {
+        return;
+    }
 
-            let dmg_delta = encounter.dmg_stats.total - encounter.last_sample_total_dmg;
-            let dps_window = if interval_actual > 0 {
-                (dmg_delta as f64) * 1000.0 / (interval_actual as f64)
+    // 最初のサンプルは間隔ぶんを窓とみなして DPS を過大計上しない
+    let interval_actual = if encounter.last_sample_ms == 0 {
+        interval_ms
+    } else {
+        gap
+    };
+    let elapsed_since_start = ts.saturating_sub(encounter.time_fight_start_ms);
+
+    // 3分計測中はウィンドウ全体ぶんを保持する。直近 TS_SAMPLES 窓だと計測開始直後の
+    // サンプルが pop_front で捨てられ、結果グラフの折れ線が左端(0:00)から始まらないため。
+    // 通常時は従来どおり TS_SAMPLES（ライブのローリング窓）を使う。
+    let cap = {
+        let base = crate::engine::runtime_settings::TS_SAMPLES
+            .load(std::sync::atomic::Ordering::Relaxed);
+        if let crate::engine::encounter::MeasureMode::Active3Min { duration_ms, .. } =
+            encounter.measure_mode
+        {
+            base.max((duration_ms / interval_ms) as usize + 2)
+        } else {
+            base
+        }
+    };
+
+    let dmg_delta = encounter.dmg_stats.total - encounter.last_sample_total_dmg;
+    let dps_window = if interval_actual > 0 {
+        (dmg_delta as f64) * 1000.0 / (interval_actual as f64)
+    } else {
+        0.0
+    };
+    encounter
+        .time_series
+        .push_back(crate::models::TimeSeriesPoint {
+            t_ms: elapsed_since_start as f64,
+            total_dmg: encounter.dmg_stats.total as f64,
+            total_dps: dps_window.max(0.0),
+        });
+    while encounter.time_series.len() > cap {
+        encounter.time_series.pop_front();
+    }
+
+    // Per-entity sampling (only for entities that have dealt damage)
+    for entity in encounter.entities.values_mut() {
+        if entity.entity_type != EntityKind::Player {
+            continue;
+        }
+        if entity.dmg_stats.total == 0 && entity.time_series.is_empty() {
+            continue;
+        }
+        let entity_delta = entity.dmg_stats.total - entity.last_sample_total_dmg;
+        let entity_dps = if interval_actual > 0 {
+            (entity_delta as f64) * 1000.0 / (interval_actual as f64)
+        } else {
+            0.0
+        };
+        entity
+            .time_series
+            .push_back(crate::models::TimeSeriesPoint {
+                t_ms: elapsed_since_start as f64,
+                total_dmg: entity.dmg_stats.total as f64,
+                total_dps: entity_dps.max(0.0),
+            });
+        while entity.time_series.len() > cap {
+            entity.time_series.pop_front();
+        }
+        entity.last_sample_total_dmg = entity.dmg_stats.total;
+
+        // Per-skill sampling（スキル別の累積/窓DPS を採取。借用衝突回避のため先に値を収集）
+        let skill_samples: Vec<(i32, i64)> = entity
+            .skill_uid_to_dps_stats
+            .iter()
+            .map(|(&uid, s)| (uid, s.total))
+            .collect();
+        for (skill_uid, skill_total) in skill_samples {
+            let last = entity.skill_last_sample_total_dmg.entry(skill_uid).or_insert(0);
+            let skill_delta = skill_total - *last;
+            *last = skill_total;
+            let skill_dps = if interval_actual > 0 {
+                (skill_delta as f64) * 1000.0 / (interval_actual as f64)
             } else {
                 0.0
             };
-            encounter
-                .time_series
-                .push_back(crate::models::TimeSeriesPoint {
-                    t_ms: elapsed_since_start as f64,
-                    total_dmg: encounter.dmg_stats.total as f64,
-                    total_dps: dps_window.max(0.0),
-                });
-            while encounter.time_series.len() > cap {
-                encounter.time_series.pop_front();
+            let series = entity.skill_time_series.entry(skill_uid).or_default();
+            series.push_back(crate::models::TimeSeriesPoint {
+                t_ms: elapsed_since_start as f64,
+                total_dmg: skill_total as f64,
+                total_dps: skill_dps.max(0.0),
+            });
+            while series.len() > cap {
+                series.pop_front();
             }
-
-            // Per-entity sampling (only for entities that have dealt damage)
-            for entity in encounter.entities.values_mut() {
-                if entity.entity_type != EntityKind::Player {
-                    continue;
-                }
-                if entity.dmg_stats.total == 0 && entity.time_series.is_empty() {
-                    continue;
-                }
-                let entity_delta = entity.dmg_stats.total - entity.last_sample_total_dmg;
-                let entity_dps = if interval_actual > 0 {
-                    (entity_delta as f64) * 1000.0 / (interval_actual as f64)
-                } else {
-                    0.0
-                };
-                entity
-                    .time_series
-                    .push_back(crate::models::TimeSeriesPoint {
-                        t_ms: elapsed_since_start as f64,
-                        total_dmg: entity.dmg_stats.total as f64,
-                        total_dps: entity_dps.max(0.0),
-                    });
-                while entity.time_series.len() > cap {
-                    entity.time_series.pop_front();
-                }
-                entity.last_sample_total_dmg = entity.dmg_stats.total;
-
-                // Per-skill sampling（スキル別の累積/窓DPS を採取。借用衝突回避のため先に値を収集）
-                let skill_samples: Vec<(i32, i64)> = entity
-                    .skill_uid_to_dps_stats
-                    .iter()
-                    .map(|(&uid, s)| (uid, s.total))
-                    .collect();
-                for (skill_uid, skill_total) in skill_samples {
-                    let last = entity.skill_last_sample_total_dmg.entry(skill_uid).or_insert(0);
-                    let skill_delta = skill_total - *last;
-                    *last = skill_total;
-                    let skill_dps = if interval_actual > 0 {
-                        (skill_delta as f64) * 1000.0 / (interval_actual as f64)
-                    } else {
-                        0.0
-                    };
-                    let series = entity.skill_time_series.entry(skill_uid).or_default();
-                    series.push_back(crate::models::TimeSeriesPoint {
-                        t_ms: elapsed_since_start as f64,
-                        total_dmg: skill_total as f64,
-                        total_dps: skill_dps.max(0.0),
-                    });
-                    while series.len() > cap {
-                        series.pop_front();
-                    }
-                }
-            }
-
-            encounter.last_sample_ms = ts;
-            encounter.last_sample_total_dmg = encounter.dmg_stats.total;
         }
     }
+
+    encounter.last_sample_ms = ts;
+    encounter.last_sample_total_dmg = encounter.dmg_stats.total;
 }
 
 fn process_player_attrs(uid: i64, player_entity: &mut Entity, attrs: &[pb::RawAttr]) {
@@ -877,5 +907,96 @@ fn process_monster_attrs(monster_entity: &mut Entity, attrs: &[pb::RawAttr]) {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::encounter::MeasureMode;
+    use std::sync::atomic::Ordering;
+
+    fn set_ts_config(samples: usize, interval_ms: u64) {
+        crate::engine::runtime_settings::TS_SAMPLES.store(samples, Ordering::Relaxed);
+        crate::engine::runtime_settings::TS_INTERVAL_MS.store(interval_ms, Ordering::Relaxed);
+    }
+
+    fn player() -> Entity {
+        Entity { entity_type: EntityKind::Player, ..Default::default() }
+    }
+
+    // 3分計測中は TS_SAMPLES(=60) を超えても全ウィンドウ分のサンプルを保持し、
+    // 折れ線が左端(t=0)から始まる。継続戦闘なら通常サンプルだけで右端(=window)に届く。
+    #[test]
+    fn three_min_series_spans_full_window() {
+        set_ts_config(60, 1000); // 既定相当: 直近60サンプルだけだと先頭が切り捨てられる設定
+
+        let window_ms: u128 = 90_000; // 90s 窓（91サンプル > 上限60）
+        let interval: u128 = 1000;
+
+        let mut enc = Encounter {
+            measure_mode: MeasureMode::Active3Min { armed_at_ms: 0, duration_ms: window_ms },
+            ..Default::default()
+        };
+        enc.entities.insert(1, player());
+
+        let mut ts: u128 = 0;
+        while ts <= window_ms {
+            enc.dmg_stats.total += 1000;
+            enc.entities.get_mut(&1).unwrap().dmg_stats.total += 1000;
+            enc.time_last_combat_packet_ms = ts;
+            take_time_series_sample(&mut enc, ts, false);
+            ts += interval;
+        }
+
+        // 上限60を超えて全サンプル保持（左端=0 / 右端=window）。
+        assert!(
+            enc.time_series.len() > 60,
+            "series truncated to cap: {}",
+            enc.time_series.len()
+        );
+        assert_eq!(enc.time_series.front().unwrap().t_ms, 0.0, "left edge not at 0");
+        assert_eq!(
+            enc.time_series.back().unwrap().t_ms,
+            window_ms as f64,
+            "right edge not at window"
+        );
+
+        let p = &enc.entities[&1];
+        assert_eq!(p.time_series.front().unwrap().t_ms, 0.0);
+        assert_eq!(p.time_series.back().unwrap().t_ms, window_ms as f64);
+    }
+
+    // 最後の戦闘パケットが間隔ゲート未満で通常サンプルされない場合でも、
+    // 確定時の force サンプルで右端=last_combat に届く。
+    #[test]
+    fn finalize_force_sample_closes_right_edge() {
+        set_ts_config(200, 1000);
+
+        let mut enc = Encounter {
+            measure_mode: MeasureMode::Active3Min { armed_at_ms: 0, duration_ms: 90_000 },
+            ..Default::default()
+        };
+        enc.entities.insert(1, player());
+
+        let mut ts: u128 = 0;
+        while ts <= 5000 {
+            enc.dmg_stats.total += 1000;
+            enc.entities.get_mut(&1).unwrap().dmg_stats.total += 1000;
+            enc.time_last_combat_packet_ms = ts;
+            take_time_series_sample(&mut enc, ts, false);
+            ts += 1000;
+        }
+        // 最後の戦闘パケットは 5300ms（間隔未満なので通常サンプルでは採れない）
+        enc.time_last_combat_packet_ms = 5300;
+        assert_eq!(enc.time_series.back().unwrap().t_ms, 5000.0);
+
+        let end = enc.time_last_combat_packet_ms;
+        take_time_series_sample(&mut enc, end, true);
+        assert_eq!(
+            enc.time_series.back().unwrap().t_ms,
+            5300.0,
+            "force sample didn't extend to last_combat"
+        );
     }
 }

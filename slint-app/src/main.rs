@@ -1195,11 +1195,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     main.on_quit(|| {
         let _ = slint::quit_event_loop();
     });
+    // タスクトレイ表示/非表示と共有する可視状態。最小化ボタンもこの経路でトレイへ格納する
+    // （skip_taskbar 窓は OS 最小化だとタスクバーにもトレイにも復帰口が無いため hide で代替）。
+    let main_visible = Rc::new(Cell::new(true));
     {
         let w = main.as_weak();
+        let mv = main_visible.clone();
         main.on_minimize(move || {
             if let Some(m) = w.upgrade() {
-                overlay::minimize(m.window());
+                mv.set(false);
+                let _ = m.hide();
             }
         });
     }
@@ -1903,7 +1908,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let uid_candidates_poll = uid_candidates.clone();
     // タスクトレイ／クリックスルー状態（poll closure が move で保持）
     let click_through = Rc::new(Cell::new(false));
-    let main_visible = Rc::new(Cell::new(true));
     #[cfg(windows)]
     let tray_holder: Rc<RefCell<Option<tray::Tray>>> = Rc::new(RefCell::new(None));
     let poll_ms = cfg.borrow().poll_interval_ms.max(50.0) as u64;

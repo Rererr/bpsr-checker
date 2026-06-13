@@ -48,13 +48,6 @@ pub fn set_click_through(window: &slint::Window, enabled: bool) {
     });
 }
 
-/// no-frame 窓をタスクバーへ最小化する。
-pub fn minimize(window: &slint::Window) {
-    window.with_winit_window(|w| {
-        w.set_minimized(true);
-    });
-}
-
 /// no-frame 窓のドラッグ移動を開始する（マウス押下イベント中に呼ぶ）。
 pub fn start_drag(window: &slint::Window) {
     window.with_winit_window(|w| {

@@ -59,7 +59,6 @@ struct SettingsUi {
     aot: bool,
     three-min-auto-open: bool,
     compact-split: bool,
-    header-sparkline: bool,
     graph-for-local: bool,
     startup-tab: string,
     accent-theme: string,
@@ -173,6 +172,62 @@ component TabButton inherits TouchArea {
                 font-size: 12px;
                 vertical-alignment: center;
             }
+        }
+    }
+}
+
+// 狭幅ヘッダ用アイコン（viewbox 16x16 の SVG パスコマンド）。
+// 絵文字/Dingbats はフォント欠落環境があるため Path 描画で持つ。
+global HeaderIcons {
+    // 停止（縦2本・塗り。小サイズで潰れないよう隙間を広めに取る）
+    out property <string> pause: "M 3.5 3 H 6.5 V 13 H 3.5 Z M 9.5 3 H 12.5 V 13 H 9.5 Z";
+    // 再開（再生三角・塗り）
+    out property <string> play: "M 5 3 L 13 8 L 5 13 Z";
+    // 初期化（円弧矢印・線）
+    out property <string> reset: "M 13.5 8 A 5.5 5.5 0 1 1 9.42 2.69 M 6.9 3.6 L 9.42 2.69 L 7.7 0.7";
+    // 計測（ストップウォッチ・線）
+    out property <string> stopwatch: "M 3.5 9.5 A 4.5 4.5 0 1 1 12.5 9.5 A 4.5 4.5 0 1 1 3.5 9.5 M 8 9.5 L 10.3 7.2 M 8 5 V 3.2 M 6.4 2.8 H 9.6";
+    // コピー（重ね四角・線）
+    out property <string> copy: "M 5.5 5 H 13.5 V 14 H 5.5 Z M 5.5 11 H 2.5 V 2 H 10.5 V 5";
+    // コピー済（チェック・線）
+    out property <string> check: "M 3 8.5 L 6.5 12 L 13 3.5";
+    // 設定（スライダー2本・線。ノブは縦ティックで表現＝丸ノブは小サイズで矢印に潰れるため）
+    out property <string> settings: "M 2 5 H 14 M 10 2.8 V 7.2 M 2 11 H 14 M 6 8.8 V 13.2";
+    // 最前面ピン（画鋲・塗り。頭バー＋胴＋台座＋針のシルエット）
+    out property <string> pin: "M 4.5 1.8 H 11.5 V 3.2 H 4.5 Z M 6 3.2 H 10 L 10.7 7 H 5.3 Z M 3.8 7 H 12.2 V 8.6 H 3.8 Z M 7.45 8.6 H 8.55 V 13.6 H 7.45 Z";
+}
+
+// ヘッダの機能ボタン。狭幅時（show-icon）はテキストの代わりに Path アイコンを表示する。
+component HeaderButton inherits TouchArea {
+    in property <string> label;
+    in property <string> icon-commands; // HeaderIcons の viewbox 16x16 パス
+    in property <bool> show-icon;
+    in property <bool> active;
+    in property <bool> icon-fill: false; // true=塗り、false=線
+    in property <color> active-bg: #8a5d12aa;
+    in property <color> active-fg: #ffd54f;
+    property <color> fg: root.active ? root.active-fg : #cdd;
+    Rectangle {
+        background: root.active ? root.active-bg : (root.has-hover ? #ffffff20 : transparent);
+        border-radius: 4px;
+        if root.show-icon: Path {
+            width: 13px;
+            height: 13px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            viewbox-width: 16;
+            viewbox-height: 16;
+            commands: root.icon-commands;
+            stroke: root.icon-fill ? transparent : root.fg;
+            stroke-width: root.icon-fill ? 0px : 1.6px;
+            fill: root.icon-fill ? root.fg : transparent;
+        }
+        if !root.show-icon: Text {
+            text: root.label;
+            color: root.fg;
+            font-size: 11px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
         }
     }
 }
@@ -987,7 +1042,6 @@ component HistorySection inherits VerticalLayout {
     StepperRow { label: @tr("グラフ標本数"); value-text: root.nums.ts-samples; dec => { root.bump-num("ts-samples", -1); } inc => { root.bump-num("ts-samples", 1); } }
     StepperRow { label: @tr("グラフ間隔(ms)"); value-text: root.nums.ts-interval; dec => { root.bump-num("ts-interval", -1); } inc => { root.bump-num("ts-interval", 1); } }
     StepperRow { label: @tr("グラフ表示人数"); value-text: root.nums.graph-count; dec => { root.bump-num("graph-count", -1); } inc => { root.bump-num("graph-count", 1); } }
-    ToggleRow { label: @tr("ヘッダーにグラフ"); checked: root.cfg.header-sparkline; toggled => { root.set-bool("header-sparkline", !root.cfg.header-sparkline); } }
     ToggleRow { label: @tr("自分のグラフを表示"); checked: root.cfg.graph-for-local; toggled => { root.set-bool("graph-for-local", !root.cfg.graph-for-local); } }
 }
 
@@ -1044,8 +1098,6 @@ export component MainWindow inherits Window {
     in property <float> win-opacity: 0.85;
     in property <float> font-scale: 1.0; // 本体テーブル＋ヘッダの文字倍率（font_size/12）
     in property <bool> copied; // コピー直後の一時フィードバック
-    in property <string> spark-commands; // ヘッダースパークラインの SVG パス（viewbox 100x16）
-    in property <bool> spark-visible;     // 2点以上ありデータがある時のみ true
     in property <bool> show-graph-col;    // 一覧にDPS推移列を出すか（graph設定＋被ダメ以外）
     in property <bool> paused;            // 集計の一時停止状態
     in property <int> measure-kind;       // 3分計測 0=通常 1=待機(pending) 2=計測中(active)
@@ -1074,6 +1126,7 @@ export component MainWindow inherits Window {
     in property <string> app-version;        // 結果モーダルの透かし（画像コピーに写り込む）
     in property <bool> result-img-copied;    // 画像コピー直後の一時フィードバック
     callback quit();
+    callback minimize();
     callback start-drag();
     callback start-resize(int);
     callback select-tab(int);
@@ -1101,6 +1154,11 @@ export component MainWindow inherits Window {
     callback select-result-player(string);
     callback select-result-skill(string);
 
+    // ヘッダの固定幅合計（タブ＋ボタン）が収まらない幅ではアイコン/短縮ラベル表示に切り替える。
+    // root.width への直接バインディングはヘッダ文字列経由で layoutinfo と循環するため、
+    // changed コールバックで値として代入してループを断つ。
+    property <bool> narrow-header: false;
+    changed width => { root.narrow-header = root.width < 600px; }
     // 設定パネルの列数（窓幅でレスポンシブに 1/2/3）。短ラベルが多いので幅があれば3列まで。
     property <int> set-cols: root.width >= 660px ? 3 : (root.width >= 440px ? 2 : 1);
     // セクション index(0=キャラ,1=表示列,2=表示,3=オーバーレイ,4=戦闘,5=履歴) の所属カラムを返す。
@@ -1133,9 +1191,9 @@ export component MainWindow inherits Window {
                 padding-right: 4px;
                 spacing: 2px;
                 TabButton { label: @tr("DPS"); active: root.tab == 0; clicked => { root.select-tab(0); } }
-                TabButton { label: @tr("回復"); active: root.tab == 1; clicked => { root.select-tab(1); } }
-                TabButton { label: @tr("被ダメ"); active: root.tab == 2; clicked => { root.select-tab(2); } }
-                TabButton { label: @tr("履歴"); active: root.tab == 3; clicked => { root.select-tab(3); } }
+                TabButton { label: root.narrow-header ? @tr("Heal") : @tr("回復"); active: root.tab == 1; clicked => { root.select-tab(1); } }
+                TabButton { label: root.narrow-header ? @tr("Taken") : @tr("被ダメ"); active: root.tab == 2; clicked => { root.select-tab(2); } }
+                TabButton { label: root.narrow-header ? @tr("Log") : @tr("履歴"); active: root.tab == 3; clicked => { root.select-tab(3); } }
                 drag := TouchArea {
                     horizontal-stretch: 1;
                     mouse-cursor: move;
@@ -1146,7 +1204,12 @@ export component MainWindow inherits Window {
                     }
                     Text {
                         x: parent.width - self.width - 6px;
-                        text: @tr("合計DPS") + " " + root.total-text + "   " + @tr("経過") + " " + root.elapsed-text;
+                        // 狭幅時はラベルを省き値のみ。それでも収まらない幅では隠して
+                        // タブへのはみ出し重なりを防ぐ（ドラッグ領域は stretch で潰れ得る）
+                        text: root.narrow-header
+                            ? root.total-text + "  " + root.elapsed-text
+                            : @tr("合計DPS") + " " + root.total-text + "   " + @tr("経過") + " " + root.elapsed-text;
+                        visible: self.width + 12px <= parent.width;
                         color: #c8c8d8;
                         font-size: 11px * root.font-scale;
                         vertical-alignment: center;
@@ -1166,75 +1229,71 @@ export component MainWindow inherits Window {
                                   : (root.capture-state == 1 ? #5a8fd8 : #777777));
                     }
                 }
-                pause-btn := TouchArea {
-                    width: 40px;
+                pause-btn := HeaderButton {
+                    width: root.narrow-header ? 26px : 40px;
+                    label: root.paused ? @tr("再開") : @tr("停止");
+                    icon-commands: root.paused ? HeaderIcons.play : HeaderIcons.pause;
+                    icon-fill: true;
+                    show-icon: root.narrow-header;
+                    active: root.paused;
                     clicked => { root.toggle-pause(); }
-                    Rectangle {
-                        background: root.paused ? #8a5d12aa : (pause-btn.has-hover ? #ffffff20 : transparent);
-                        border-radius: 4px;
-                        Text { text: root.paused ? @tr("再開") : @tr("停止"); color: root.paused ? #ffd54f : #cdd; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
-                    }
                 }
-                reset-btn := TouchArea {
-                    width: 44px;
+                reset-btn := HeaderButton {
+                    width: root.narrow-header ? 26px : 44px;
+                    label: @tr("初期化");
+                    icon-commands: HeaderIcons.reset;
+                    show-icon: root.narrow-header;
                     clicked => { root.reset-encounter(); }
-                    Rectangle {
-                        background: reset-btn.has-hover ? #ffffff20 : transparent;
-                        border-radius: 4px;
-                        Text { text: @tr("初期化"); color: #cdd; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
-                    }
                 }
-                measure-btn := TouchArea {
-                    width: root.measure-kind == 0 ? 44px : 58px;
+                // 計測中（kind=2）はカウントダウン M:SS を狭幅でもテキスト表示する
+                measure-btn := HeaderButton {
+                    width: root.narrow-header
+                        ? (root.measure-kind == 2 ? 36px : 26px)
+                        : (root.measure-kind == 0 ? 44px : 58px);
+                    label: root.measure-kind == 0
+                        ? @tr("計測")
+                        : (root.measure-kind == 1 ? @tr("待機") : root.measure-text);
+                    icon-commands: HeaderIcons.stopwatch;
+                    show-icon: root.narrow-header && root.measure-kind != 2;
+                    active: root.measure-kind != 0;
                     clicked => { root.toggle-measure(); }
-                    Rectangle {
-                        background: root.measure-kind == 0
-                            ? (measure-btn.has-hover ? #ffffff20 : transparent)
-                            : (measure-btn.has-hover ? #a9791fcc : #8a5d12aa);
-                        border-radius: 4px;
-                        Text {
-                            text: root.measure-kind == 0
-                                ? @tr("計測")
-                                : (root.measure-kind == 1 ? @tr("待機") : root.measure-text);
-                            color: root.measure-kind == 0 ? #cdd : #ffd54f;
-                            font-size: 11px;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                        }
-                    }
                 }
-                if root.cfg-ui.header-sparkline && root.spark-visible: Rectangle {
-                    width: 84px;
-                    Path {
-                        x: 2px;
-                        width: 80px;
-                        height: 14px;
-                        viewbox-x: 0;
-                        viewbox-y: 0;
-                        viewbox-width: 100;
-                        viewbox-height: 16;
-                        commands: root.spark-commands;
-                        stroke: Theme.accent;
-                        stroke-width: 1.2px;
-                        fill: transparent;
-                    }
-                }
-                copy-btn := TouchArea {
-                    width: 44px;
+                copy-btn := HeaderButton {
+                    width: root.narrow-header ? 26px : 44px;
+                    label: root.copied ? @tr("済") : @tr("コピー");
+                    icon-commands: root.copied ? HeaderIcons.check : HeaderIcons.copy;
+                    show-icon: root.narrow-header;
+                    active: root.copied;
+                    active-bg: #2e7d32;
+                    active-fg: #cdd;
                     clicked => { root.copy-list(); }
-                    Rectangle {
-                        background: root.copied ? #2e7d32 : (copy-btn.has-hover ? #ffffff20 : transparent);
-                        border-radius: 4px;
-                        Text { text: root.copied ? @tr("済") : @tr("コピー"); color: #cdd; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
-                    }
                 }
-                settings-btn := TouchArea {
-                    width: 36px;
+                settings-btn := HeaderButton {
+                    width: root.narrow-header ? 26px : 36px;
+                    label: @tr("設定");
+                    icon-commands: HeaderIcons.settings;
+                    show-icon: root.narrow-header;
+                    active: root.settings-open;
+                    active-bg: #ffffff20;
+                    active-fg: #cdd;
                     clicked => { root.toggle-settings(); }
+                }
+                pin-btn := HeaderButton {
+                    width: root.narrow-header ? 26px : 36px;
+                    label: @tr("前面");
+                    icon-commands: HeaderIcons.pin;
+                    icon-fill: true;
+                    show-icon: root.narrow-header;
+                    active: root.aot;
+                    clicked => { root.set-bool("aot", !root.aot); }
+                }
+                min-btn := TouchArea {
+                    width: 26px;
+                    clicked => { root.minimize(); }
                     Rectangle {
-                        background: (settings-btn.has-hover || root.settings-open) ? #ffffff20 : transparent;
+                        background: min-btn.has-hover ? #ffffff20 : transparent;
                         border-radius: 4px;
-                        Text { text: @tr("設定"); color: #cdd; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+                        Text { text: "−"; color: white; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
                     }
                 }
                 quit-btn := TouchArea {

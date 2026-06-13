@@ -687,15 +687,6 @@ pub fn set_imagine_only_mode(enc: &EncounterMutex, enabled: bool) {
     }
 }
 
-pub fn get_time_series(
-    enc: &EncounterMutex,
-) -> Vec<crate::models::TimeSeriesPoint> {
-    match enc.lock() {
-        Ok(e) => e.time_series.iter().cloned().collect(),
-        Err(_) => Vec::new(),
-    }
-}
-
 pub fn clear_history() {
     crate::engine::history::clear();
 }

@@ -829,7 +829,6 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         aot: c.always_on_top,
         three_min_auto_open: c.three_min_auto_open,
         compact_split: c.compact_split_mode,
-        header_sparkline: c.show_header_sparkline,
         graph_for_local: c.graph_for_local_player,
         startup_tab: c.startup_tab.clone().into(),
         accent_theme: c.accent_theme.clone().into(),
@@ -1198,6 +1197,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     {
         let w = main.as_weak();
+        main.on_minimize(move || {
+            if let Some(m) = w.upgrade() {
+                overlay::minimize(m.window());
+            }
+        });
+    }
+    {
+        let w = main.as_weak();
         main.on_start_drag(move || {
             if let Some(m) = w.upgrade() {
                 overlay::start_drag(m.window());
@@ -1430,7 +1437,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "aot" => c.always_on_top = val,
                     "three-min-auto-open" => c.three_min_auto_open = val,
                     "compact-split" => c.compact_split_mode = val,
-                    "header-sparkline" => c.show_header_sparkline = val,
                     "graph-for-local" => c.graph_for_local_player = val,
                     other => log::warn!("unknown setting key: {other}"),
                 }
@@ -2017,16 +2023,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             1 => 1,
             _ => 0,
         });
-
-        // ヘッダースパークライン（有効時のみ time_series を取得して折れ線へ）
-        if cfg_poll.borrow().show_header_sparkline {
-            let ts = compute::get_time_series(&enc_poll);
-            let cmds = build_spark_commands(&ts, 100.0, 16.0);
-            m.set_spark_visible(!cmds.is_empty());
-            m.set_spark_commands(cmds.into());
-        } else if m.get_spark_visible() {
-            m.set_spark_visible(false);
-        }
 
         // 一時停止状態をボタンへ反映
         m.set_paused(compute::is_paused(&enc_poll));

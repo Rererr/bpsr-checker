@@ -62,6 +62,12 @@ struct SettingsUi {
     graph-for-local: bool,
     startup-tab: string,
     accent-theme: string,
+    auto-add: bool,
+    show-imagine-tina: bool,
+    show-imagine-aluna: bool,
+    show-imagine-tarta: bool,
+    show-imagine-basilisk: bool,
+    show-consumable: bool,
 }
 
 // 数値設定の表示用（Rust が cfg から整形して set）。ステッパーで増減する。
@@ -320,6 +326,7 @@ component PlayerRowItem inherits Rectangle {
     in property <ColumnFlags> cols;
     in property <float> font-scale: 1.0;
     in property <bool> show-graph-col;
+    in property <bool> show-consumable: true;
     callback activate(string);
     callback toggle-watch(string);
     height: 20px * root.font-scale;
@@ -364,7 +371,7 @@ component PlayerRowItem inherits Rectangle {
                 horizontal-stretch: 1;
             }
             // 食事/シロップ バフのタイマーアイコン（残量に応じて色が上から縦に抜ける・ホバーで詳細）
-            VerticalLayout { alignment: center; ConsumableBadge {
+            if root.show-consumable: VerticalLayout { alignment: center; ConsumableBadge {
                 active: root.entry.food-active;
                 remaining: root.entry.food-remaining;
                 tint: #66bb6a;
@@ -373,7 +380,7 @@ component PlayerRowItem inherits Rectangle {
                 font-scale: root.font-scale;
                 icon: "M8.1 13.34l2.83-2.83L3.91 3.5c-1.56 1.56-1.56 4.09 0 5.66l4.19 4.18zm6.78-1.81c1.53.71 3.68.21 5.27-1.38 1.91-1.91 2.28-4.65.81-6.12-1.46-1.46-4.2-1.1-6.12.81-1.59 1.59-2.09 3.74-1.38 5.27L3.7 19.87l1.41 1.41L12 14.41l6.88 6.88 1.41-1.41L13.41 13l1.47-1.47z";
             } }
-            VerticalLayout { alignment: center; ConsumableBadge {
+            if root.show-consumable: VerticalLayout { alignment: center; ConsumableBadge {
                 active: root.entry.syrup-active;
                 remaining: root.entry.syrup-remaining;
                 tint: #b07cff;
@@ -952,6 +959,7 @@ component DisplayColsSection inherits VerticalLayout {
     ToggleRow { label: @tr("ヒット数"); checked: root.cfg.show-hits; toggled => { root.set-bool("show-hits", !root.cfg.show-hits); } }
     ToggleRow { label: @tr("毎分ヒット数"); checked: root.cfg.show-hpm; toggled => { root.set-bool("show-hpm", !root.cfg.show-hpm); } }
     ToggleRow { label: @tr("戦力"); checked: root.cfg.show-score; toggled => { root.set-bool("show-score", !root.cfg.show-score); } }
+    ToggleRow { label: @tr("食事/シロップ"); checked: root.cfg.show-consumable; toggled => { root.set-bool("show-consumable", !root.cfg.show-consumable); } }
 }
 
 // 表示（強調・省略・マスク・フォントサイズ・起動タブ）
@@ -1013,6 +1021,13 @@ component OverlaySection inherits VerticalLayout {
     ToggleRow { label: @tr("自キャラ バフ/デバフ"); checked: root.cfg.self-status; toggled => { root.set-bool("self-status-overlay", !root.cfg.self-status); } }
     ToggleRow { label: @tr("イマジンデバフタイマー"); checked: root.cfg.buff-overlay; toggled => { root.set-bool("buff-overlay", !root.cfg.buff-overlay); } }
     ToggleRow { label: @tr("イマジン専用モード"); checked: root.cfg.imagine-only; toggled => { root.set-bool("imagine-only", !root.cfg.imagine-only); } }
+    ToggleRow { label: @tr("全プレイヤー自動追加"); checked: root.cfg.auto-add; toggled => { root.set-bool("auto-add-players", !root.cfg.auto-add); } }
+    // タイマーに表示するイマジン列（パーティ構成に合わせて不要列を消す）
+    Text { text: @tr("タイマー表示イマジン"); color: #888; font-size: 9px; }
+    ToggleRow { label: @tr("ティナ"); checked: root.cfg.show-imagine-tina; toggled => { root.set-bool("imagine-col-tina", !root.cfg.show-imagine-tina); } }
+    ToggleRow { label: @tr("アルーナ"); checked: root.cfg.show-imagine-aluna; toggled => { root.set-bool("imagine-col-aluna", !root.cfg.show-imagine-aluna); } }
+    ToggleRow { label: @tr("タータ"); checked: root.cfg.show-imagine-tarta; toggled => { root.set-bool("imagine-col-tarta", !root.cfg.show-imagine-tarta); } }
+    ToggleRow { label: @tr("バジリスク"); checked: root.cfg.show-imagine-basilisk; toggled => { root.set-bool("imagine-col-basilisk", !root.cfg.show-imagine-basilisk); } }
     ToggleRow { label: @tr("常に最前面"); checked: root.cfg.aot; toggled => { root.set-bool("aot", !root.cfg.aot); } }
 }
 
@@ -1099,6 +1114,7 @@ export component MainWindow inherits Window {
     in property <float> font-scale: 1.0; // 本体テーブル＋ヘッダの文字倍率（font_size/12）
     in property <bool> copied; // コピー直後の一時フィードバック
     in property <bool> show-graph-col;    // 一覧にDPS推移列を出すか（graph設定＋被ダメ以外）
+    in property <bool> show-consumable: true; // 名前列に食事/シロップバッジを出すか
     in property <bool> paused;            // 集計の一時停止状態
     in property <int> measure-kind;       // 3分計測 0=通常 1=待機(pending) 2=計測中(active)
     in property <string> measure-text;    // 計測中のカウントダウン "M:SS"
@@ -1351,6 +1367,7 @@ export component MainWindow inherits Window {
                         cols: root.cols;
                         font-scale: root.font-scale;
                         show-graph-col: root.show-graph-col;
+                        show-consumable: root.show-consumable;
                         activate(u) => { root.open-drill(u); }
                         toggle-watch(u) => { root.toggle-watch(u); }
                     }
@@ -1893,6 +1910,21 @@ struct StatusEntryUi {
     border-color: color,
 }
 
+// no-frame オーバーレイ右上の閉じるボタン。クリックで設定トグルOFFと連動して窓を隠す。
+// Dingbats を避け Latin-1「×」を使用（CLAUDE.md）。最後の子＝最上層に置き縁リサイズより優先。
+component OverlayCloseButton inherits TouchArea {
+    callback close();
+    width: 16px;
+    height: 14px;
+    mouse-cursor: pointer;
+    clicked => { root.close(); }
+    Rectangle {
+        background: root.has-hover ? #c0392b : #ffffff14;
+        border-radius: 3px;
+        Text { text: "×"; color: white; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+    }
+}
+
 component StatusRow inherits Rectangle {
     in property <StatusEntryUi> e;
     in property <float> font-scale: 1.0;
@@ -1928,6 +1960,7 @@ export component SelfStatusOverlay inherits Window {
     in property <float> font-scale: 1.0; // メインの font_size に連動
     callback start-drag();
     callback start-resize(int);
+    callback close-window();
 
     title: @tr("自キャラ バフ/デバフ表示");
     default-font-family: "Yu Gothic UI";
@@ -1959,6 +1992,8 @@ export component SelfStatusOverlay inherits Window {
     }
     // 縁ドラッグでリサイズ（最前面・最後の子＝最上層で縁イベントを捕捉）
     ResizeEdges { width: 100%; height: 100%; resize(d) => { root.start-resize(d); } }
+    // 閉じる（右上・ResizeEdges より後＝最上層で右上角クリックを優先）
+    OverlayCloseButton { x: root.width - self.width - 2px; y: 2px; close => { root.close-window(); } }
 }
 
 // ─── バフタイマー オーバーレイ（イマジンデバフの円形タイマー）────────────
@@ -2022,14 +2057,20 @@ component CircularCell inherits Rectangle {
 component BuffPlayerRowItem inherits Rectangle {
     in property <BuffPlayerRow> p;
     in property <float> font-scale: 1.0;
+    in property <bool> show-tina: true;
+    in property <bool> show-aluna: true;
+    in property <bool> show-tarta: true;
+    in property <bool> show-basilisk: true;
     height: 30px;
     HorizontalLayout {
         spacing: 4px;
         Text { text: root.p.name; color: #cdd; font-size: 10px * root.font-scale; width: 46px; overflow: elide; vertical-alignment: center; }
-        VerticalLayout { width: 48px; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.tina; font-scale: root.font-scale; } } }
-        VerticalLayout { width: 48px; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.aluna; font-scale: root.font-scale; } } }
-        VerticalLayout { width: 48px; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.tarta; font-scale: root.font-scale; } } }
-        VerticalLayout { width: 48px; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.basilisk; font-scale: root.font-scale; } } }
+        if root.show-tina: VerticalLayout { width: 48px; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.tina; font-scale: root.font-scale; } } }
+        if root.show-aluna: VerticalLayout { width: 48px; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.aluna; font-scale: root.font-scale; } } }
+        if root.show-tarta: VerticalLayout { width: 48px; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.tarta; font-scale: root.font-scale; } } }
+        if root.show-basilisk: VerticalLayout { width: 48px; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.basilisk; font-scale: root.font-scale; } } }
+        // ヘッダと同じ末尾スペーサー（列の右寄せズレ防止＋×ボタン余白）
+        Rectangle { min-width: 14px; horizontal-stretch: 1; }
     }
 }
 
@@ -2037,8 +2078,13 @@ export component BuffOverlay inherits Window {
     in property <[BuffPlayerRow]> players;
     in property <bool> empty;
     in property <float> font-scale: 1.0; // メインの font_size に連動
+    in property <bool> show-tina: true;
+    in property <bool> show-aluna: true;
+    in property <bool> show-tarta: true;
+    in property <bool> show-basilisk: true;
     callback start-drag();
     callback start-resize(int);
+    callback close-window();
 
     title: @tr("イマジンデバフタイマー");
     default-font-family: "Yu Gothic UI";
@@ -2064,14 +2110,25 @@ export component BuffOverlay inherits Window {
         if !root.empty: HorizontalLayout {
             spacing: 4px;
             Rectangle { width: 46px; }
-            Text { text: @tr("ティナ"); color: #ff4d6d; font-size: 9px * root.font-scale; width: 48px; horizontal-alignment: center; vertical-alignment: center; }
-            Text { text: @tr("アルーナ"); color: #5fd35f; font-size: 9px * root.font-scale; width: 48px; horizontal-alignment: center; vertical-alignment: center; }
-            Text { text: @tr("タータ"); color: #b98bff; font-size: 9px * root.font-scale; width: 48px; horizontal-alignment: center; vertical-alignment: center; }
-            Text { text: @tr("バジリスク"); color: #d9a05b; font-size: 9px * root.font-scale; width: 48px; horizontal-alignment: center; vertical-alignment: center; }
+            if root.show-tina: Text { text: @tr("ティナ"); color: #ff4d6d; font-size: 9px * root.font-scale; width: 48px; horizontal-alignment: center; vertical-alignment: center; }
+            if root.show-aluna: Text { text: @tr("アルーナ"); color: #5fd35f; font-size: 9px * root.font-scale; width: 48px; horizontal-alignment: center; vertical-alignment: center; }
+            if root.show-tarta: Text { text: @tr("タータ"); color: #b98bff; font-size: 9px * root.font-scale; width: 48px; horizontal-alignment: center; vertical-alignment: center; }
+            if root.show-basilisk: Text { text: @tr("バジリスク"); color: #d9a05b; font-size: 9px * root.font-scale; width: 48px; horizontal-alignment: center; vertical-alignment: center; }
+            // 末尾スペーサー: 横拡大を可能にし(最大幅を無限化)、右上の×ボタン用の余白を確保
+            Rectangle { min-width: 14px; horizontal-stretch: 1; }
         }
-        for p in root.players: BuffPlayerRowItem { p: p; font-scale: root.font-scale; }
+        for p in root.players: BuffPlayerRowItem {
+            p: p;
+            font-scale: root.font-scale;
+            show-tina: root.show-tina;
+            show-aluna: root.show-aluna;
+            show-tarta: root.show-tarta;
+            show-basilisk: root.show-basilisk;
+        }
     }
     // 縁ドラッグでリサイズ
     ResizeEdges { width: 100%; height: 100%; resize(d) => { root.start-resize(d); } }
+    // 閉じる（右上・ResizeEdges より後＝最上層で右上角クリックを優先）
+    OverlayCloseButton { x: root.width - self.width - 2px; y: 2px; close => { root.close-window(); } }
 }
 

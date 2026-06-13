@@ -150,6 +150,15 @@ msgstr "Tarta"
 msgid "バジリスク"
 msgstr "Basilisk"
 
+msgid "全プレイヤー自動追加"
+msgstr "Auto-add all players"
+
+msgid "タイマー表示イマジン"
+msgstr "Timer imagines"
+
+msgid "食事/シロップ"
+msgstr "Food / Syrup"
+
 msgid "戦闘"
 msgstr "Combat"
 

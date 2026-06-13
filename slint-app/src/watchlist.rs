@@ -57,4 +57,39 @@ impl Watchlist {
             self.excluded.retain(|&u| u != uid);
         }
     }
+
+    /// 自キャラを先頭へ自動追加（旧 seedLocalPlayer）。
+    /// uid=0・excluded・既追加なら何もしない。変更があれば true。
+    pub fn seed_local(&mut self, uid: i64) -> bool {
+        if uid == 0 || self.excluded.contains(&uid) || self.watched.contains(&uid) {
+            return false;
+        }
+        if self.watched.len() >= MAX {
+            return false;
+        }
+        self.watched.insert(0, uid);
+        true
+    }
+
+    /// プレイヤー群を末尾へ一括自動追加（旧 bulkAddPlayers）。
+    /// excluded・既追加・上限超過分はスキップ。変更があれば true。
+    pub fn bulk_add(&mut self, uids: &[i64]) -> bool {
+        let mut changed = false;
+        for &uid in uids {
+            if self.watched.len() >= MAX {
+                break;
+            }
+            if uid == 0 || self.excluded.contains(&uid) || self.watched.contains(&uid) {
+                continue;
+            }
+            self.watched.push(uid);
+            changed = true;
+        }
+        changed
+    }
+
+    /// ウォッチ対象をクリア（エンカウンターリセット時。excluded は手動削除の意思として維持）。
+    pub fn clear_watched(&mut self) {
+        self.watched.clear();
+    }
 }

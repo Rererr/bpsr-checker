@@ -812,6 +812,7 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
     m.set_aot(c.always_on_top);
     m.set_win_opacity(c.opacity as f32);
     m.set_font_scale((c.font_size / 12.0) as f32);
+    m.set_show_consumable(c.show_consumable);
     m.set_cfg_ui(SettingsUi {
         show_crit: c.show_crit,
         show_crit_value: c.show_crit_value,
@@ -832,6 +833,12 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         graph_for_local: c.graph_for_local_player,
         startup_tab: c.startup_tab.clone().into(),
         accent_theme: c.accent_theme.clone().into(),
+        auto_add: c.auto_add_players,
+        show_imagine_tina: c.show_imagine_tina,
+        show_imagine_aluna: c.show_imagine_aluna,
+        show_imagine_tarta: c.show_imagine_tarta,
+        show_imagine_basilisk: c.show_imagine_basilisk,
+        show_consumable: c.show_consumable,
     });
     let int_str = |v: f64| -> slint::SharedString { format!("{}", v as i64).into() };
     m.set_nums(SettingsNumUi {
@@ -1137,6 +1144,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
+    // X 閉じる → 設定トグルOFFと連動（invoke_set_bool で既存ハンドラを再利用）
+    {
+        let mw = main.as_weak();
+        self_overlay.on_close_window(move || {
+            if let Some(m) = mw.upgrade() {
+                m.invoke_set_bool("self-status-overlay".into(), false);
+            }
+        });
+    }
 
     // バフタイマー オーバーレイ（別ウィンドウ）
     let buff_overlay = BuffOverlay::new()?;
@@ -1155,6 +1171,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         buff_overlay.on_start_resize(move |dir| {
             if let Some(o) = w.upgrade() {
                 overlay::start_resize(o.window(), dir);
+            }
+        });
+    }
+    // X 閉じる → 設定トグルOFFと連動（invoke_set_bool で既存ハンドラを再利用）
+    {
+        let mw = main.as_weak();
+        buff_overlay.on_close_window(move || {
+            if let Some(m) = mw.upgrade() {
+                m.invoke_set_bool("buff-overlay".into(), false);
             }
         });
     }
@@ -1201,10 +1226,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let w = main.as_weak();
         let mv = main_visible.clone();
+        let self_ov = self_overlay.as_weak();
+        let buff_ov = buff_overlay.as_weak();
         main.on_minimize(move || {
             if let Some(m) = w.upgrade() {
                 mv.set(false);
                 let _ = m.hide();
+            }
+            // メイン最小化（トレイ格納）にオーバーレイも追従して退避（設定フラグは変更しない）
+            if let Some(o) = self_ov.upgrade() {
+                let _ = o.hide();
+            }
+            if let Some(o) = buff_ov.upgrade() {
+                let _ = o.hide();
             }
         });
     }
@@ -1443,6 +1477,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "three-min-auto-open" => c.three_min_auto_open = val,
                     "compact-split" => c.compact_split_mode = val,
                     "graph-for-local" => c.graph_for_local_player = val,
+                    "auto-add-players" => c.auto_add_players = val,
+                    "imagine-col-tina" => c.show_imagine_tina = val,
+                    "imagine-col-aluna" => c.show_imagine_aluna = val,
+                    "imagine-col-tarta" => c.show_imagine_tarta = val,
+                    "imagine-col-basilisk" => c.show_imagine_basilisk = val,
+                    "show-consumable" => c.show_consumable = val,
                     other => log::warn!("unknown setting key: {other}"),
                 }
             }
@@ -1700,7 +1740,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     {
         let enc_r = enc.clone();
-        main.on_reset_encounter(move || compute::reset_encounter(&enc_r));
+        let wl_r = wl.clone();
+        main.on_reset_encounter(move || {
+            compute::reset_encounter(&enc_r);
+            // 旧版同様リセットでウォッチ対象をクリア（excludedは維持）。
+            // 自動追加ONなら次tickで再充填される。
+            let mut wl = wl_r.borrow_mut();
+            wl.clear_watched();
+            wl.save();
+        });
     }
     // 3分計測 結果パネル: 閉じる
     {
@@ -1994,6 +2042,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let vis = !main_visible.get();
                         main_visible.set(vis);
                         let _ = if vis { m.show() } else { m.hide() };
+                        // オーバーレイもメインの表示/格納に追従（復帰時は設定で有効なものだけ）
+                        let c = cfg_poll.borrow();
+                        if let Some(o) = self_overlay_w.upgrade() {
+                            let _ = if vis && c.show_self_status_overlay {
+                                o.show()
+                            } else {
+                                o.hide()
+                            };
+                        }
+                        if let Some(o) = buff_overlay_w.upgrade() {
+                            let _ = if vis && c.show_buff_overlay {
+                                o.show()
+                            } else {
+                                o.hide()
+                            };
+                        }
                     } else if ev.id == tray.id_click_through {
                         let on = !click_through.get();
                         click_through.set(on);
@@ -2103,6 +2167,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             let pw = fetch_players(&enc_poll, cur_tab);
             let c = cfg_poll.borrow();
+            // 旧Tauri版の自動追加を復元: 自キャラを先頭・全プレイヤーをイマジンタイマーへ。
+            // excluded(手動削除)は維持。変更時のみ保存し毎tickのI/Oを避ける。
+            if c.auto_add_players {
+                let local = pw.local_player_uid as i64;
+                let uids: Vec<i64> = pw.player_rows.iter().map(|p| p.uid as i64).collect();
+                let mut wl = wl_poll.borrow_mut();
+                let mut changed = wl.seed_local(local);
+                changed |= wl.bulk_add(&uids);
+                if changed {
+                    wl.save();
+                }
+            }
             m.set_show_graph_col(graph_col_active(&c, cur_tab));
             apply_player_rows(
                 &rows,
@@ -2158,6 +2234,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if cfg_poll.borrow().show_buff_overlay {
             if let Some(o) = buff_overlay_w.upgrade() {
                 o.set_font_scale(overlay_scale);
+                {
+                    // 表示するイマジン列を設定から反映（極小コスト・即時反映）
+                    let c = cfg_poll.borrow();
+                    o.set_show_tina(c.show_imagine_tina);
+                    o.set_show_aluna(c.show_imagine_aluna);
+                    o.set_show_tarta(c.show_imagine_tarta);
+                    o.set_show_basilisk(c.show_imagine_basilisk);
+                }
                 let watched_i: Vec<i64> = wl_poll.borrow().watched.clone();
                 o.set_empty(watched_i.is_empty());
                 if !watched_i.is_empty() {

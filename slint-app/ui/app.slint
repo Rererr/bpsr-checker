@@ -68,6 +68,7 @@ struct SettingsUi {
     show-imagine-tarta: bool,
     show-imagine-basilisk: bool,
     show-consumable: bool,
+    show-in-taskbar: bool,
 }
 
 // 数値設定の表示用（Rust が cfg から整形して set）。ステッパーで増減する。
@@ -996,6 +997,7 @@ component DisplaySection inherits VerticalLayout {
     ToggleRow { label: @tr("スコア省略(K/M)"); checked: root.cfg.abbreviate-scores; toggled => { root.set-bool("abbreviate-scores", !root.cfg.abbreviate-scores); } }
     ToggleRow { label: @tr("名前マスク"); checked: root.cfg.privacy-mask; toggled => { root.set-bool("privacy-mask", !root.cfg.privacy-mask); } }
     ToggleRow { label: @tr("軽量分割表示"); checked: root.cfg.compact-split; toggled => { root.set-bool("compact-split", !root.cfg.compact-split); } }
+    ToggleRow { label: @tr("タスクバーに常駐"); checked: root.cfg.show-in-taskbar; toggled => { root.set-bool("show-in-taskbar", !root.cfg.show-in-taskbar); } }
     StepperRow { label: @tr("フォントサイズ"); value-text: root.nums.font-size; dec => { root.bump-num("font-size", -1); } inc => { root.bump-num("font-size", 1); } }
     // 起動時のタブ: ラベルを上・セグボタンを下に縦積み（狭幅列でもラベルが潰れない）
     VerticalLayout {
@@ -1954,6 +1956,20 @@ component OverlayCloseButton inherits TouchArea {
     }
 }
 
+// オーバーレイの最小化ボタン（タスクバー常駐モード時のみ表示・OS最小化でタスクバーへ）
+component OverlayMinButton inherits TouchArea {
+    callback minimize();
+    width: 16px;
+    height: 14px;
+    mouse-cursor: pointer;
+    clicked => { root.minimize(); }
+    Rectangle {
+        background: root.has-hover ? #ffffff33 : #ffffff14;
+        border-radius: 3px;
+        Text { text: "−"; color: white; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+    }
+}
+
 component StatusRow inherits Rectangle {
     in property <StatusEntryUi> e;
     in property <float> font-scale: 1.0;
@@ -1987,9 +2003,11 @@ export component SelfStatusOverlay inherits Window {
     in property <[StatusEntryUi]> debuffs;
     in property <bool> waiting;
     in property <float> font-scale: 1.0; // メインの font_size に連動
+    in property <bool> show-minimize; // タスクバー常駐モード時のみ最小化ボタンを出す
     callback start-drag();
     callback start-resize(int);
     callback close-window();
+    callback minimize();
 
     title: @tr("自キャラ バフ/デバフ表示");
     default-font-family: "Yu Gothic UI";
@@ -2021,6 +2039,8 @@ export component SelfStatusOverlay inherits Window {
     }
     // 縁ドラッグでリサイズ（最前面・最後の子＝最上層で縁イベントを捕捉）
     ResizeEdges { width: 100%; height: 100%; resize(d) => { root.start-resize(d); } }
+    // 最小化（×の左隣・タスクバー常駐モード時のみ）
+    if root.show-minimize: OverlayMinButton { x: root.width - 2 * self.width - 6px; y: 2px; minimize => { root.minimize(); } }
     // 閉じる（右上・ResizeEdges より後＝最上層で右上角クリックを優先）
     OverlayCloseButton { x: root.width - self.width - 2px; y: 2px; close => { root.close-window(); } }
 }
@@ -2111,9 +2131,11 @@ export component BuffOverlay inherits Window {
     in property <bool> show-aluna: true;
     in property <bool> show-tarta: true;
     in property <bool> show-basilisk: true;
+    in property <bool> show-minimize; // タスクバー常駐モード時のみ最小化ボタンを出す
     callback start-drag();
     callback start-resize(int);
     callback close-window();
+    callback minimize();
 
     title: @tr("イマジンデバフタイマー");
     default-font-family: "Yu Gothic UI";
@@ -2157,6 +2179,8 @@ export component BuffOverlay inherits Window {
     }
     // 縁ドラッグでリサイズ
     ResizeEdges { width: 100%; height: 100%; resize(d) => { root.start-resize(d); } }
+    // 最小化（×の左隣・タスクバー常駐モード時のみ）
+    if root.show-minimize: OverlayMinButton { x: root.width - 2 * self.width - 6px; y: 2px; minimize => { root.minimize(); } }
     // 閉じる（右上・ResizeEdges より後＝最上層で右上角クリックを優先）
     OverlayCloseButton { x: root.width - self.width - 2px; y: 2px; close => { root.close-window(); } }
 }

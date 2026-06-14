@@ -66,6 +66,31 @@ fn sort_skill_rows_desc(rows: &mut [SkillRow]) {
     });
 }
 
+fn sort_player_rows_desc(rows: &mut [PlayerRow]) {
+    rows.sort_by(|a, b| {
+        b.total_value
+            .partial_cmp(&a.total_value)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+}
+
+/// `enc` をロックしてクロージャを実行する。ロックが poison していた場合は
+/// `ctx` 付きでエラーログを出し `default` を返す（各所に散在していたロック定型を集約）。
+fn with_lock_or<T>(
+    enc: &EncounterMutex,
+    ctx: &str,
+    default: T,
+    f: impl FnOnce(&mut Encounter) -> T,
+) -> T {
+    match enc.lock() {
+        Ok(mut encounter) => f(&mut encounter),
+        Err(e) => {
+            log::error!("Lock poisoned in {ctx}: {e}");
+            default
+        }
+    }
+}
+
 fn skill_row_for(
     uid: f64,
     name: String,
@@ -104,79 +129,57 @@ enum StatType {
 // ─── Header ──────────────────────────────────────────────────────────────────
 
 pub fn get_header_info(enc: &EncounterMutex) -> HeaderInfo {
-    let encounter = match enc.lock() {
-        Ok(e) => e,
-        Err(e) => {
-            log::error!("Lock poisoned in get_header_info: {e}");
+    with_lock_or(enc, "get_header_info", HeaderInfo::default(), |encounter| {
+        let selected = selected_uid::get();
+        if selected.is_some() && !encounter.has_selected_participant {
             return HeaderInfo::default();
         }
-    };
 
-    let selected = selected_uid::get();
-    if selected.is_some() && !encounter.has_selected_participant {
-        return HeaderInfo::default();
-    }
+        let elapsed_ms = encounter
+            .time_last_combat_packet_ms
+            .saturating_sub(encounter.time_fight_start_ms);
+        let elapsed_secs = elapsed_ms as f64 / 1000.0;
 
-    let elapsed_ms = encounter
-        .time_last_combat_packet_ms
-        .saturating_sub(encounter.time_fight_start_ms);
-    let elapsed_secs = elapsed_ms as f64 / 1000.0;
-
-    HeaderInfo {
-        total_dps: rate_per_sec(encounter.dmg_stats.total, elapsed_secs),
-        total_dmg: encounter.dmg_stats.total as f64,
-        elapsed_ms: elapsed_ms as f64,
-        time_last_combat_packet_ms: encounter.time_last_combat_packet_ms as f64,
-    }
+        HeaderInfo {
+            total_dps: rate_per_sec(encounter.dmg_stats.total, elapsed_secs),
+            total_dmg: encounter.dmg_stats.total as f64,
+            elapsed_ms: elapsed_ms as f64,
+            time_last_combat_packet_ms: encounter.time_last_combat_packet_ms as f64,
+        }
+    })
 }
 
 // ─── Players windows ─────────────────────────────────────────────────────────
 
 pub fn get_dps_players(enc: &EncounterMutex) -> PlayersWindow {
-    let mut window = match enc.lock() {
-        Ok(e) => build_players_window_unsorted(&*e, StatType::Dmg, true),
-        Err(e) => {
-            log::error!("Lock poisoned in get_dps_players: {e}");
-            return PlayersWindow::default();
-        }
-    };
-    window.player_rows.sort_by(|a, b| b.total_value.partial_cmp(&a.total_value).unwrap_or(std::cmp::Ordering::Equal));
+    let mut window = with_lock_or(enc, "get_dps_players", PlayersWindow::default(), |e| {
+        build_players_window_unsorted(&*e, StatType::Dmg, true)
+    });
+    sort_player_rows_desc(&mut window.player_rows);
     window
 }
 
 pub fn get_dps_boss_players(enc: &EncounterMutex) -> PlayersWindow {
-    let mut window = match enc.lock() {
-        Ok(e) => build_players_window_unsorted(&*e, StatType::DmgBossOnly, true),
-        Err(e) => {
-            log::error!("Lock poisoned in get_dps_boss_players: {e}");
-            return PlayersWindow::default();
-        }
-    };
-    window.player_rows.sort_by(|a, b| b.total_value.partial_cmp(&a.total_value).unwrap_or(std::cmp::Ordering::Equal));
+    let mut window = with_lock_or(enc, "get_dps_boss_players", PlayersWindow::default(), |e| {
+        build_players_window_unsorted(&*e, StatType::DmgBossOnly, true)
+    });
+    sort_player_rows_desc(&mut window.player_rows);
     window
 }
 
 pub fn get_heal_players(enc: &EncounterMutex) -> PlayersWindow {
-    let mut window = match enc.lock() {
-        Ok(e) => build_players_window_unsorted(&*e, StatType::Heal, true),
-        Err(e) => {
-            log::error!("Lock poisoned in get_heal_players: {e}");
-            return PlayersWindow::default();
-        }
-    };
-    window.player_rows.sort_by(|a, b| b.total_value.partial_cmp(&a.total_value).unwrap_or(std::cmp::Ordering::Equal));
+    let mut window = with_lock_or(enc, "get_heal_players", PlayersWindow::default(), |e| {
+        build_players_window_unsorted(&*e, StatType::Heal, true)
+    });
+    sort_player_rows_desc(&mut window.player_rows);
     window
 }
 
 pub fn get_dmg_taken_players(enc: &EncounterMutex) -> PlayersWindow {
-    let mut window = match enc.lock() {
-        Ok(e) => build_players_window_unsorted(&*e, StatType::DmgTaken, true),
-        Err(e) => {
-            log::error!("Lock poisoned in get_dmg_taken_players: {e}");
-            return PlayersWindow::default();
-        }
-    };
-    window.player_rows.sort_by(|a, b| b.total_value.partial_cmp(&a.total_value).unwrap_or(std::cmp::Ordering::Equal));
+    let mut window = with_lock_or(enc, "get_dmg_taken_players", PlayersWindow::default(), |e| {
+        build_players_window_unsorted(&*e, StatType::DmgTaken, true)
+    });
+    sort_player_rows_desc(&mut window.player_rows);
     window
 }
 
@@ -555,19 +558,16 @@ pub fn get_skills(
 // ─── Control commands ─────────────────────────────────────────────────────────
 
 pub fn reset_encounter(enc: &EncounterMutex) {
-    match enc.lock() {
-        Ok(mut encounter) => {
-            encounter.clear_combat_stats();
-            encounter.consumables.clear(); // 手動リセットで食事/シロップ表示も消す
-            // 3分計測中に初期化された場合は計測そのものを破棄する。
-            // measure_mode を残すと armed_at_ms が古いまま固定され、
-            // 次の計測クリックが開始ではなくキャンセルとして処理されたり、
-            // 締切が早まり計測時間が3分未満になる不整合が起きる。
-            encounter.measure_mode = crate::engine::encounter::MeasureMode::Normal;
-            info!("Encounter reset");
-        }
-        Err(e) => log::error!("Lock poisoned in reset_encounter: {e}"),
-    }
+    with_lock_or(enc, "reset_encounter", (), |encounter| {
+        encounter.clear_combat_stats();
+        encounter.consumables.clear(); // 手動リセットで食事/シロップ表示も消す
+        // 3分計測中に初期化された場合は計測そのものを破棄する。
+        // measure_mode を残すと armed_at_ms が古いまま固定され、
+        // 次の計測クリックが開始ではなくキャンセルとして処理されたり、
+        // 締切が早まり計測時間が3分未満になる不整合が起きる。
+        encounter.measure_mode = crate::engine::encounter::MeasureMode::Normal;
+        info!("Encounter reset");
+    });
 }
 
 /// 食事/シロップ残時間ストアを buff_tracker の観測で更新（毎poll呼ぶ）。
@@ -588,13 +588,10 @@ pub fn clear_consumables(enc: &EncounterMutex) {
 }
 
 pub fn toggle_pause(enc: &EncounterMutex) {
-    match enc.lock() {
-        Ok(mut encounter) => {
-            encounter.is_paused = !encounter.is_paused;
-            info!("Encounter paused: {}", encounter.is_paused);
-        }
-        Err(e) => log::error!("Lock poisoned in toggle_pause: {e}"),
-    }
+    with_lock_or(enc, "toggle_pause", (), |encounter| {
+        encounter.is_paused = !encounter.is_paused;
+        info!("Encounter paused: {}", encounter.is_paused);
+    });
 }
 
 /// 現在の一時停止状態（UI のボタン表示用）。
@@ -801,15 +798,12 @@ pub fn get_selected_uid() -> Option<f64> {
 pub fn set_selected_uid(enc: &EncounterMutex, uid: Option<f64>) {
     let uid_i64 = uid.map(|v| v as i64);
     selected_uid::set(uid_i64);
-    match enc.lock() {
-        Ok(mut encounter) => {
-            encounter.clear_combat_stats();
-            encounter.active_connection = None;
-            encounter.local_player_uid = uid_i64.unwrap_or(0);
-            encounter.measure_mode = crate::engine::encounter::MeasureMode::Normal;
-        }
-        Err(e) => log::error!("Lock poisoned in set_selected_uid: {e}"),
-    }
+    with_lock_or(enc, "set_selected_uid", (), |encounter| {
+        encounter.clear_combat_stats();
+        encounter.active_connection = None;
+        encounter.local_player_uid = uid_i64.unwrap_or(0);
+        encounter.measure_mode = crate::engine::encounter::MeasureMode::Normal;
+    });
 }
 
 pub fn lookup_name_cache(uid: f64) -> Option<CachedPlayerDto> {
@@ -840,48 +834,35 @@ pub fn finalize_3min_locked(encounter: &mut Encounter) -> EncounterSnapshot {
 /// スキル内訳は finalize 前に get_skills で取得されるため、取得・確定の **前** に呼ぶ。
 /// measure_mode が Active3Min のうちに採取すること（clear_combat_stats 前）。
 pub fn seal_3min_series(enc: &EncounterMutex) {
-    match enc.lock() {
-        Ok(mut e) => {
-            let end_ts = e.time_last_combat_packet_ms;
-            crate::engine::processor::take_time_series_sample(&mut e, end_ts, true);
-        }
-        Err(err) => log::error!("Lock poisoned in seal_3min_series: {err}"),
-    }
+    with_lock_or(enc, "seal_3min_series", (), |e| {
+        let end_ts = e.time_last_combat_packet_ms;
+        crate::engine::processor::take_time_series_sample(e, end_ts, true);
+    });
 }
 
 /// 3分計測を確定し snapshot を返す（履歴 push・mode=Normal は finalize_3min_locked 内）。
 /// 旧 Tauri 版はイベント発火だったが、Slint 版はポーリングで残0を検知して本関数を呼ぶ。
 pub fn finalize_3min_measure_mode(enc: &EncounterMutex) -> Option<EncounterSnapshot> {
-    match enc.lock() {
-        Ok(mut enc) => Some(finalize_3min_locked(&mut enc)),
-        Err(e) => {
-            log::error!("Lock poisoned in finalize_3min_measure_mode: {e}");
-            None
-        }
-    }
+    with_lock_or(enc, "finalize_3min_measure_mode", None, |enc| {
+        Some(finalize_3min_locked(enc))
+    })
 }
 
 pub fn start_3min_measure_mode(enc: &EncounterMutex, duration_secs: f64) {
     let duration_ms = (duration_secs * 1000.0).max(1000.0) as u128;
-    match enc.lock() {
-        Ok(mut enc) => {
-            enc.clear_combat_stats();
-            enc.measure_mode = crate::engine::encounter::MeasureMode::Pending3Min { duration_ms };
-            info!("3min measure mode: pending (duration={duration_ms}ms)");
-        }
-        Err(e) => log::error!("Lock poisoned in start_3min_measure_mode: {e}"),
-    }
+    with_lock_or(enc, "start_3min_measure_mode", (), |enc| {
+        enc.clear_combat_stats();
+        enc.measure_mode = crate::engine::encounter::MeasureMode::Pending3Min { duration_ms };
+        info!("3min measure mode: pending (duration={duration_ms}ms)");
+    });
 }
 
 pub fn cancel_3min_measure_mode(enc: &EncounterMutex) {
-    match enc.lock() {
-        Ok(mut enc) => {
-            enc.clear_combat_stats();
-            enc.measure_mode = crate::engine::encounter::MeasureMode::Normal;
-            info!("3min measure mode: cancelled");
-        }
-        Err(e) => log::error!("Lock poisoned in cancel_3min_measure_mode: {e}"),
-    }
+    with_lock_or(enc, "cancel_3min_measure_mode", (), |enc| {
+        enc.clear_combat_stats();
+        enc.measure_mode = crate::engine::encounter::MeasureMode::Normal;
+        info!("3min measure mode: cancelled");
+    });
 }
 
 fn aggregate_player_buffs(

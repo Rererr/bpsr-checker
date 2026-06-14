@@ -3,7 +3,7 @@ f64 is used in the models even when it doesn't make sense due to limitations wit
 serde serializing u128 as a JSON number instead of a string.
 */
 
-#[derive(specta::Type, serde::Serialize, serde::Deserialize, Debug, Default, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct HeaderInfo {
     pub total_dps: f64,
@@ -14,7 +14,7 @@ pub struct HeaderInfo {
 
 pub type PlayerRows = Vec<PlayerRow>;
 
-#[derive(specta::Type, serde::Serialize, serde::Deserialize, Debug, Default, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayersWindow {
     pub player_rows: PlayerRows,
@@ -22,7 +22,7 @@ pub struct PlayersWindow {
     pub top_value: f64,
 }
 
-#[derive(specta::Type, serde::Serialize, serde::Deserialize, Debug, Default, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayerRow {
     pub uid: f64,
@@ -60,7 +60,7 @@ pub struct PlayerRow {
     pub time_series: Vec<TimeSeriesPoint>,
 }
 
-#[derive(specta::Type, serde::Serialize, serde::Deserialize, Debug, Default, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct TimeSeriesPoint {
     pub t_ms: f64,
@@ -68,7 +68,7 @@ pub struct TimeSeriesPoint {
     pub total_dps: f64,
 }
 
-#[derive(specta::Type, serde::Serialize, serde::Deserialize, Debug, Default, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct EncounterSnapshot {
     pub id: f64,
@@ -83,7 +83,7 @@ pub struct EncounterSnapshot {
     pub participant_player_uids: Vec<f64>,
 }
 
-#[derive(specta::Type, serde::Serialize, Clone, Debug)]
+#[derive(serde::Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct SelfBuffSnapshot {
     pub kind: String,
@@ -95,7 +95,7 @@ pub struct SelfBuffSnapshot {
     pub received_at_ms: f64,
 }
 
-#[derive(specta::Type, serde::Serialize, Default, Clone, Debug)]
+#[derive(serde::Serialize, Default, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayerBuffSnapshot {
     pub uid: f64,
@@ -103,7 +103,7 @@ pub struct PlayerBuffSnapshot {
     pub buffs: Vec<SelfBuffSnapshot>,
 }
 
-#[derive(specta::Type, serde::Serialize, Default, Clone, Debug)]
+#[derive(serde::Serialize, Default, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct TrackedBuffsData {
     pub players: Vec<PlayerBuffSnapshot>,
@@ -111,7 +111,7 @@ pub struct TrackedBuffsData {
     pub local_player_uid: f64,
 }
 
-#[derive(specta::Type, serde::Serialize, Clone, Debug)]
+#[derive(serde::Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct SelfStatusEntry {
     pub instance_id: i64,
@@ -124,7 +124,7 @@ pub struct SelfStatusEntry {
     pub source_config_id: i32,
 }
 
-#[derive(specta::Type, serde::Serialize, Default, Clone, Debug)]
+#[derive(serde::Serialize, Default, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct SelfStatusData {
     pub buffs: Vec<SelfStatusEntry>,
@@ -133,7 +133,7 @@ pub struct SelfStatusData {
     pub local_player_uid: f64,
 }
 
-#[derive(serde::Serialize, specta::Type, Clone, Debug)]
+#[derive(serde::Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct MeasureModeStatus {
     pub kind: String,
@@ -144,7 +144,7 @@ pub struct MeasureModeStatus {
 
 pub type SkillRows = Vec<SkillRow>;
 
-#[derive(specta::Type, serde::Serialize, serde::Deserialize, Debug, Default, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillsWindow {
     pub inspected_player: PlayerRow,
@@ -153,7 +153,7 @@ pub struct SkillsWindow {
     pub top_value: f64,
 }
 
-#[derive(specta::Type, serde::Serialize, serde::Deserialize, Debug, Default, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillRow {
     pub uid: f64,

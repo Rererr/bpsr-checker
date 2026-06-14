@@ -72,6 +72,12 @@ Slint テストバックエンド同梱の MCP サーバーで、起動中の UI
 クライアント登録は `claude mcp add --transport http -s user slint-ui http://127.0.0.1:8080/mcp`。
 > デバッグ起動専用。release ビルド・`package-slint.ps1` には絶対に付与しない。
 
+**Slint の UI/UX を調査・レビューする際は、推測やソース読みだけで済ませず、この MCP（`slint-ui`）で
+実際に動作中の UI を検査すること**（要素ツリー・実寸/配置・`take_screenshot` での見た目確認、
+クリック/入力での挙動確認）。femtovg はブラウザと描画特性が異なり静的読みでは判断を誤りやすいため、
+実機 UI の観測を一次情報とする。MCP 接続は Claude Code 起動時に確立するので、`scripts/run-mcp.ps1` で
+アプリを起動した状態でセッションを開始する（起動済みアプリに後から接続したい場合はセッション再起動）。
+
 ### バージョン同期（git tag 前に必ず実施）
 バージョンの正典は **`slint-app/Cargo.toml` の `version`**。タグと同じ値へ更新し、
 コード変更と同一コミットで行う。配布物・梱包スクリプトもこの値を参照する。
@@ -115,3 +121,4 @@ Slint テストバックエンド同梱の MCP サーバーで、起動中の UI
 ## 作業スタイル
 
 - 独立した複数タスクは `isolation: "worktree"` 付きの `developer` エージェントを並列実行して効率化する。
+- Slint の UI/UX 調査・`ui-ux-reviewer` でのレビュー時は、`slint-ui` MCP で動作中 UI を観測してから判断する（詳細は「MCP 経由の UI 検査・操作」節）。

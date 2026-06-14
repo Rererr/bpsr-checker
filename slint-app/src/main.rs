@@ -1078,6 +1078,247 @@ fn build_buff_rows(
         .collect()
 }
 
+/// ポーリングループが tick 間で持ち越す可変状態（位置復元の進行管理）。
+#[derive(Default)]
+struct PollState {
+    tick: u64,
+    setup_tick: u64,
+    setup_done: bool,
+    // オーバーレイ復元tick（None=未復元）。復元前のデフォルト位置で保存上書きしないよう、
+    // 復元から SETTLE_TICKS 経過後に保存対象へ含める。非表示で None に戻す。
+    self_rtick: Option<u64>,
+    buff_rtick: Option<u64>,
+    // 復元が実際に適用した（クランプ後の）矩形。settle 期間中はこのサイズを毎tick 再適用。
+    restored_main: Option<window_state::WinRect>,
+    restored_self: Option<window_state::WinRect>,
+    restored_buffs: Option<window_state::WinRect>,
+}
+
+/// 初回 tick: winit 実体化後にメイン窓を復元する。復元が完了した tick で true を返す
+/// （呼び出し側はその tick でトレイ生成などの後処理を行う）。
+fn poll_setup_once(m: &MainWindow, st: &mut PollState, saved: &window_state::Layout) -> bool {
+    if st.setup_done {
+        return false;
+    }
+    let mons = overlay::monitors(m.window());
+    if mons.is_empty() {
+        return false;
+    }
+    st.restored_main =
+        Some(window_state::restore(m.window(), saved.main.as_ref(), &mons, 0, (520, 350)));
+    st.setup_done = true;
+    st.setup_tick = st.tick;
+    log::info!("window restored on {} monitor(s)", mons.len());
+    true
+}
+
+/// オーバーレイの位置/サイズ復元（表示された最初の tick で一度）。非表示で None に戻す。
+fn poll_overlay_restore(
+    st: &mut PollState,
+    cfg: &RefCell<settings::Settings>,
+    self_overlay_w: &slint::Weak<SelfStatusOverlay>,
+    buff_overlay_w: &slint::Weak<BuffOverlay>,
+    last_saved: &RefCell<window_state::Layout>,
+) {
+    let c = cfg.borrow();
+    if c.show_self_status_overlay {
+        if st.self_rtick.is_none() {
+            if let Some(o) = self_overlay_w.upgrade() {
+                let mons = overlay::monitors(o.window());
+                if !mons.is_empty() {
+                    st.restored_self = Some(window_state::restore(
+                        o.window(),
+                        last_saved.borrow().self_status.as_ref(),
+                        &mons,
+                        0,
+                        (220, 180),
+                    ));
+                    st.self_rtick = Some(st.tick);
+                    // 実体化したオーバーレイへ現在のタスクバー常駐モードを適用。
+                    #[cfg(windows)]
+                    overlay::apply_taskbar_mode(o.window(), c.show_in_taskbar);
+                }
+            }
+        }
+    } else {
+        st.self_rtick = None;
+        st.restored_self = None;
+    }
+    if c.show_buff_overlay {
+        if st.buff_rtick.is_none() {
+            if let Some(o) = buff_overlay_w.upgrade() {
+                let mons = overlay::monitors(o.window());
+                if !mons.is_empty() {
+                    st.restored_buffs = Some(window_state::restore(
+                        o.window(),
+                        last_saved.borrow().buffs.as_ref(),
+                        &mons,
+                        0,
+                        (250, 150),
+                    ));
+                    st.buff_rtick = Some(st.tick);
+                    // 実体化したオーバーレイへ現在のタスクバー常駐モードを適用。
+                    #[cfg(windows)]
+                    overlay::apply_taskbar_mode(o.window(), c.show_in_taskbar);
+                }
+            }
+        }
+    } else {
+        st.buff_rtick = None;
+        st.restored_buffs = None;
+    }
+}
+
+/// トレイメニューのイベント処理（クリックスルー切替・表示/非表示・終了）。
+#[cfg(windows)]
+fn poll_tray_events(
+    m: &MainWindow,
+    cfg: &RefCell<settings::Settings>,
+    self_overlay_w: &slint::Weak<SelfStatusOverlay>,
+    buff_overlay_w: &slint::Weak<BuffOverlay>,
+    tray_holder: &RefCell<Option<tray::Tray>>,
+    main_visible: &Cell<bool>,
+    click_through: &Cell<bool>,
+) {
+    let holder = tray_holder.borrow();
+    let Some(tray) = holder.as_ref() else {
+        return;
+    };
+    while let Ok(ev) = tray_icon::menu::MenuEvent::receiver().try_recv() {
+        if ev.id == tray.id_quit {
+            let _ = slint::quit_event_loop();
+        } else if ev.id == tray.id_show_hide {
+            let vis = !main_visible.get();
+            main_visible.set(vis);
+            let _ = if vis { m.show() } else { m.hide() };
+            // オーバーレイもメインの表示/格納に追従（復帰時は設定で有効なものだけ）
+            let c = cfg.borrow();
+            if let Some(o) = self_overlay_w.upgrade() {
+                let _ = if vis && c.show_self_status_overlay {
+                    o.show()
+                } else {
+                    o.hide()
+                };
+            }
+            if let Some(o) = buff_overlay_w.upgrade() {
+                let _ = if vis && c.show_buff_overlay {
+                    o.show()
+                } else {
+                    o.hide()
+                };
+            }
+        } else if ev.id == tray.id_click_through {
+            let on = !click_through.get();
+            click_through.set(on);
+            tray.click_through.set_checked(on);
+            overlay::set_click_through(m.window(), on);
+            if let Some(o) = self_overlay_w.upgrade() {
+                overlay::set_click_through(o.window(), on);
+            }
+            if let Some(o) = buff_overlay_w.upgrade() {
+                overlay::set_click_through(o.window(), on);
+            }
+        }
+    }
+    // トレイアイコン左クリックでメインを復帰（トレイ格納モードの復帰口）。
+    while let Ok(ev) = tray_icon::TrayIconEvent::receiver().try_recv() {
+        if let tray_icon::TrayIconEvent::Click {
+            button: tray_icon::MouseButton::Left,
+            button_state: tray_icon::MouseButtonState::Up,
+            ..
+        } = ev
+        {
+            main_visible.set(true);
+            let _ = m.show();
+            overlay::restore_window(m.window());
+            // 設定で有効なオーバーレイも一緒に復帰させる
+            let c = cfg.borrow();
+            if c.show_self_status_overlay {
+                if let Some(o) = self_overlay_w.upgrade() {
+                    let _ = o.show();
+                }
+            }
+            if c.show_buff_overlay {
+                if let Some(o) = buff_overlay_w.upgrade() {
+                    let _ = o.show();
+                }
+            }
+        }
+    }
+}
+
+/// 起動/表示直後に Slint が preferred サイズを再アサートして保存サイズを上書きする
+/// ことがあるため、settle 期間中は毎tick 復元サイズを再適用する（サイズ一致なら no-op）。
+fn poll_window_settle(
+    m: &MainWindow,
+    st: &PollState,
+    self_overlay_w: &slint::Weak<SelfStatusOverlay>,
+    buff_overlay_w: &slint::Weak<BuffOverlay>,
+) {
+    if st.setup_done && st.tick < st.setup_tick + SETTLE_TICKS {
+        if let Some(r) = &st.restored_main {
+            window_state::enforce_size(m.window(), r);
+        }
+    }
+    if let (Some(rt), Some(r)) = (st.self_rtick, st.restored_self.as_ref()) {
+        if st.tick < rt + SETTLE_TICKS {
+            if let Some(o) = self_overlay_w.upgrade() {
+                window_state::enforce_size(o.window(), r);
+            }
+        }
+    }
+    if let (Some(rt), Some(r)) = (st.buff_rtick, st.restored_buffs.as_ref()) {
+        if st.tick < rt + SETTLE_TICKS {
+            if let Some(o) = buff_overlay_w.upgrade() {
+                window_state::enforce_size(o.window(), r);
+            }
+        }
+    }
+}
+
+/// レイアウト自動保存（復元確定後・差分時のみ）。オーバーレイは復元から SETTLE_TICKS
+/// 経過後のみ保存対象に含める（復元前の既定位置で上書き防止）。
+fn poll_auto_save(
+    m: &MainWindow,
+    st: &PollState,
+    cfg: &RefCell<settings::Settings>,
+    self_overlay_w: &slint::Weak<SelfStatusOverlay>,
+    buff_overlay_w: &slint::Weak<BuffOverlay>,
+    last_saved: &RefCell<window_state::Layout>,
+) {
+    if !st.setup_done || st.tick < st.setup_tick + SETTLE_TICKS {
+        return;
+    }
+    let tick = st.tick;
+    let settled = |rt: Option<u64>| rt.map(|t| tick >= t + SETTLE_TICKS).unwrap_or(false);
+    let cur = {
+        let c = cfg.borrow();
+        let prev = last_saved.borrow();
+        window_state::Layout {
+            main: Some(window_state::capture(m.window())),
+            self_status: if c.show_self_status_overlay && settled(st.self_rtick) {
+                self_overlay_w
+                    .upgrade()
+                    .map(|o| window_state::capture(o.window()))
+            } else {
+                prev.self_status.clone()
+            },
+            buffs: if c.show_buff_overlay && settled(st.buff_rtick) {
+                buff_overlay_w
+                    .upgrade()
+                    .map(|o| window_state::capture(o.window()))
+            } else {
+                prev.buffs.clone()
+            },
+        }
+    };
+    let mut ls = last_saved.borrow_mut();
+    if *ls != cur {
+        window_state::save(&cur);
+        *ls = cur;
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     static LOGGER: ConsoleLog = ConsoleLog;
     let _ = log::set_logger(&LOGGER);
@@ -2016,18 +2257,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let enc_poll = enc.clone();
     let saved = window_state::load();
     let last_saved = Rc::new(RefCell::new(saved.clone()));
-    let mut tick: u64 = 0;
-    let mut setup_tick: u64 = 0;
-    let mut setup_done = false;
-    // オーバーレイ復元tick（None=未復元）。復元前のデフォルト位置で保存上書きしないよう、
-    // 復元から SETTLE_TICKS 経過後に保存対象へ含める。非表示で None に戻す。
-    let mut self_rtick: Option<u64> = None;
-    let mut buff_rtick: Option<u64> = None;
-    // 復元が実際に適用した（クランプ後の）矩形。settle 期間中はこのサイズを
-    // 毎tick 再適用して、Slint の preferred 再アサートによる上書きを打ち消す。
-    let mut restored_main: Option<window_state::WinRect> = None;
-    let mut restored_self: Option<window_state::WinRect> = None;
-    let mut restored_buffs: Option<window_state::WinRect> = None;
+    let mut st = PollState::default();
     let tab_cell_poll = tab_cell.clone();
     let drill_poll = drill.clone();
     let skill_rows_poll = skill_rows.clone();
@@ -2061,150 +2291,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let timer = Timer::default();
     timer.start(TimerMode::Repeated, Duration::from_millis(poll_ms), move || {
-        tick += 1;
+        st.tick += 1;
         let Some(m) = main_w.upgrade() else {
             return;
         };
 
-        // 初回: winit 実体化後に位置復元
-        if !setup_done {
-            let mons = overlay::monitors(m.window());
-            if !mons.is_empty() {
-                restored_main =
-                    Some(window_state::restore(m.window(), saved.main.as_ref(), &mons, 0, (520, 350)));
-                setup_done = true;
-                setup_tick = tick;
-                log::info!("window restored on {} monitor(s)", mons.len());
-                // イベントループ稼働後にトレイを生成
-                #[cfg(windows)]
-                {
-                    *tray_holder.borrow_mut() = tray::create();
-                    log::info!("tray created: {}", tray_holder.borrow().is_some());
-                    // 起動時のタスクバー常駐モードをメインへ適用（実体化後）。
-                    overlay::apply_taskbar_mode(m.window(), cfg_poll.borrow().show_in_taskbar);
-                }
-            }
+        // 初回: winit 実体化後に位置復元 → 完了 tick でトレイ生成。
+        let just_setup = poll_setup_once(&m, &mut st, &saved);
+        #[cfg(windows)]
+        if just_setup {
+            *tray_holder.borrow_mut() = tray::create();
+            log::info!("tray created: {}", tray_holder.borrow().is_some());
+            // 起動時のタスクバー常駐モードをメインへ適用（実体化後）。
+            overlay::apply_taskbar_mode(m.window(), cfg_poll.borrow().show_in_taskbar);
         }
+        #[cfg(not(windows))]
+        let _ = just_setup;
 
         // オーバーレイの位置/サイズ復元（表示された最初のtickで一度）。非表示で None に戻す。
-        {
-            let c = cfg_poll.borrow();
-            if c.show_self_status_overlay {
-                if self_rtick.is_none() {
-                    if let Some(o) = self_overlay_w.upgrade() {
-                        let mons = overlay::monitors(o.window());
-                        if !mons.is_empty() {
-                            restored_self = Some(window_state::restore(
-                                o.window(),
-                                last_saved.borrow().self_status.as_ref(),
-                                &mons,
-                                0,
-                                (220, 180),
-                            ));
-                            self_rtick = Some(tick);
-                            // 実体化したオーバーレイへ現在のタスクバー常駐モードを適用。
-                            #[cfg(windows)]
-                            overlay::apply_taskbar_mode(o.window(), c.show_in_taskbar);
-                        }
-                    }
-                }
-            } else {
-                self_rtick = None;
-                restored_self = None;
-            }
-            if c.show_buff_overlay {
-                if buff_rtick.is_none() {
-                    if let Some(o) = buff_overlay_w.upgrade() {
-                        let mons = overlay::monitors(o.window());
-                        if !mons.is_empty() {
-                            restored_buffs = Some(window_state::restore(
-                                o.window(),
-                                last_saved.borrow().buffs.as_ref(),
-                                &mons,
-                                0,
-                                (250, 150),
-                            ));
-                            buff_rtick = Some(tick);
-                            // 実体化したオーバーレイへ現在のタスクバー常駐モードを適用。
-                            #[cfg(windows)]
-                            overlay::apply_taskbar_mode(o.window(), c.show_in_taskbar);
-                        }
-                    }
-                }
-            } else {
-                buff_rtick = None;
-                restored_buffs = None;
-            }
-        }
+        poll_overlay_restore(&mut st, &cfg_poll, &self_overlay_w, &buff_overlay_w, &last_saved);
 
         // トレイメニューのイベント処理（クリックスルー切替・表示/非表示・終了）
         #[cfg(windows)]
-        {
-            let holder = tray_holder.borrow();
-            if let Some(tray) = holder.as_ref() {
-                while let Ok(ev) = tray_icon::menu::MenuEvent::receiver().try_recv() {
-                    if ev.id == tray.id_quit {
-                        let _ = slint::quit_event_loop();
-                    } else if ev.id == tray.id_show_hide {
-                        let vis = !main_visible.get();
-                        main_visible.set(vis);
-                        let _ = if vis { m.show() } else { m.hide() };
-                        // オーバーレイもメインの表示/格納に追従（復帰時は設定で有効なものだけ）
-                        let c = cfg_poll.borrow();
-                        if let Some(o) = self_overlay_w.upgrade() {
-                            let _ = if vis && c.show_self_status_overlay {
-                                o.show()
-                            } else {
-                                o.hide()
-                            };
-                        }
-                        if let Some(o) = buff_overlay_w.upgrade() {
-                            let _ = if vis && c.show_buff_overlay {
-                                o.show()
-                            } else {
-                                o.hide()
-                            };
-                        }
-                    } else if ev.id == tray.id_click_through {
-                        let on = !click_through.get();
-                        click_through.set(on);
-                        tray.click_through.set_checked(on);
-                        overlay::set_click_through(m.window(), on);
-                        if let Some(o) = self_overlay_w.upgrade() {
-                            overlay::set_click_through(o.window(), on);
-                        }
-                        if let Some(o) = buff_overlay_w.upgrade() {
-                            overlay::set_click_through(o.window(), on);
-                        }
-                    }
-                }
-                // トレイアイコン左クリックでメインを復帰（トレイ格納モードの復帰口）。
-                while let Ok(ev) = tray_icon::TrayIconEvent::receiver().try_recv() {
-                    if let tray_icon::TrayIconEvent::Click {
-                        button: tray_icon::MouseButton::Left,
-                        button_state: tray_icon::MouseButtonState::Up,
-                        ..
-                    } = ev
-                    {
-                        main_visible.set(true);
-                        let _ = m.show();
-                        overlay::restore_window(m.window());
-                        // 設定で有効なオーバーレイも一緒に復帰させる
-                        let c = cfg_poll.borrow();
-                        if c.show_self_status_overlay {
-                            if let Some(o) = self_overlay_w.upgrade() {
-                                let _ = o.show();
-                            }
-                        }
-                        if c.show_buff_overlay {
-                            if let Some(o) = buff_overlay_w.upgrade() {
-                                let _ = o.show();
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        poll_tray_events(
+            &m,
+            &cfg_poll,
+            &self_overlay_w,
+            &buff_overlay_w,
+            &tray_holder,
+            &main_visible,
+            &click_through,
+        );
 
         // 食事/シロップ残時間ストアを更新（戦闘終了をまたいで保持・失効除去）
         compute::refresh_consumables(&enc_poll);
@@ -2389,61 +2506,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        // 起動/表示直後、Slint が preferred サイズを再アサートして保存サイズを
-        // 上書きすることがあるため、settle 期間中は毎tick 再適用して確実に効かせる。
-        // （保存ガードの return より手前に置くこと。サイズ一致時は no-op。）
-        if setup_done && tick < setup_tick + SETTLE_TICKS {
-            if let Some(r) = &restored_main {
-                window_state::enforce_size(m.window(), r);
-            }
-        }
-        if let (Some(rt), Some(r)) = (self_rtick, restored_self.as_ref()) {
-            if tick < rt + SETTLE_TICKS {
-                if let Some(o) = self_overlay_w.upgrade() {
-                    window_state::enforce_size(o.window(), r);
-                }
-            }
-        }
-        if let (Some(rt), Some(r)) = (buff_rtick, restored_buffs.as_ref()) {
-            if tick < rt + SETTLE_TICKS {
-                if let Some(o) = buff_overlay_w.upgrade() {
-                    window_state::enforce_size(o.window(), r);
-                }
-            }
-        }
+        // 起動/表示直後の preferred サイズ再アサートを settle 期間中の再適用で打ち消す
+        // （自動保存ガードより手前で実施）。
+        poll_window_settle(&m, &st, &self_overlay_w, &buff_overlay_w);
 
-        // レイアウト自動保存（復元確定後・差分時のみ）。オーバーレイは復元から
-        // SETTLE_TICKS 経過後のみ保存対象に含める（復元前の既定位置で上書き防止）。
-        if !setup_done || tick < setup_tick + SETTLE_TICKS {
-            return;
-        }
-        let settled = |rt: Option<u64>| rt.map(|t| tick >= t + SETTLE_TICKS).unwrap_or(false);
-        let cur = {
-            let c = cfg_poll.borrow();
-            let prev = last_saved.borrow();
-            window_state::Layout {
-                main: Some(window_state::capture(m.window())),
-                self_status: if c.show_self_status_overlay && settled(self_rtick) {
-                    self_overlay_w
-                        .upgrade()
-                        .map(|o| window_state::capture(o.window()))
-                } else {
-                    prev.self_status.clone()
-                },
-                buffs: if c.show_buff_overlay && settled(buff_rtick) {
-                    buff_overlay_w
-                        .upgrade()
-                        .map(|o| window_state::capture(o.window()))
-                } else {
-                    prev.buffs.clone()
-                },
-            }
-        };
-        let mut ls = last_saved.borrow_mut();
-        if *ls != cur {
-            window_state::save(&cur);
-            *ls = cur;
-        }
+        // レイアウト自動保存（復元確定後・差分時のみ）。
+        poll_auto_save(&m, &st, &cfg_poll, &self_overlay_w, &buff_overlay_w, &last_saved);
     });
 
     // トレイ格納（全ウィンドウ hide）でアプリが終了しないよう、最後のウィンドウが

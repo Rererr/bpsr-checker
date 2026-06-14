@@ -63,6 +63,15 @@ pwsh scripts/package-slint.ps1
 Slint femtovg はブラウザ（旧 WebView2）と描画特性が異なる（ClearType 非対応）。
 既定フォントは可読性のため `Yu Gothic UI` を指定済み。
 
+### MCP 経由の UI 検査・操作（Slint 埋め込み MCP サーバー）
+Slint テストバックエンド同梱の MCP サーバーで、起動中の UI を Claude Code 等から検査/操作できる
+（UIツリー探索・スクショ・クリック・入力）。`pwsh scripts/run-mcp.ps1` で起動（既定 8080・デモモード）。
+内部的には slint-app の opt-in feature `mcp`（`set_platform` 後に `mcp_server::init()` を自前呼出）+
+`SLINT_EMIT_DEBUG_INFO=1`（内省メタ埋め込み・ビルド時必須）+ `SLINT_MCP_PORT`（設定時のみ起動）。
+エンドポイントは `http://127.0.0.1:<port>/mcp`（localhost 限定）。
+クライアント登録は `claude mcp add --transport http -s user slint-ui http://127.0.0.1:8080/mcp`。
+> デバッグ起動専用。release ビルド・`package-slint.ps1` には絶対に付与しない。
+
 ### バージョン同期（git tag 前に必ず実施）
 バージョンの正典は **`slint-app/Cargo.toml` の `version`**。タグと同じ値へ更新し、
 コード変更と同一コミットで行う。配布物・梱包スクリプトもこの値を参照する。

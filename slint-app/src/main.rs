@@ -866,6 +866,7 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         show_imagine_tarta: c.show_imagine_tarta,
         show_imagine_basilisk: c.show_imagine_basilisk,
         show_consumable: c.show_consumable,
+        show_in_taskbar: c.show_in_taskbar,
     });
     let int_str = |v: f64| -> slint::SharedString { format!("{}", v as i64).into() };
     m.set_nums(SettingsNumUi {
@@ -1060,18 +1061,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    // winit backend（透明合成可能＋タスクバー非表示）
-    let backend = i_slint_backend_winit::Backend::builder()
-        .with_window_attributes_hook(|attrs| {
-            let attrs = attrs.with_transparent(true);
-            #[cfg(target_os = "windows")]
-            let attrs = {
-                use i_slint_backend_winit::winit::platform::windows::WindowAttributesExtWindows;
-                attrs.with_skip_taskbar(true)
-            };
-            attrs
-        })
-        .build()?;
+    // 全ウィンドウ共通のタスクバー常駐フラグ。生成時 hook が参照するため設定を先読みする
+    // （cfg より前。以降の切替は on_set_bool でこの Cell とウィンドウへ反映）。
+    let taskbar_flag = Rc::new(Cell::new(settings::load().show_in_taskbar));
+
+    // winit backend（透明合成可能。skip_taskbar は設定でメイン/オーバーレイ一括切替）
+    let backend = {
+        let tf = taskbar_flag.clone();
+        i_slint_backend_winit::Backend::builder()
+            .with_window_attributes_hook(move |attrs| {
+                let attrs = attrs.with_transparent(true);
+                #[cfg(target_os = "windows")]
+                let attrs = {
+                    use i_slint_backend_winit::winit::platform::windows::WindowAttributesExtWindows;
+                    attrs.with_skip_taskbar(!tf.get())
+                };
+                attrs
+            })
+            .build()?
+    };
     slint::platform::set_platform(Box::new(backend)).map_err(|e| format!("set_platform: {e:?}"))?;
 
     // 永続キャッシュ初期化
@@ -1184,6 +1192,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
+    // 最小化（タスクバー常駐モード時のみボタン表示）→ OS最小化でタスクバーへ格納
+    {
+        let w = self_overlay.as_weak();
+        self_overlay.on_minimize(move || {
+            if let Some(o) = w.upgrade() {
+                overlay::minimize_window(o.window());
+            }
+        });
+    }
+    self_overlay.set_show_minimize(cfg.borrow().show_in_taskbar);
 
     // バフタイマー オーバーレイ（別ウィンドウ）
     let buff_overlay = BuffOverlay::new()?;
@@ -1214,6 +1232,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
+    // 最小化（タスクバー常駐モード時のみボタン表示）→ OS最小化でタスクバーへ格納
+    {
+        let w = buff_overlay.as_weak();
+        buff_overlay.on_minimize(move || {
+            if let Some(o) = w.upgrade() {
+                overlay::minimize_window(o.window());
+            }
+        });
+    }
+    buff_overlay.set_show_minimize(cfg.borrow().show_in_taskbar);
 
     // 設定を起動時に適用（列フラグ・自分強調・最前面・起動タブ・runtime settings）
     {
@@ -1259,12 +1287,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mv = main_visible.clone();
         let self_ov = self_overlay.as_weak();
         let buff_ov = buff_overlay.as_weak();
+        let cfg_min = cfg.clone();
         main.on_minimize(move || {
+            let taskbar = cfg_min.borrow().show_in_taskbar;
             if let Some(m) = w.upgrade() {
+                if taskbar {
+                    // タスクバー常駐: OS最小化（タスクバーボタンから復帰）。
+                    // 復帰がトレイ経路を通らないため可視状態は維持し、
+                    // オーバーレイ(HUD)も退避せずそのまま残す。
+                    overlay::minimize_window(m.window());
+                    return;
+                }
                 mv.set(false);
                 let _ = m.hide();
             }
-            // メイン最小化（トレイ格納）にオーバーレイも追従して退避（設定フラグは変更しない）
+            // トレイ格納: メイン最小化にオーバーレイも追従して退避（設定フラグは変更しない）
             if let Some(o) = self_ov.upgrade() {
                 let _ = o.hide();
             }
@@ -1481,6 +1518,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let enc_sb = enc.clone();
         let self_ov = self_overlay.as_weak();
         let buff_ov = buff_overlay.as_weak();
+        let taskbar_flag_cb = taskbar_flag.clone();
         main.on_set_bool(move |key, val| {
             {
                 let mut c = cfg_b.borrow_mut();
@@ -1514,12 +1552,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "imagine-col-tarta" => c.show_imagine_tarta = val,
                     "imagine-col-basilisk" => c.show_imagine_basilisk = val,
                     "show-consumable" => c.show_consumable = val,
+                    "show-in-taskbar" => c.show_in_taskbar = val,
                     other => log::warn!("unknown setting key: {other}"),
                 }
             }
             let c = cfg_b.borrow();
             if let Some(m) = w.upgrade() {
                 apply_settings(&m, &c);
+            }
+            // タスクバー常駐⇔トレイ格納を全ウィンドウへ即時反映（再起動不要）。
+            // 共有フラグも更新し、以降に再生成されるウィンドウへも引き継ぐ。
+            if key.as_str() == "show-in-taskbar" {
+                taskbar_flag_cb.set(c.show_in_taskbar);
+                // オーバーレイの最小化ボタン表示を切替（トレイ格納時はOS最小化で復帰口が無いため隠す）
+                if let Some(o) = self_ov.upgrade() {
+                    o.set_show_minimize(c.show_in_taskbar);
+                }
+                if let Some(o) = buff_ov.upgrade() {
+                    o.set_show_minimize(c.show_in_taskbar);
+                }
+                #[cfg(windows)]
+                {
+                    let show = c.show_in_taskbar;
+                    if let Some(m) = w.upgrade() {
+                        overlay::apply_taskbar_mode(m.window(), show);
+                    }
+                    if let Some(o) = self_ov.upgrade() {
+                        overlay::apply_taskbar_mode(o.window(), show);
+                    }
+                    if let Some(o) = buff_ov.upgrade() {
+                        overlay::apply_taskbar_mode(o.window(), show);
+                    }
+                }
             }
             settings::save(&c);
             if key.as_str() == "self-status-overlay" {
@@ -2055,6 +2119,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 {
                     *tray_holder.borrow_mut() = tray::create();
                     log::info!("tray created: {}", tray_holder.borrow().is_some());
+                    // 起動時のタスクバー常駐モードをメインへ適用（実体化後）。
+                    overlay::apply_taskbar_mode(m.window(), cfg_poll.borrow().show_in_taskbar);
                 }
             }
         }
@@ -2075,6 +2141,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 (220, 180),
                             ));
                             self_rtick = Some(tick);
+                            // 実体化したオーバーレイへ現在のタスクバー常駐モードを適用。
+                            #[cfg(windows)]
+                            overlay::apply_taskbar_mode(o.window(), c.show_in_taskbar);
                         }
                     }
                 }
@@ -2095,6 +2164,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 (250, 150),
                             ));
                             buff_rtick = Some(tick);
+                            // 実体化したオーバーレイへ現在のタスクバー常駐モードを適用。
+                            #[cfg(windows)]
+                            overlay::apply_taskbar_mode(o.window(), c.show_in_taskbar);
                         }
                     }
                 }
@@ -2142,6 +2214,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         if let Some(o) = buff_overlay_w.upgrade() {
                             overlay::set_click_through(o.window(), on);
+                        }
+                    }
+                }
+                // トレイアイコン左クリックでメインを復帰（トレイ格納モードの復帰口）。
+                while let Ok(ev) = tray_icon::TrayIconEvent::receiver().try_recv() {
+                    if let tray_icon::TrayIconEvent::Click {
+                        button: tray_icon::MouseButton::Left,
+                        button_state: tray_icon::MouseButtonState::Up,
+                        ..
+                    } = ev
+                    {
+                        main_visible.set(true);
+                        let _ = m.show();
+                        overlay::restore_window(m.window());
+                        // 設定で有効なオーバーレイも一緒に復帰させる
+                        let c = cfg_poll.borrow();
+                        if c.show_self_status_overlay {
+                            if let Some(o) = self_overlay_w.upgrade() {
+                                let _ = o.show();
+                            }
+                        }
+                        if c.show_buff_overlay {
+                            if let Some(o) = buff_overlay_w.upgrade() {
+                                let _ = o.show();
+                            }
                         }
                     }
                 }
@@ -2388,7 +2485,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    slint::run_event_loop()?;
+    // トレイ格納（全ウィンドウ hide）でアプリが終了しないよう、最後のウィンドウが
+    // 閉じてもループを止めない。終了はトレイ「終了」/ ×ボタンの quit_event_loop のみ。
+    slint::run_event_loop_until_quit()?;
 
     engine::name_cache::flush();
     engine::selected_uid::flush();

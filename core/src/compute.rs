@@ -14,7 +14,7 @@ use crate::protocol::pb::EntityKind;
 use log::info;
 use std::collections::VecDeque;
 
-#[derive(serde::Serialize, specta::Type, Clone, Debug)]
+#[derive(serde::Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct CachedPlayerDto {
     pub name: String,
@@ -693,7 +693,7 @@ pub fn clear_history() {
 
 // ─── capture status ──────────────────────────────────────────────────────────
 
-#[derive(serde::Serialize, specta::Type, Clone, Debug, Default)]
+#[derive(serde::Serialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CaptureStatusDto {
     /// 0=初期化中 1=観測中 2=開始失敗（capture::status::STATE_*）

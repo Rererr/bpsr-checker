@@ -20,9 +20,6 @@ log = "0.4"
 prost = "0.14"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# 移行中のみ: models が specta::Type を derive し src-tauri の TS バインディング生成に供する。
-# specta は tauri 非依存のため core の「Tauri非依存」方針は維持。S6 で除去予定。
-specta = { version = "2.0.0-rc.24", features = ["derive"] }
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "sync", "rt-multi-thread", "time"] }
 zstd = "0.13"

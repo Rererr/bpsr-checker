@@ -27,6 +27,48 @@ use std::time::Duration;
 
 const SETTLE_TICKS: u64 = 5;
 
+/// オーバーレイ窓の枠操作コールバック(ドラッグ/リサイズ/最小化/×閉じ)を一括配線する。
+/// self_overlay と buff_overlay で同一の配線を共有するためのマクロ。
+/// `$close_key` は ×閉じで OFF にする設定トグルのキー(invoke_set_bool 経由)。
+macro_rules! wire_overlay_chrome {
+    ($overlay:expr, $main:expr, $close_key:literal) => {{
+        {
+            let w = $overlay.as_weak();
+            $overlay.on_start_drag(move || {
+                if let Some(o) = w.upgrade() {
+                    overlay::start_drag(o.window());
+                }
+            });
+        }
+        {
+            let w = $overlay.as_weak();
+            $overlay.on_start_resize(move |dir| {
+                if let Some(o) = w.upgrade() {
+                    overlay::start_resize(o.window(), dir);
+                }
+            });
+        }
+        // ×閉じる → 設定トグルOFFと連動（invoke_set_bool で既存ハンドラを再利用）
+        {
+            let mw = $main.as_weak();
+            $overlay.on_close_window(move || {
+                if let Some(m) = mw.upgrade() {
+                    m.invoke_set_bool($close_key.into(), false);
+                }
+            });
+        }
+        // 最小化（タスクバー常駐モード時のみボタン表示）→ OS最小化でタスクバーへ格納
+        {
+            let w = $overlay.as_weak();
+            $overlay.on_minimize(move || {
+                if let Some(o) = w.upgrade() {
+                    overlay::minimize_window(o.window());
+                }
+            });
+        }
+    }};
+}
+
 /// 最小ロガー。core の capture / 本体の診断ログを stderr へ出す。
 /// （Slint/parley の CJK 警告は log ではなく直接 eprintln のため別物・ここでは触れない）
 struct ConsoleLog;
@@ -111,6 +153,19 @@ fn sync_rows(model: &slint::VecModel<Row>, data: &[Row]) {
 }
 
 #[allow(clippy::too_many_arguments)]
+/// 食事/シロップ等の消耗バフの表示用派生値を計算する。
+/// 戻り値: (アクティブか, 残量割合0..1, 残り時間テキスト, 種類ラベル)。
+/// duration/remaining いずれかが 0 以下なら未使用扱い(空文字・0)。
+fn consumable_display(remaining_ms: f64, duration_ms: f64, base_id: i32) -> (bool, f32, String, String) {
+    if duration_ms <= 0.0 || remaining_ms <= 0.0 {
+        return (false, 0.0, String::new(), String::new());
+    }
+    let ratio = (remaining_ms / duration_ms).clamp(0.0, 1.0) as f32;
+    let time = format::format_consumable_remaining(remaining_ms as i64, duration_ms as i64);
+    let label = consumable_names::label(base_id).unwrap_or_default();
+    (true, ratio, time, label)
+}
+
 fn build_rows(
     pw: &bpsr_core::models::PlayersWindow,
     template: &str,
@@ -143,38 +198,10 @@ fn build_rows(
         }
         // 食事/シロップの残量割合（0..1。アイコンの色が上から縦に抜ける）＋ホバー用の
         // 残り時間テキスト・種類ラベル（base_id→日本語効果名）。
-        let food_act = p.food_duration_ms > 0.0 && p.food_remaining_ms > 0.0;
-        let food_remaining = if food_act {
-            (p.food_remaining_ms / p.food_duration_ms).clamp(0.0, 1.0) as f32
-        } else {
-            0.0
-        };
-        let food_time = if food_act {
-            format::format_consumable_remaining(p.food_remaining_ms as i64, p.food_duration_ms as i64)
-        } else {
-            String::new()
-        };
-        let food_label = if food_act {
-            consumable_names::label(p.food_base_id).unwrap_or_default()
-        } else {
-            String::new()
-        };
-        let syrup_act = p.syrup_duration_ms > 0.0 && p.syrup_remaining_ms > 0.0;
-        let syrup_remaining = if syrup_act {
-            (p.syrup_remaining_ms / p.syrup_duration_ms).clamp(0.0, 1.0) as f32
-        } else {
-            0.0
-        };
-        let syrup_time = if syrup_act {
-            format::format_consumable_remaining(p.syrup_remaining_ms as i64, p.syrup_duration_ms as i64)
-        } else {
-            String::new()
-        };
-        let syrup_label = if syrup_act {
-            consumable_names::label(p.syrup_base_id).unwrap_or_default()
-        } else {
-            String::new()
-        };
+        let (food_act, food_remaining, food_time, food_label) =
+            consumable_display(p.food_remaining_ms, p.food_duration_ms, p.food_base_id);
+        let (syrup_act, syrup_remaining, syrup_time, syrup_label) =
+            consumable_display(p.syrup_remaining_ms, p.syrup_duration_ms, p.syrup_base_id);
         let display = if privacy {
             format::mask_player_name(p.uid as i64)
         } else {
@@ -1167,80 +1194,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let self_debuffs = Rc::new(VecModel::<StatusEntryUi>::default());
     self_overlay.set_buffs(self_buffs.clone().into());
     self_overlay.set_debuffs(self_debuffs.clone().into());
-    {
-        let w = self_overlay.as_weak();
-        self_overlay.on_start_drag(move || {
-            if let Some(o) = w.upgrade() {
-                overlay::start_drag(o.window());
-            }
-        });
-    }
-    {
-        let w = self_overlay.as_weak();
-        self_overlay.on_start_resize(move |dir| {
-            if let Some(o) = w.upgrade() {
-                overlay::start_resize(o.window(), dir);
-            }
-        });
-    }
-    // X 閉じる → 設定トグルOFFと連動（invoke_set_bool で既存ハンドラを再利用）
-    {
-        let mw = main.as_weak();
-        self_overlay.on_close_window(move || {
-            if let Some(m) = mw.upgrade() {
-                m.invoke_set_bool("self-status-overlay".into(), false);
-            }
-        });
-    }
-    // 最小化（タスクバー常駐モード時のみボタン表示）→ OS最小化でタスクバーへ格納
-    {
-        let w = self_overlay.as_weak();
-        self_overlay.on_minimize(move || {
-            if let Some(o) = w.upgrade() {
-                overlay::minimize_window(o.window());
-            }
-        });
-    }
+    wire_overlay_chrome!(self_overlay, main, "self-status-overlay");
     self_overlay.set_show_minimize(cfg.borrow().show_in_taskbar);
 
     // バフタイマー オーバーレイ（別ウィンドウ）
     let buff_overlay = BuffOverlay::new()?;
     let buff_players = Rc::new(VecModel::<BuffPlayerRow>::default());
     buff_overlay.set_players(buff_players.clone().into());
-    {
-        let w = buff_overlay.as_weak();
-        buff_overlay.on_start_drag(move || {
-            if let Some(o) = w.upgrade() {
-                overlay::start_drag(o.window());
-            }
-        });
-    }
-    {
-        let w = buff_overlay.as_weak();
-        buff_overlay.on_start_resize(move |dir| {
-            if let Some(o) = w.upgrade() {
-                overlay::start_resize(o.window(), dir);
-            }
-        });
-    }
-    // X 閉じる → 設定トグルOFFと連動（invoke_set_bool で既存ハンドラを再利用）
-    {
-        let mw = main.as_weak();
-        buff_overlay.on_close_window(move || {
-            if let Some(m) = mw.upgrade() {
-                m.invoke_set_bool("buff-overlay".into(), false);
-            }
-        });
-    }
-    // 最小化（タスクバー常駐モード時のみボタン表示）→ OS最小化でタスクバーへ格納
-    {
-        let w = buff_overlay.as_weak();
-        buff_overlay.on_minimize(move || {
-            if let Some(o) = w.upgrade() {
-                overlay::minimize_window(o.window());
-            }
-        });
-    }
+    wire_overlay_chrome!(buff_overlay, main, "buff-overlay");
     buff_overlay.set_show_minimize(cfg.borrow().show_in_taskbar);
 
     // 設定を起動時に適用（列フラグ・自分強調・最前面・起動タブ・runtime settings）

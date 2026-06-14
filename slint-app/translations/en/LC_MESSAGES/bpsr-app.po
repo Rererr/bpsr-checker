@@ -204,6 +204,9 @@ msgstr "Reset"
 msgid "軽量分割表示"
 msgstr "Compact split"
 
+msgid "タスクバーに常駐"
+msgstr "Show in taskbar"
+
 msgid "フォントサイズ"
 msgstr "Font size"
 

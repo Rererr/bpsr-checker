@@ -53,6 +53,9 @@ pub struct Settings {
     pub show_imagine_basilisk: bool,
     /// DPS一覧の名前列に食事/シロップバッジを表示するか。
     pub show_consumable: bool,
+    /// メインウィンドウをタスクバーに常駐させるか（true=タスクバー表示／最小化はOS最小化、
+    /// false=従来のトレイ格納・skip_taskbar）。
+    pub show_in_taskbar: bool,
 }
 
 impl Default for Settings {
@@ -98,6 +101,7 @@ impl Default for Settings {
             show_imagine_tarta: true,
             show_imagine_basilisk: true,
             show_consumable: true,
+            show_in_taskbar: false,
         }
     }
 }

@@ -48,6 +48,93 @@ pub fn set_click_through(window: &slint::Window, enabled: bool) {
     });
 }
 
+/// メイン/オーバーレイ共通のタスクバー常駐モード適用（Windows）。
+/// `show=true` で `WS_EX_APPWINDOW` + `WS_MINIMIZEBOX` を付与し、OS にアプリ窓として
+/// 管理させる（最小化→タスクバー→復帰が正しく動く）。`false` でトレイ格納モード。
+///
+/// winit の `set_skip_taskbar` は `ITaskbarList::AddTab` でタスクバーに出すだけで
+/// ウィンドウスタイルを変えないため、frameless(WS_POPUP) 窓を最小化すると Windows が
+/// タブを除去して復帰不能（＝終了したように見える）になる。拡張スタイルで補う。
+#[cfg(target_os = "windows")]
+pub fn apply_taskbar_mode(window: &slint::Window, show: bool) {
+    use i_slint_backend_winit::winit::platform::windows::WindowExtWindows;
+    use i_slint_backend_winit::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, IsWindowVisible, SW_HIDE, SW_SHOWNA,
+        SetWindowLongPtrW, ShowWindow, WS_EX_APPWINDOW, WS_MINIMIZEBOX, WS_SYSMENU,
+    };
+    window.with_winit_window(|w| {
+        let Ok(handle) = w.window_handle() else {
+            return;
+        };
+        let RawWindowHandle::Win32(h) = handle.as_raw() else {
+            return;
+        };
+        let hwnd = HWND(h.hwnd.get());
+        unsafe {
+            // 最小化を機能させる基本スタイル（frameless でも装飾は描画されない）。
+            let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+            let want = style | (WS_MINIMIZEBOX.0 | WS_SYSMENU.0) as isize;
+            if want != style {
+                SetWindowLongPtrW(hwnd, GWL_STYLE, want);
+            }
+            // タスクバーへ「アプリ窓」として登録/解除。拡張スタイルの反映には再表示が要る。
+            let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            let new_ex = if show {
+                ex | WS_EX_APPWINDOW.0 as isize
+            } else {
+                ex & !(WS_EX_APPWINDOW.0 as isize)
+            };
+            if new_ex != ex {
+                let visible = IsWindowVisible(hwnd).as_bool();
+                if visible {
+                    let _ = ShowWindow(hwnd, SW_HIDE);
+                }
+                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new_ex);
+                if visible {
+                    let _ = ShowWindow(hwnd, SW_SHOWNA);
+                }
+            }
+        }
+        // winit のタブ管理は再表示後に。トレイ格納時は DeleteTab でタスクバーから消す。
+        w.set_skip_taskbar(!show);
+    });
+}
+
+/// ウィンドウを OS 最小化する（タスクバー常駐モードの最小化ボタン用）。
+/// `apply_taskbar_mode` で WS_MINIMIZEBOX/WS_EX_APPWINDOW 付与済みの前提。
+#[cfg(target_os = "windows")]
+pub fn minimize_window(window: &slint::Window) {
+    use i_slint_backend_winit::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{SW_MINIMIZE, ShowWindow};
+    window.with_winit_window(|w| {
+        if let Ok(handle) = w.window_handle() {
+            if let RawWindowHandle::Win32(h) = handle.as_raw() {
+                unsafe {
+                    let _ = ShowWindow(HWND(h.hwnd.get()), SW_MINIMIZE);
+                }
+            }
+        }
+    });
+}
+
+/// 非 Windows では winit の最小化にフォールバック（実機は Windows のみ）。
+#[cfg(not(target_os = "windows"))]
+pub fn minimize_window(window: &slint::Window) {
+    window.with_winit_window(|w| w.set_minimized(true));
+}
+
+/// 非表示/最小化からウィンドウを復帰させ前面化する（トレイ復帰口・タスクバー復帰用）。
+pub fn restore_window(window: &slint::Window) {
+    window.with_winit_window(|w| {
+        w.set_minimized(false);
+        w.set_visible(true);
+        w.focus_window();
+    });
+}
+
 /// no-frame 窓のドラッグ移動を開始する（マウス押下イベント中に呼ぶ）。
 pub fn start_drag(window: &slint::Window) {
     window.with_winit_window(|w| {

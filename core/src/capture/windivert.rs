@@ -279,6 +279,13 @@ fn read_packets_blocking(
                         if !subnet_reassemblers.contains_key(&curr_server) {
                             if subnet_reassemblers.len() < MAX_SUBNET_CONNECTIONS {
                                 subnet_reassemblers.insert(curr_server, TcpReassembler::new());
+                            } else {
+                                // ローカルビルドのみ(debug_assertions): 追跡上限に達して
+                                // 新規接続を取りこぼす状況を観測する（将来のリファクタ用）。
+                                #[cfg(debug_assertions)]
+                                debug!(
+                                    "subnet reassembler cap reached ({MAX_SUBNET_CONNECTIONS}); ignoring {curr_server}"
+                                );
                             }
                         }
                         if let Some(reassembler) = subnet_reassemblers.get_mut(&curr_server) {
@@ -370,6 +377,14 @@ fn reassemble_and_process(
             reassembler
                 .cache
                 .insert(pkt_seq, Vec::from(tcp_packet.payload()));
+        } else {
+            // ローカルビルドのみ(debug_assertions): 前方ウィンドウ外(再送・巨大ギャップ)で
+            // 取り込まなかったセグメントを観測する（将来のリファクタ用・既定では非出力）。
+            #[cfg(debug_assertions)]
+            debug!(
+                "drop out-of-window segment: pkt_seq={pkt_seq} next_seq={next_seq} delta={}",
+                pkt_seq.wrapping_sub(next_seq)
+            );
         }
     }
 

@@ -41,10 +41,6 @@ impl Watchlist {
         }
     }
 
-    pub fn is_watched(&self, uid: i64) -> bool {
-        self.watched.contains(&uid)
-    }
-
     /// ウォッチボタンの挙動: ウォッチ中なら解除して excluded へ、未追跡なら追加(上限内)。
     pub fn toggle(&mut self, uid: i64) {
         if let Some(pos) = self.watched.iter().position(|&u| u == uid) {

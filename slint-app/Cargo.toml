@@ -9,6 +9,13 @@ license = "GPL-3.0-only"
 name = "bpsr-app"
 path = "src/main.rs"
 
+[features]
+# ローカルデバッグ専用: Slint 埋め込み MCP サーバーを有効化する。
+# 起動中の UI を Claude Code 等の MCP クライアントから検査/操作するためのもので、
+# 既定 features には含めない（release ビルド・配布物には影響しない）。
+# 実際の待受けは起動時 env `SLINT_MCP_PORT` 設定時のみ（未設定なら init は即 return）。
+mcp = ["i-slint-backend-testing/mcp"]
+
 [build-dependencies]
 slint-build = "1"
 embed-manifest = "1.4"
@@ -17,6 +24,8 @@ embed-resource = "2"
 [dependencies]
 slint = "1"
 i-slint-backend-winit = { version = "1", features = ["renderer-femtovg"] }
+# MCP サーバー用（feature "mcp" のときのみ有効化）。semver 非準拠のため slint と同じ版に固定。
+i-slint-backend-testing = { version = "=1.16.1", optional = true, default-features = false }
 bpsr-core = { path = "../core" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
 serde = { version = "1", features = ["derive"] }

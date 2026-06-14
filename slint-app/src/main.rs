@@ -1350,6 +1350,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     slint::platform::set_platform(Box::new(backend)).map_err(|e| format!("set_platform: {e:?}"))?;
 
+    // ローカルデバッグ専用: Slint 埋め込み MCP サーバーを起動する（feature "mcp" 時のみ）。
+    // 通常はこの init は backend-selector が呼ぶが、本アプリは set_platform で winit を直接
+    // 注入し selector をバイパスしているため、ここで明示的に呼ぶ必要がある。
+    // 実際に待受けるのは起動時 env `SLINT_MCP_PORT` 設定時のみ（未設定なら即 return）。
+    #[cfg(feature = "mcp")]
+    if let Err(e) = i_slint_backend_testing::mcp_server::init() {
+        log::warn!("MCP サーバー初期化に失敗: {e:?}");
+    }
+
     // 永続キャッシュ初期化
     let dir = data_dir();
     engine::name_cache::init(dir.join("name_cache.json"));

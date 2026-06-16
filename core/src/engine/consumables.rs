@@ -5,11 +5,16 @@
 //!
 //! clear_combat_stats は buff_tracker を消すため、戦闘終了→新規戦闘で食事バフを
 //! 忘れてしまう。ゲーム内では効果が継続するので、観測時に終了時刻を控えて
-//! buff_tracker が消えても保持し、自然失効/手動リセット/履歴クリアで消す。
+//! buff_tracker が消えても保持し、自然失効/履歴クリアで消す（手動リセットでは保持）。
+//! expire_at_ms は壁時計(エポックms)基準なので、consumables.json へディスク永続化して
+//! アプリ再起動後も残時間を復元する（load 時に失効分を除去）。
 
 use crate::engine::buff_tracker::{BuffStateSnapshot, BuffTracker};
+use log::{info, warn};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::sync::LazyLock;
+use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, OnceLock, RwLock};
 
 #[derive(serde::Deserialize)]
 struct Ids {
@@ -30,7 +35,7 @@ static IDS: LazyLock<(HashSet<i32>, HashSet<i32>)> = LazyLock::new(|| {
 /// `buff_uuid`/`create_time`/`layer` は付与の同一性キー。受動再観測では expire を
 /// 凍結し、別インスタンスの再付与（buff_uuid 変化＝再食）・同一インスタンスの
 /// タイマーリフレッシュ（create_time 変化）・重ねがけ（layer 増）でのみ更新する。
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Timing {
     pub expire_at_ms: u128,
     pub duration_ms: u128,
@@ -47,7 +52,7 @@ impl Timing {
 }
 
 /// プレイヤーの食事/シロップ状態。
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlayerConsumables {
     pub food: Option<Timing>,
     pub syrup: Option<Timing>,
@@ -88,7 +93,11 @@ pub fn refresh(store: &mut HashMap<i64, PlayerConsumables>, tracker: &BuffTracke
             e.syrup = syrup;
         }
     }
-    // 失効除去
+    purge_expired(store, now_ms);
+}
+
+/// now が終了時刻を過ぎた food/syrup を None にし、両方空になった uid を除去する。
+fn purge_expired(store: &mut HashMap<i64, PlayerConsumables>, now_ms: u128) {
     for pc in store.values_mut() {
         if pc.food.is_some_and(|f| now_ms >= f.expire_at_ms) {
             pc.food = None;
@@ -149,6 +158,120 @@ fn merge(existing: Option<Timing>, cand: Option<&BuffStateSnapshot>, now_ms: u12
         return Some(fresh()); // 同一 buff_uuid のタイマーリフレッシュ（create_time 変化）
     }
     Some(e) // 受動再観測 → 凍結
+}
+
+// ─── ディスク永続化 ─────────────────────────────────────────────────────────
+//
+// expire_at_ms は壁時計(エポックms)なので保存値は再起動後もそのまま有効。
+// 起動時に load し、変化時のみ save_if_changed で書き戻す（selected_uid 同形）。
+
+/// 保存ファイル構造（前方互換のため version 付き）。
+#[derive(Serialize, Deserialize)]
+struct ConsumablesFile {
+    version: u32,
+    /// player_uid -> 食事/シロップ状態。serde_json は i64 キーを文字列キーに直列化する。
+    players: HashMap<i64, PlayerConsumables>,
+}
+
+const FILE_VERSION: u32 = 1;
+
+struct PersistState {
+    path: Option<PathBuf>,
+    /// 直近に書き込んだ JSON。無変化時の再書き込みを避けるためのキャッシュ。
+    last_json: Option<String>,
+}
+
+static PERSIST: OnceLock<RwLock<PersistState>> = OnceLock::new();
+
+fn persist() -> &'static RwLock<PersistState> {
+    PERSIST.get_or_init(|| {
+        RwLock::new(PersistState {
+            path: None,
+            last_json: None,
+        })
+    })
+}
+
+/// 保存先パスを登録する（起動時に1回）。
+pub fn init(path: PathBuf) {
+    let Ok(mut g) = persist().write() else {
+        warn!("consumables: ロック取得失敗 (init)");
+        return;
+    };
+    g.path = Some(path);
+}
+
+/// 永続ファイルを読み込み、now で失効済みの分を除いて返す。
+/// ファイル無し/パース失敗/未init は空 map（warn ログ）。
+pub fn load(now_ms: u128) -> HashMap<i64, PlayerConsumables> {
+    let path = {
+        let Ok(g) = persist().read() else {
+            return HashMap::new();
+        };
+        g.path.clone()
+    };
+    let Some(path) = path else {
+        return HashMap::new();
+    };
+    let Ok(data) = std::fs::read_to_string(&path) else {
+        info!("consumables: ファイルなし ({})、空で起動", path.display());
+        return HashMap::new();
+    };
+    let parsed: ConsumablesFile = match serde_json::from_str(&data) {
+        Ok(f) => f,
+        Err(e) => {
+            warn!("consumables: パース失敗 ({}): {e}、空で起動", path.display());
+            return HashMap::new();
+        }
+    };
+    let mut store = parsed.players;
+    purge_expired(&mut store, now_ms); // 閉じている間に失効した分を除去
+    info!("consumables: 読み込み完了 {} 件", store.len());
+    store
+}
+
+/// store を直列化し、前回書き込み内容と異なる時のみファイルへ書き出す。
+/// 食事/シロップは付与/失効でしか変わらないため実質ゼロ I/O。
+pub fn save_if_changed(store: &HashMap<i64, PlayerConsumables>) {
+    let file = ConsumablesFile {
+        version: FILE_VERSION,
+        players: store.clone(),
+    };
+    let json = match serde_json::to_string(&file) {
+        Ok(j) => j,
+        Err(e) => {
+            warn!("consumables: シリアライズ失敗: {e}");
+            return;
+        }
+    };
+    let path = {
+        let Ok(g) = persist().read() else {
+            return;
+        };
+        match &g.path {
+            Some(p) if needs_write(g.last_json.as_deref(), &json) => p.clone(),
+            _ => return, // パス未設定 or 無変化
+        }
+    };
+    if let Err(e) = write_file(&path, &json) {
+        warn!("consumables: 保存失敗 ({}): {e}", path.display());
+        return;
+    }
+    if let Ok(mut g) = persist().write() {
+        g.last_json = Some(json);
+    }
+}
+
+/// last_json と new_json が異なれば書き込みが必要。
+fn needs_write(last_json: Option<&str>, new_json: &str) -> bool {
+    last_json != Some(new_json)
+}
+
+fn write_file(path: &Path, json: &str) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, json)
 }
 
 #[cfg(test)]
@@ -286,5 +409,67 @@ mod tests {
 
         refresh(&mut store, &tracker, 600_000); // 失効
         assert!(store.get(&UID).is_none());
+    }
+
+    fn timing(expire_at_ms: u128) -> Timing {
+        Timing {
+            expire_at_ms,
+            duration_ms: 600_000,
+            base_id: FOOD_ID,
+            buff_uuid: 7,
+            create_time: 1234,
+            layer: 1,
+        }
+    }
+
+    // serde ラウンドトリップで Timing（u128 含む）が保たれる。
+    #[test]
+    fn persist_roundtrip_preserves_timing() {
+        let mut players = HashMap::new();
+        players.insert(
+            UID,
+            PlayerConsumables {
+                food: Some(timing(900_000)),
+                syrup: None,
+            },
+        );
+        let file = ConsumablesFile { version: FILE_VERSION, players };
+        let json = serde_json::to_string(&file).unwrap();
+        let back: ConsumablesFile = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.version, FILE_VERSION);
+        assert_eq!(back.players[&UID].food, Some(timing(900_000)));
+        assert_eq!(back.players[&UID].syrup, None);
+    }
+
+    // load 相当の purge: now を過ぎた food/syrup が除去され、空 uid が消える。
+    #[test]
+    fn purge_drops_expired_keeps_live() {
+        let mut store = HashMap::new();
+        store.insert(
+            UID,
+            PlayerConsumables {
+                food: Some(timing(100_000)),  // 失効
+                syrup: Some(timing(900_000)), // 生存
+            },
+        );
+        store.insert(
+            UID + 1,
+            PlayerConsumables {
+                food: Some(timing(50_000)), // 失効のみ → uid ごと消える
+                syrup: None,
+            },
+        );
+        purge_expired(&mut store, 500_000);
+        assert_eq!(store[&UID].food, None);
+        assert_eq!(store[&UID].syrup, Some(timing(900_000)));
+        assert!(!store.contains_key(&(UID + 1)));
+    }
+
+    // 無変化なら書き込み不要、差分があれば必要。
+    #[test]
+    fn needs_write_detects_change() {
+        assert!(needs_write(None, "x"));
+        assert!(!needs_write(Some("x"), "x"));
+        assert!(needs_write(Some("x"), "y"));
     }
 }

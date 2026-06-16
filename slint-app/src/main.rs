@@ -1363,6 +1363,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dir = data_dir();
     engine::name_cache::init(dir.join("name_cache.json"));
     engine::selected_uid::init(dir.join("selected_uid.json"));
+    engine::consumables::init(dir.join("consumables.json"));
 
     // 共有エンカウンター＋パケット観測スレッド
     // BPSR_DEMO=1 のときは観測の代わりに合成データを流す（撮影・UI確認用）
@@ -1373,6 +1374,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             e.local_player_uid = uid;
         }
     }
+    // 前回終了時の食事/シロップ残時間を復元（失効分は load 側で除去）。
+    compute::load_consumables(&enc);
     if demo_mode {
         bpsr_core::engine::demo::spawn(enc.clone());
     } else {
@@ -2529,5 +2532,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     engine::name_cache::flush();
     engine::selected_uid::flush();
+    compute::save_consumables(&enc); // 終了時に最終状態を永続化
     Ok(())
 }

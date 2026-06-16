@@ -560,7 +560,8 @@ pub fn get_skills(
 pub fn reset_encounter(enc: &EncounterMutex) {
     with_lock_or(enc, "reset_encounter", (), |encounter| {
         encounter.clear_combat_stats();
-        encounter.consumables.clear(); // 手動リセットで食事/シロップ表示も消す
+        // 食事/シロップはゲーム内効果が継続するため手動リセットでは消さない
+        // （消えるのは自然失効・履歴クリアのみ）。
         // 3分計測中に初期化された場合は計測そのものを破棄する。
         // measure_mode を残すと armed_at_ms が古いまま固定され、
         // 次の計測クリックが開始ではなくキャンセルとして処理されたり、
@@ -570,14 +571,38 @@ pub fn reset_encounter(enc: &EncounterMutex) {
     });
 }
 
+/// 起動時に永続化された食事/シロップ状態を Encounter へ復元する（1回だけ呼ぶ）。
+pub fn load_consumables(enc: &EncounterMutex) {
+    let now = crate::engine::processor::now_ms();
+    let loaded = crate::engine::consumables::load(now);
+    if let Ok(mut e) = enc.lock() {
+        e.consumables = loaded;
+    }
+}
+
+/// 現在の食事/シロップ状態をディスクへ保存（変化時のみ書き込み）。終了時に呼ぶ。
+pub fn save_consumables(enc: &EncounterMutex) {
+    let snapshot = match enc.lock() {
+        Ok(e) => e.consumables.clone(),
+        Err(_) => return,
+    };
+    crate::engine::consumables::save_if_changed(&snapshot);
+}
+
 /// 食事/シロップ残時間ストアを buff_tracker の観測で更新（毎poll呼ぶ）。
 /// clear_combat_stats で消えても保持し続け、自然失効分はここで除去する。
+/// 更新後の状態は変化時のみディスク永続化する（I/O はロック外で実施）。
 pub fn refresh_consumables(enc: &EncounterMutex) {
-    if let Ok(mut e) = enc.lock() {
+    let snapshot = {
+        let Ok(mut e) = enc.lock() else {
+            return;
+        };
         let now = crate::engine::processor::now_ms();
         let e = &mut *e;
         crate::engine::consumables::refresh(&mut e.consumables, &e.buff_tracker, now);
-    }
+        e.consumables.clone()
+    };
+    crate::engine::consumables::save_if_changed(&snapshot);
 }
 
 /// 食事/シロップ残時間ストアを全消去（履歴クリア時など）。

@@ -40,8 +40,9 @@ pub struct Encounter {
     pub active_connection: Option<crate::capture::server::Server>,
     pub conn_to_uid: std::collections::HashMap<crate::capture::server::Server, i64>,
     pub buff_tracker: BuffTracker,
-    /// 食事/シロップバフの残時間ストア。clear_combat_stats では消さず（戦闘終了後も
-    /// ゲーム内効果は継続）、自然失効・手動リセット・履歴クリアで消す。
+    /// 食事/シロップバフの残時間ストア。clear_combat_stats・手動リセットでは消さず
+    /// （戦闘終了後もゲーム内効果は継続）、自然失効・履歴クリアでのみ消す。
+    /// consumables.json にディスク永続化され、アプリ再起動後に復元される。
     pub consumables: std::collections::HashMap<i64, crate::engine::consumables::PlayerConsumables>,
 }
 

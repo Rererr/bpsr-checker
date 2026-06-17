@@ -171,6 +171,10 @@ pwsh scripts/package-slint.ps1
 
 DPS は装備・スキル回し・状況・ロールにより大きく変動します。数値はあくまで参考値としてご活用ください。
 
+## 支援
+
+開発の継続を支援したい場合は、[GitHub Sponsors](https://github.com/sponsors/Rererr) からサポートできます。
+
 ## ライセンス
 
 本ソフトウェアは [**GNU General Public License v3.0 only (GPL-3.0-only)**](./LICENSE) の下で配布されます。

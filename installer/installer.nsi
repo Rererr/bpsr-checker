@@ -51,16 +51,16 @@ ShowUninstDetails show
 !insertmacro MUI_LANGUAGE "Japanese"
 !insertmacro MUI_LANGUAGE "English"
 
-; アプリ強制終了＋WinDivertドライバ停止・削除（ベストエフォート・失敗しても続行）。
+; アプリを強制終了し、WinDivert ドライバを停止する（ベストエフォート・失敗しても続行）。
+; 重要: "WinDivert" サービスはマシン全体で共有され、他の WinDivert 利用アプリ
+; （姉妹アプリ bpsr-module-optimizer 等）も使う可能性があるため **delete はしない**。
+; sc stop は他プロセスが使用中なら拒否されるため、共存中でも相手のキャプチャを壊さない。
+; 残留した壊れたサービスはアプリ起動時に自己修復する（recover_stale_service）。
 !macro KillAppAndDriver
   nsExec::ExecToLog 'taskkill /F /IM ${EXENAME} /T'
   Sleep 500
   nsExec::ExecToLog 'sc stop WinDivert'
   Sleep 1000
-  nsExec::ExecToLog 'sc stop WinDivert'
-  Sleep 1000
-  nsExec::ExecToLog 'sc delete WinDivert'
-  Sleep 500
 !macroend
 
 ; 前後の引用符を除去（レジストリの InstallLocation 等が引用符付きで入る場合がある）。
@@ -143,10 +143,12 @@ Section "Uninstall"
   !insertmacro KillAppAndDriver
 
   Delete "$INSTDIR\${EXENAME}"
-  Delete "$INSTDIR\WinDivert.dll"
-  Delete "$INSTDIR\WinDivert64.sys"
+  ; WinDivert の .dll/.sys は駆動中ロックされ得る（自プロセス終了直後や他アプリ使用中）。
+  ; ロック時は再起動時削除へフォールバックして残骸を残さない。
+  Delete /REBOOTOK "$INSTDIR\WinDivert.dll"
+  Delete /REBOOTOK "$INSTDIR\WinDivert64.sys"
   Delete "$INSTDIR\uninstall.exe"
-  RMDir "$INSTDIR"
+  RMDir /REBOOTOK "$INSTDIR"
 
   Delete "$SMPROGRAMS\${APPNAME}.lnk"
   Delete "$DESKTOP\${APPNAME}.lnk"

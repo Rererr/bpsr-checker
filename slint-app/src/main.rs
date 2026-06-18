@@ -77,9 +77,46 @@ impl log::Log for ConsoleLog {
         true
     }
     fn log(&self, r: &log::Record) {
-        eprintln!("[{}] {}: {}", r.level(), r.target(), r.args());
+        let line = format!("[{}] {}: {}", r.level(), r.target(), r.args());
+        eprintln!("{line}");
+        // 管理者権限(UAC)起動では cargo の端末に stderr が届かないため、診断用にファイルへも出す。
+        // 起動ごとに truncate して 1 起動 = 1 ファイルにする。
+        log_to_file(&line);
     }
     fn flush(&self) {}
+}
+
+/// ログ出力先ファイルのパス（%APPDATA%\bpsr-checker\bpsr-checker.log）。
+fn log_file_path() -> std::path::PathBuf {
+    let base = std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string());
+    std::path::PathBuf::from(base)
+        .join("bpsr-checker")
+        .join("bpsr-checker.log")
+}
+
+/// ログ1行をファイルへ追記（初回呼び出しで truncate して開く）。
+fn log_to_file(line: &str) {
+    use std::io::Write;
+    use std::sync::{Mutex, OnceLock};
+    static FILE: OnceLock<Mutex<Option<std::fs::File>>> = OnceLock::new();
+    let m = FILE.get_or_init(|| {
+        let path = log_file_path();
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let f = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&path)
+            .ok();
+        Mutex::new(f)
+    });
+    if let Ok(mut g) = m.lock() {
+        if let Some(f) = g.as_mut() {
+            let _ = writeln!(f, "{line}");
+        }
+    }
 }
 
 /// 二重起動防止（Windows 名前付き Mutex）。既に起動済みなら true。
@@ -879,6 +916,7 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         abbreviate_scores: c.abbreviate_scores,
         privacy_mask: c.privacy_mask_names,
         self_status: c.show_self_status_overlay,
+        stats_overlay: c.show_stats_overlay,
         buff_overlay: c.show_buff_overlay,
         imagine_only: c.imagine_only_mode,
         aot: c.always_on_top,
@@ -993,6 +1031,119 @@ fn build_status_entries(entries: &[bpsr_core::models::SelfStatusEntry]) -> Vec<S
         .collect()
 }
 
+/// ステータス窓の表示項目トグル一覧（カタログ × 現在の有効集合）。
+/// グループが切り替わる先頭項目にのみ group-head（見出し文字列）を設定する。
+fn build_stat_catalog(enabled: &[String]) -> Vec<StatCatalogItem> {
+    let mut last_group = "";
+    let mut out = Vec::with_capacity(settings::STAT_CATALOG.len());
+    for (key, label, group, _) in settings::STAT_CATALOG {
+        let head = if *group != last_group {
+            last_group = group;
+            *group
+        } else {
+            ""
+        };
+        out.push(StatCatalogItem {
+            key: (*key).into(),
+            label: (*label).into(),
+            group_head: head.into(),
+            enabled: enabled.iter().any(|e| e == key),
+        });
+    }
+    out
+}
+
+/// 3桁区切りの整数文字列（例: 28500 → "28,500"）。
+fn group_int(n: i64) -> String {
+    let neg = n < 0;
+    let digits = n.unsigned_abs().to_string();
+    let len = digits.len();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (len - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    if neg { format!("-{out}") } else { out }
+}
+
+/// SelfStatsData と有効項目（表示順）から UI 行を生成。値が無い項目は "—"。
+/// ※ 割合系ステータス（値/100=%）と実測率（命中由来・既に%）を区別して整形する。
+fn build_stat_entries(s: &bpsr_core::models::SelfStatsData, enabled: &[String]) -> Vec<StatEntryUi> {
+    let dash = "—".to_string();
+    let int_v = |o: Option<i32>| o.map(|v| group_int(v as i64)).unwrap_or_else(|| dash.clone());
+    let pct_v =
+        |o: Option<i32>| o.map(|v| format::format_pct(v as f64 / 100.0)).unwrap_or_else(|| dash.clone());
+    enabled
+        .iter()
+        .map(|key| {
+            let (value, accent) = match key.as_str() {
+                "hp" => {
+                    let v = match (s.curr_hp, s.max_hp) {
+                        (Some(c), Some(m)) => {
+                            format!("{} / {}", format::format_number(c), format::format_number(m))
+                        }
+                        (Some(c), None) => format::format_number(c),
+                        _ => dash.clone(),
+                    };
+                    (v, false)
+                }
+                // 整数系
+                "atk-phys" => (int_v(s.attack_power), false),
+                "atk-magic" => (int_v(s.magic_attack), false),
+                "def-phys" => (int_v(s.defense_power), false),
+                "def-magic" => (int_v(s.magic_defense), false),
+                "endurance" => (int_v(s.endurance), false),
+                "strength" => (int_v(s.strength), false),
+                "intelligence" => (int_v(s.intelligence), false),
+                "agility" => (int_v(s.agility), false),
+                "ability-score" => (int_v(s.ability_score), false),
+                "season-strength" => (int_v(s.season_strength), false),
+                // 割合系（値/100=%）
+                "haste" => (pct_v(s.haste), false),
+                "attack-speed" => (pct_v(s.attack_speed), false),
+                "cast-speed" => (pct_v(s.cast_speed), false),
+                "lucky" => (pct_v(s.lucky), false),
+                "crit" => (pct_v(s.crit_stat), false),
+                "versatility" => (pct_v(s.versatility), false),
+                "resist" => (pct_v(s.resist), false),
+                "dexterity" => (pct_v(s.dexterity), false),
+                "crit-dmg" => (pct_v(s.crit_dmg), false),
+                "lucky-dmg" => (pct_v(s.lucky_dmg), false),
+                // 実測率（命中データ由来・%・強調）
+                "crit-rate" => (
+                    if s.has_combat {
+                        format::format_pct(s.crit_rate_measured)
+                    } else {
+                        dash.clone()
+                    },
+                    true,
+                ),
+                "lucky-rate" => (
+                    if s.has_combat {
+                        format::format_pct(s.lucky_rate_measured)
+                    } else {
+                        dash.clone()
+                    },
+                    true,
+                ),
+                _ => (dash.clone(), false),
+            };
+            let label = settings::STAT_CATALOG
+                .iter()
+                .find(|(k, _, _, _)| *k == key)
+                .map(|(_, l, _, _)| *l)
+                .unwrap_or(key.as_str());
+            StatEntryUi {
+                label: label.into(),
+                value: value.into(),
+                accent,
+            }
+        })
+        .collect()
+}
+
 /// 円形タイマーの進捗アーク SVG（viewbox 28、中心14,14、半径12.5、上端から時計回り）。
 fn buff_arc(ratio: f32) -> String {
     let p = ratio.clamp(0.0, 0.9999);
@@ -1088,10 +1239,12 @@ struct PollState {
     // 復元から SETTLE_TICKS 経過後に保存対象へ含める。非表示で None に戻す。
     self_rtick: Option<u64>,
     buff_rtick: Option<u64>,
+    stats_rtick: Option<u64>,
     // 復元が実際に適用した（クランプ後の）矩形。settle 期間中はこのサイズを毎tick 再適用。
     restored_main: Option<window_state::WinRect>,
     restored_self: Option<window_state::WinRect>,
     restored_buffs: Option<window_state::WinRect>,
+    restored_stats: Option<window_state::WinRect>,
 }
 
 /// 初回 tick: winit 実体化後にメイン窓を復元する。復元が完了した tick で true を返す
@@ -1118,9 +1271,32 @@ fn poll_overlay_restore(
     cfg: &RefCell<settings::Settings>,
     self_overlay_w: &slint::Weak<SelfStatusOverlay>,
     buff_overlay_w: &slint::Weak<BuffOverlay>,
+    stats_overlay_w: &slint::Weak<StatsOverlay>,
     last_saved: &RefCell<window_state::Layout>,
 ) {
     let c = cfg.borrow();
+    if c.show_stats_overlay {
+        if st.stats_rtick.is_none() {
+            if let Some(o) = stats_overlay_w.upgrade() {
+                let mons = overlay::monitors(o.window());
+                if !mons.is_empty() {
+                    st.restored_stats = Some(window_state::restore(
+                        o.window(),
+                        last_saved.borrow().stats.as_ref(),
+                        &mons,
+                        0,
+                        (200, 220),
+                    ));
+                    st.stats_rtick = Some(st.tick);
+                    #[cfg(windows)]
+                    overlay::apply_taskbar_mode(o.window(), c.show_in_taskbar);
+                }
+            }
+        }
+    } else {
+        st.stats_rtick = None;
+        st.restored_stats = None;
+    }
     if c.show_self_status_overlay {
         if st.self_rtick.is_none() {
             if let Some(o) = self_overlay_w.upgrade() {
@@ -1176,6 +1352,7 @@ fn poll_tray_events(
     cfg: &RefCell<settings::Settings>,
     self_overlay_w: &slint::Weak<SelfStatusOverlay>,
     buff_overlay_w: &slint::Weak<BuffOverlay>,
+    stats_overlay_w: &slint::Weak<StatsOverlay>,
     tray_holder: &RefCell<Option<tray::Tray>>,
     main_visible: &Cell<bool>,
     click_through: &Cell<bool>,
@@ -1207,6 +1384,13 @@ fn poll_tray_events(
                     o.hide()
                 };
             }
+            if let Some(o) = stats_overlay_w.upgrade() {
+                let _ = if vis && c.show_stats_overlay {
+                    o.show()
+                } else {
+                    o.hide()
+                };
+            }
         } else if ev.id == tray.id_click_through {
             let on = !click_through.get();
             click_through.set(on);
@@ -1216,6 +1400,9 @@ fn poll_tray_events(
                 overlay::set_click_through(o.window(), on);
             }
             if let Some(o) = buff_overlay_w.upgrade() {
+                overlay::set_click_through(o.window(), on);
+            }
+            if let Some(o) = stats_overlay_w.upgrade() {
                 overlay::set_click_through(o.window(), on);
             }
         }
@@ -1243,6 +1430,11 @@ fn poll_tray_events(
                     let _ = o.show();
                 }
             }
+            if c.show_stats_overlay {
+                if let Some(o) = stats_overlay_w.upgrade() {
+                    let _ = o.show();
+                }
+            }
         }
     }
 }
@@ -1254,10 +1446,18 @@ fn poll_window_settle(
     st: &PollState,
     self_overlay_w: &slint::Weak<SelfStatusOverlay>,
     buff_overlay_w: &slint::Weak<BuffOverlay>,
+    stats_overlay_w: &slint::Weak<StatsOverlay>,
 ) {
     if st.setup_done && st.tick < st.setup_tick + SETTLE_TICKS {
         if let Some(r) = &st.restored_main {
             window_state::enforce_size(m.window(), r);
+        }
+    }
+    if let (Some(rt), Some(r)) = (st.stats_rtick, st.restored_stats.as_ref()) {
+        if st.tick < rt + SETTLE_TICKS {
+            if let Some(o) = stats_overlay_w.upgrade() {
+                window_state::enforce_size(o.window(), r);
+            }
         }
     }
     if let (Some(rt), Some(r)) = (st.self_rtick, st.restored_self.as_ref()) {
@@ -1284,6 +1484,7 @@ fn poll_auto_save(
     cfg: &RefCell<settings::Settings>,
     self_overlay_w: &slint::Weak<SelfStatusOverlay>,
     buff_overlay_w: &slint::Weak<BuffOverlay>,
+    stats_overlay_w: &slint::Weak<StatsOverlay>,
     last_saved: &RefCell<window_state::Layout>,
 ) {
     if !st.setup_done || st.tick < st.setup_tick + SETTLE_TICKS {
@@ -1310,6 +1511,13 @@ fn poll_auto_save(
             } else {
                 prev.buffs.clone()
             },
+            stats: if c.show_stats_overlay && settled(st.stats_rtick) {
+                stats_overlay_w
+                    .upgrade()
+                    .map(|o| window_state::capture(o.window()))
+            } else {
+                prev.stats.clone()
+            },
         }
     };
     let mut ls = last_saved.borrow_mut();
@@ -1323,6 +1531,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     static LOGGER: ConsoleLog = ConsoleLog;
     let _ = log::set_logger(&LOGGER);
     log::set_max_level(log::LevelFilter::Info);
+    log::info!("log file: {}", log_file_path().display());
 
     if already_running() {
         log::warn!("another instance is already running; exiting");
@@ -1440,6 +1649,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 自キャラUID 候補モデル
     let uid_candidates = Rc::new(VecModel::<UidCandidate>::default());
     main.set_uid_candidates(uid_candidates.clone().into());
+
+    // ステータス窓の表示項目トグル一覧（設定の有効集合から生成・トグルで再生成）
+    let stat_catalog = Rc::new(VecModel::<StatCatalogItem>::default());
+    stat_catalog.set_vec(build_stat_catalog(&cfg.borrow().stats_enabled));
+    main.set_stat_catalog(stat_catalog.clone().into());
+
+    // 自キャラ ステータス オーバーレイ（別ウィンドウ）
+    let stats_overlay = StatsOverlay::new()?;
+    let stats_rows = Rc::new(VecModel::<StatEntryUi>::default());
+    stats_overlay.set_stats(stats_rows.clone().into());
+    wire_overlay_chrome!(stats_overlay, main, "stats-overlay");
+    stats_overlay.set_show_minimize(cfg.borrow().show_in_taskbar);
 
     // 自キャラ バフ/デバフ オーバーレイ（別ウィンドウ）
     let self_overlay = SelfStatusOverlay::new()?;
@@ -1732,12 +1953,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let enc_sb = enc.clone();
         let self_ov = self_overlay.as_weak();
         let buff_ov = buff_overlay.as_weak();
+        let stats_ov = stats_overlay.as_weak();
+        let stat_catalog_sb = stat_catalog.clone();
         let taskbar_flag_cb = taskbar_flag.clone();
         main.on_set_bool(move |key, val| {
             {
                 let mut c = cfg_b.borrow_mut();
                 match key.as_str() {
                     "self-status-overlay" => c.show_self_status_overlay = val,
+                    "stats-overlay" => c.show_stats_overlay = val,
+                    // ステータス窓の表示項目トグル（カタログ順で並べ直して安定化）
+                    k if k.starts_with("stat.") => {
+                        let key = k.trim_start_matches("stat.").to_string();
+                        let mut set: std::collections::HashSet<String> =
+                            c.stats_enabled.iter().cloned().collect();
+                        if val {
+                            set.insert(key);
+                        } else {
+                            set.remove(&key);
+                        }
+                        c.stats_enabled = settings::STAT_CATALOG
+                            .iter()
+                            .map(|(k, _, _, _)| k.to_string())
+                            .filter(|k| set.contains(k))
+                            .collect();
+                    }
                     "buff-overlay" => c.show_buff_overlay = val,
                     // 専用モードON時はイマジンタイマーを強制表示（旧UIと同挙動）
                     "imagine-only" => {
@@ -1785,6 +2025,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(o) = buff_ov.upgrade() {
                     o.set_show_minimize(c.show_in_taskbar);
                 }
+                if let Some(o) = stats_ov.upgrade() {
+                    o.set_show_minimize(c.show_in_taskbar);
+                }
                 #[cfg(windows)]
                 {
                     let show = c.show_in_taskbar;
@@ -1797,12 +2040,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(o) = buff_ov.upgrade() {
                         overlay::apply_taskbar_mode(o.window(), show);
                     }
+                    if let Some(o) = stats_ov.upgrade() {
+                        overlay::apply_taskbar_mode(o.window(), show);
+                    }
                 }
+            }
+            // ステータス表示項目のトグルはカタログモデルを再生成してチェック状態へ反映。
+            if key.as_str().starts_with("stat.") {
+                stat_catalog_sb.set_vec(build_stat_catalog(&c.stats_enabled));
             }
             settings::save(&c);
             if key.as_str() == "self-status-overlay" {
                 if let Some(o) = self_ov.upgrade() {
                     if c.show_self_status_overlay {
+                        let _ = o.show();
+                    } else {
+                        let _ = o.hide();
+                    }
+                }
+            }
+            if key.as_str() == "stats-overlay" {
+                if let Some(o) = stats_ov.upgrade() {
+                    if c.show_stats_overlay {
                         let _ = o.show();
                     } else {
                         let _ = o.hide();
@@ -2263,6 +2522,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if cfg.borrow().show_buff_overlay {
         let _ = buff_overlay.show();
     }
+    if cfg.borrow().show_stats_overlay {
+        let _ = stats_overlay.show();
+    }
 
     // 周期ポーリング＋初回セットアップ（位置復元）＋自動保存
     let main_w = main.as_weak();
@@ -2278,6 +2540,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let self_debuffs_poll = self_debuffs.clone();
     let buff_overlay_w = buff_overlay.as_weak();
     let buff_players_poll = buff_players.clone();
+    let stats_overlay_w = stats_overlay.as_weak();
+    let stats_rows_poll = stats_rows.clone();
     let cfg_poll = cfg.clone();
     let wl_poll = wl.clone();
     let history_rows_poll = history_rows.clone();
@@ -2321,7 +2585,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = just_setup;
 
         // オーバーレイの位置/サイズ復元（表示された最初のtickで一度）。非表示で None に戻す。
-        poll_overlay_restore(&mut st, &cfg_poll, &self_overlay_w, &buff_overlay_w, &last_saved);
+        poll_overlay_restore(
+            &mut st,
+            &cfg_poll,
+            &self_overlay_w,
+            &buff_overlay_w,
+            &stats_overlay_w,
+            &last_saved,
+        );
 
         // トレイメニューのイベント処理（クリックスルー切替・表示/非表示・終了）
         #[cfg(windows)]
@@ -2330,6 +2601,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &cfg_poll,
             &self_overlay_w,
             &buff_overlay_w,
+            &stats_overlay_w,
             &tray_holder,
             &main_visible,
             &click_through,
@@ -2496,6 +2768,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
+        // 自キャラ ステータス オーバーレイ更新（表示中のみ）
+        if cfg_poll.borrow().show_stats_overlay {
+            if let Some(o) = stats_overlay_w.upgrade() {
+                o.set_font_scale(overlay_scale);
+                let s = compute::get_self_stats(&enc_poll);
+                o.set_waiting(s.local_player_uid == 0.0);
+                let enabled = cfg_poll.borrow().stats_enabled.clone();
+                stats_rows_poll.set_vec(build_stat_entries(&s, &enabled));
+            }
+        }
+
         // バフタイマー オーバーレイ更新（表示中のみ）
         if cfg_poll.borrow().show_buff_overlay {
             if let Some(o) = buff_overlay_w.upgrade() {
@@ -2520,10 +2803,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // 起動/表示直後の preferred サイズ再アサートを settle 期間中の再適用で打ち消す
         // （自動保存ガードより手前で実施）。
-        poll_window_settle(&m, &st, &self_overlay_w, &buff_overlay_w);
+        poll_window_settle(&m, &st, &self_overlay_w, &buff_overlay_w, &stats_overlay_w);
 
         // レイアウト自動保存（復元確定後・差分時のみ）。
-        poll_auto_save(&m, &st, &cfg_poll, &self_overlay_w, &buff_overlay_w, &last_saved);
+        poll_auto_save(
+            &m,
+            &st,
+            &cfg_poll,
+            &self_overlay_w,
+            &buff_overlay_w,
+            &stats_overlay_w,
+            &last_saved,
+        );
     });
 
     // トレイ格納（全ウィンドウ hide）でアプリが終了しないよう、最後のウィンドウが

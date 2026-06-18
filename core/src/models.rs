@@ -133,6 +133,45 @@ pub struct SelfStatusData {
     pub local_player_uid: f64,
 }
 
+/// 自キャラの戦闘ステータス（リアルタイム表示用）。
+/// パケット attr 由来の「ステータス値」と、命中データ由来の「実測率」を別々に保持する。
+/// ※ 割合系（attack_speed/haste/lucky/crit_stat/mastery/versatility/block）は「値 / 100 = %」。
+/// ※ *_measured は戦闘の命中集計から算出した実測パーセント（0〜100）。
+#[derive(serde::Serialize, Default, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SelfStatsData {
+    pub local_player_uid: f64,
+    pub has_combat: bool,
+    // HP
+    pub curr_hp: Option<f64>,
+    pub max_hp: Option<f64>,
+    // 整数系ステータス（ゲーム内表記準拠）
+    pub attack_power: Option<i32>,   // 物理攻撃力
+    pub magic_attack: Option<i32>,   // 魔法攻撃力
+    pub defense_power: Option<i32>,  // 物理防御力
+    pub magic_defense: Option<i32>,  // 魔法防御力
+    pub endurance: Option<i32>,      // 耐久力
+    pub strength: Option<i32>,       // 筋力
+    pub intelligence: Option<i32>,   // 知力
+    pub agility: Option<i32>,        // 敏捷
+    pub ability_score: Option<i32>,  // 能力スコア
+    pub season_strength: Option<i32>, // 幻夢強度
+    // 割合系ステータス（値 / 100 = %）
+    pub attack_speed: Option<i32>,   // 攻撃速度
+    pub cast_speed: Option<i32>,     // 詠唱速度
+    pub haste: Option<i32>,          // ファスト
+    pub lucky: Option<i32>,          // 幸運
+    pub crit_stat: Option<i32>,      // 会心
+    pub versatility: Option<i32>,    // 万能
+    pub resist: Option<i32>,         // レジスト
+    pub dexterity: Option<i32>,      // 器用さ
+    pub crit_dmg: Option<i32>,       // 会心ダメージ
+    pub lucky_dmg: Option<i32>,      // 幸運の一撃ダメージ倍率
+    // 実測率（命中データ由来・%）
+    pub crit_rate_measured: f64,
+    pub lucky_rate_measured: f64,
+}
+
 #[derive(serde::Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct MeasureModeStatus {

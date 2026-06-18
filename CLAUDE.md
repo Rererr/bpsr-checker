@@ -58,6 +58,25 @@ pwsh scripts/package-slint.ps1
 実行には `WinDivert.dll` / `WinDivert64.sys` が exe と同じディレクトリに必要
 （dev は `target/debug/` に配置、配布は `windivert/` から同梱）。
 
+### WinDivert は共有資源（他アプリとの共存設計）
+"WinDivert" サービス／ドライバは**マシン全体で1つの共有資源**。本アプリは姉妹アプリ
+`bpsr-module-optimizer` や他の WinDivert 利用ツールと**同時起動**され得るため、
+ドライバの所有者ではなく**善良な利用者**として振る舞う:
+- **起動時にサービスを停止・削除しない**。`open` 失敗時のみ、`recover_stale_service` が
+  **STOPPED（＝誰も使っていない）と確認できた壊れた残留サービス**だけを delete して再試行する
+  （RUNNING＝他アプリ使用中の可能性、には触れない）。
+- ハンドルは **distinct・非0 priority** ＋ `sniff` + `recv_only` で開く。WinDivert は同一優先度・
+  重複フィルタのハンドルにパケットを一度しか配送しないため。**checker=`-1000` / optimizer=`-1100`**
+  （`CAPTURE_PRIORITY`）。両者で必ず別値にすること。
+- インストーラ（`installer/installer.nsi`）も `sc delete WinDivert` を**実行しない**（best-effort
+  `sc stop` のみ。`.sys` 削除は `/REBOOTOK`）。終了時も共有サービスを削除しない。
+- **バージョン lockstep**: 同梱ドライバ版がアプリ間で食い違うと `WinDivertOpen` が
+  `IncompatibleVersion (654)` で失敗する。`windivert`(0.6)/`windivert-sys`(0.10) は
+  `bpsr-module-optimizer` と**同一に保つ**。バージョンを上げる場合は両アプリ同時に行う。
+- **dev の `.sys` ロック**: 駆動中は `target/**/WinDivert64.sys` がロックされ次回ビルドの再コピーが
+  失敗する。rebuild 前に `pwsh scripts/reset-windivert.ps1`（要管理者）で停止して解放する
+  （Slint 本体に終了フックが無いため。optimizer は終了時に debug 限定 STOP で自動解放）。
+
 ### ローカルテスト（Windows 開発環境）
 開発のメイン環境は Windows。`cargo run -p bpsr-app` を管理者権限で起動して実機テストする。
 Slint femtovg はブラウザ（旧 WebView2）と描画特性が異なる（ClearType 非対応）。

@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use tokio::sync::watch;
 use windivert::WinDivert;
 use windivert::layer::NetworkLayer;
-use windivert::prelude::{WinDivertFlags, WinDivertShutdownMode};
+use windivert::prelude::{CloseAction, WinDivertFlags, WinDivertShutdownMode};
 
 // Global sender for restart signal
 static RESTART_SENDER: OnceLock<watch::Sender<bool>> = OnceLock::new();
@@ -55,6 +55,16 @@ impl SharedDivert {
             let _ = (*self.inner.get()).shutdown(mode);
         }
     }
+    /// ハンドルを閉じてカーネルリソースを解放する（共有ドライバサービスには触れない）。
+    /// recv ループ脱出後に1度だけ呼ぶ。crate の `WinDivert` は `Drop` 未実装のため、
+    /// これを呼ばないと再起動のたびにカーネルハンドルがリークする。
+    fn close(&self) {
+        // SAFETY: recv が返った後（ループ脱出後）に呼ぶため inner を同時参照するスレッドは
+        // ない。CloseAction::Nothing なのでサービスの停止/削除は行わない（善良な利用者）。
+        unsafe {
+            let _ = (*self.inner.get()).close(CloseAction::Nothing);
+        }
+    }
 }
 
 // Active capture handle. Set when the recv loop opens WinDivert; cleared
@@ -94,6 +104,80 @@ fn emit_server_handover(packet_sender: &tokio::sync::mpsc::Sender<PktEnvelope>) 
 const HANDLE_CLEANUP_DELAY_MS: u64 = 500;
 const MAX_SUBNET_CONNECTIONS: usize = 16;
 
+/// このアプリの WinDivert ハンドル優先度。WinDivert は「同一優先度・重複フィルタの
+/// ハンドルにはパケットを一度しか配送しない」（公式 docs）ため、他の WinDivert 利用
+/// アプリ（既定 0 が多い）や姉妹アプリと衝突しない distinct・非0 値を使う。
+/// 姉妹アプリ bpsr-module-optimizer は -1100 を使う（両者で必ず別値にすること）。
+const CAPTURE_PRIORITY: i16 = -1000;
+const CAPTURE_FILTER: &str = "!loopback && ip && tcp";
+/// 削除保留(ERROR_SERVICE_MARKED_FOR_DELETE = 1072)時の open リトライ設定。
+const ERROR_SERVICE_MARKED_FOR_DELETE_CODE: i32 = 1072;
+const OPEN_RETRY_MAX: u32 = 5;
+const OPEN_RETRY_DELAY_MS: u64 = 200;
+
+fn open_handle() -> Result<WinDivert<NetworkLayer>, windivert::error::WinDivertError> {
+    // sniff + recv_only = 完全パッシブ（パケットを drop も inject もしない）。
+    WinDivert::network(
+        CAPTURE_FILTER,
+        CAPTURE_PRIORITY,
+        WinDivertFlags::new().set_sniff().set_recv_only(),
+    )
+}
+
+fn open_error_os_code(e: &windivert::error::WinDivertError) -> Option<i32> {
+    match e {
+        windivert::error::WinDivertError::IOError(io) => io.raw_os_error(),
+        _ => None,
+    }
+}
+
+/// WinDivert ハンドルを開く。"WinDivert" サービスはマシン全体で共有されるため、
+/// 既存サービスを破壊しない。回復は「STOPPED（＝ドライバ未ロード＝他プロセスが
+/// 使用していない）と確認できた壊れた残留サービスの削除」に限定する。
+/// 失敗時は理由をログ済みで `None` を返す（呼び出し側が STATE_FAILED を設定）。
+fn open_capture_handle() -> Option<WinDivert<NetworkLayer>> {
+    let err = match open_handle() {
+        Ok(handle) => return Some(handle),
+        Err(e) => e,
+    };
+
+    // 1072: 別インスタンスが後始末中（削除保留）。少し待って数回リトライ。
+    if open_error_os_code(&err) == Some(ERROR_SERVICE_MARKED_FOR_DELETE_CODE) {
+        warn!("WinDivert service marked for delete; retrying open");
+        for _ in 0..OPEN_RETRY_MAX {
+            std::thread::sleep(std::time::Duration::from_millis(OPEN_RETRY_DELAY_MS));
+            if let Ok(handle) = open_handle() {
+                return Some(handle);
+            }
+        }
+        error!("WinDivert open failed after retries: {err}");
+        return None;
+    }
+
+    // それ以外: 停止中（誰も使っていない）の壊れた残留サービスのみ削除して1回再試行。
+    match recover_stale_service() {
+        Ok(true) => {
+            info!("removed stale stopped WinDivert service; retrying open");
+            match open_handle() {
+                Ok(handle) => Some(handle),
+                Err(e2) => {
+                    error!("WinDivert open failed after stale-service recovery: {e2}");
+                    None
+                }
+            }
+        }
+        Ok(false) => {
+            // RUNNING（他アプリ使用中の可能性）または不在 → 破壊せず理由を出す。
+            error!("WinDivert unavailable: {err}");
+            None
+        }
+        Err(re) => {
+            error!("WinDivert unavailable: {err} (recovery check failed: {re})");
+            None
+        }
+    }
+}
+
 pub fn start_capture() -> tokio::sync::mpsc::Receiver<PktEnvelope> {
     // 戦闘開始時のパケット波を吸収するため大きめに確保
     const PACKET_CHANNEL_CAPACITY: usize = 4096;
@@ -123,22 +207,16 @@ fn read_packets_blocking(
     packet_sender: &tokio::sync::mpsc::Sender<PktEnvelope>,
     restart_receiver: &mut watch::Receiver<bool>,
 ) {
-    // 過去のクラッシュ等でサービスが残っている場合の自動回復
-    if let Err(e) = force_uninstall_service() {
-        warn!("WinDivert pre-open cleanup: {e}");
-    }
-    let windivert = match WinDivert::network(
-        "!loopback && ip && tcp",
-        0,
-        WinDivertFlags::new().set_sniff(),
-    ) {
-        Ok(handle) => {
-            info!("WinDivert handle opened");
+    // 共有 "WinDivert" サービスは他プロセスと共用するため、起動時に無条件で停止/削除しない。
+    // open に失敗した場合のみ、安全な範囲（停止中の壊れた残留サービス）で回復を試みる。
+    let windivert = match open_capture_handle() {
+        Some(handle) => {
+            info!("WinDivert handle opened (priority={CAPTURE_PRIORITY})");
             crate::capture::status::set_state(crate::capture::status::STATE_RUNNING);
             handle
         }
-        Err(e) => {
-            error!("Failed to initialize WinDivert: {e}");
+        None => {
+            // open_capture_handle が失敗理由をログ済み。
             crate::capture::status::set_state(crate::capture::status::STATE_FAILED);
             return;
         }
@@ -323,6 +401,9 @@ fn read_packets_blocking(
     if let Ok(mut slot) = active_divert_slot().lock() {
         *slot = None;
     }
+    // ハンドルを明示クローズ（crate に Drop が無く、再起動毎のリークを防ぐ）。
+    // サービスには触れない（CloseAction::Nothing）。
+    windivert.close();
     drop(windivert);
 }
 
@@ -461,17 +542,22 @@ pub fn request_restart() {
     }
 }
 
-#[cfg(target_os = "windows")]
-pub fn force_uninstall_service() -> Result<(), String> {
-    use windows::Win32::Foundation::{ERROR_SERVICE_DOES_NOT_EXIST, ERROR_SERVICE_NOT_ACTIVE};
+/// 既存 "WinDivert" サービスが STOPPED（＝ドライバ未ロード＝他プロセスが使用していない）
+/// の場合**のみ**削除する。RUNNING/PENDING（他アプリが使用中の可能性）や不在では何もしない。
+/// これにより、別アプリのアンインストールで ImagePath が壊れて残ったサービスや、過去の
+/// クラッシュ残骸を、共存中の他プロセスを壊さずに自己修復できる。
+///
+/// 戻り値: `Ok(true)`=停止中の壊れたサービスを削除した（open 再試行の価値あり） /
+///         `Ok(false)`=削除しなかった（RUNNING/PENDING/不在）。
+fn recover_stale_service() -> Result<bool, String> {
+    use windows::Win32::Foundation::ERROR_SERVICE_DOES_NOT_EXIST;
     use windows::Win32::System::Services::{
-        CloseServiceHandle, ControlService, DeleteService, OpenSCManagerW, OpenServiceW,
-        SC_MANAGER_CONNECT, SERVICE_CONTROL_STOP, SERVICE_STATUS, SERVICE_STOP,
+        CloseServiceHandle, DeleteService, OpenSCManagerW, OpenServiceW, QueryServiceStatus,
+        SC_MANAGER_CONNECT, SERVICE_QUERY_STATUS, SERVICE_STATUS, SERVICE_STOPPED,
     };
     use windows::core::PCWSTR;
 
-    // DELETE (汎用アクセス権 0x00010000) は windows::Win32::Storage::FileSystem の型付き定数だが
-    // OpenServiceW の引数は u32 なので直接値を使う
+    // DELETE (汎用アクセス権 0x00010000)。OpenServiceW の引数は u32 なので直接値を使う。
     const DELETE: u32 = 0x0001_0000;
 
     let service_name: Vec<u16> = "WinDivert\0".encode_utf16().collect();
@@ -483,34 +569,53 @@ pub fn force_uninstall_service() -> Result<(), String> {
         let svc = match OpenServiceW(
             scm,
             PCWSTR::from_raw(service_name.as_ptr()),
-            SERVICE_STOP | DELETE,
+            SERVICE_QUERY_STATUS | DELETE,
         ) {
             Ok(h) => h,
             Err(e) => {
                 let _ = CloseServiceHandle(scm);
                 if e.code() == ERROR_SERVICE_DOES_NOT_EXIST.to_hresult() {
-                    return Ok(());
+                    return Ok(false); // 不在: 回復不要
                 }
                 return Err(format!("OpenServiceW failed: {e}"));
             }
         };
 
         let mut status = SERVICE_STATUS::default();
-        if let Err(e) = ControlService(svc, SERVICE_CONTROL_STOP, &mut status).ok() {
-            if e.code() != ERROR_SERVICE_NOT_ACTIVE.to_hresult() {
-                let _ = CloseServiceHandle(svc);
-                let _ = CloseServiceHandle(scm);
-                return Err(format!("ControlService(STOP) failed: {e}"));
-            }
+        let stopped = if QueryServiceStatus(svc, &mut status).as_bool() {
+            status.dwCurrentState == SERVICE_STOPPED
+        } else {
+            let _ = CloseServiceHandle(svc);
+            let _ = CloseServiceHandle(scm);
+            return Err("QueryServiceStatus failed".to_string());
+        };
+
+        if !stopped {
+            // RUNNING/PENDING: 他プロセスが使用中かもしれない → 破壊しない。
+            let _ = CloseServiceHandle(svc);
+            let _ = CloseServiceHandle(scm);
+            return Ok(false);
         }
 
         let delete_result = DeleteService(svc).ok();
-
         let _ = CloseServiceHandle(svc);
         let _ = CloseServiceHandle(scm);
-
         delete_result.map_err(|e| format!("DeleteService failed: {e}"))?;
     }
 
-    Ok(())
+    Ok(true)
+}
+
+/// dev 専用: WinDivert ドライバを **STOP のみ**する（DeleteService はしない）。
+/// 駆動中はその `.sys` がロックされ次回 `cargo build` のドライバ再コピーを妨げるため、
+/// 終了時にロックを解放する措置。release ビルドでは何もしない（共有サービスに触れない
+/// ＝善良な利用者）。他プロセスがハンドル保持中は STOP が拒否されるため dev でも共存安全。
+pub fn stop_driver_for_dev() {
+    #[cfg(debug_assertions)]
+    {
+        match WinDivert::<()>::uninstall() {
+            Ok(()) => info!("WinDivert driver stopped (dev cleanup)"),
+            Err(e) => debug!("WinDivert dev stop skipped: {e}"),
+        }
+    }
 }

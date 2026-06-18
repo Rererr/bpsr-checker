@@ -7,8 +7,8 @@ use crate::engine::selected_uid;
 use crate::engine::skill_names::get_skill_name;
 use crate::models::{
     EncounterSnapshot, HeaderInfo, MeasureModeStatus, PlayerBuffSnapshot, PlayerRow, PlayersWindow,
-    SelfBuffSnapshot, SelfStatusData, SelfStatusEntry, SkillRow, SkillsWindow, TimeSeriesPoint,
-    TrackedBuffsData,
+    SelfBuffSnapshot, SelfStatsData, SelfStatusData, SelfStatusEntry, SkillRow, SkillsWindow,
+    TimeSeriesPoint, TrackedBuffsData,
 };
 use crate::protocol::pb::EntityKind;
 use log::info;
@@ -811,6 +811,58 @@ pub fn get_self_buff_status(enc: &EncounterMutex) -> SelfStatusData {
         debuffs,
         now_ms: now_ms as f64,
         local_player_uid: local_uid as f64,
+    }
+}
+
+/// 自キャラの戦闘ステータスを取得（リアルタイム表示用）。
+/// ステータス値はパケット attr 由来（Entity に追従保持）、実測率は当該エンカウンタの
+/// 命中データ由来。自キャラ未確定（uid==0）や Entity 不在なら空（uid のみ）を返す。
+pub fn get_self_stats(enc: &EncounterMutex) -> SelfStatsData {
+    let encounter = match enc.lock() {
+        Ok(e) => e,
+        Err(e) => {
+            log::error!("Lock poisoned in get_self_stats: {e}");
+            return SelfStatsData::default();
+        }
+    };
+    let uid = encounter.local_player_uid;
+    if uid == 0 {
+        return SelfStatsData::default();
+    }
+    let Some(ent) = encounter.entities.get(&uid) else {
+        return SelfStatsData {
+            local_player_uid: uid as f64,
+            ..Default::default()
+        };
+    };
+    let s = &ent.dmg_stats;
+    SelfStatsData {
+        local_player_uid: uid as f64,
+        has_combat: s.hit_count > 0,
+        curr_hp: ent.curr_hp.map(|v| v as f64),
+        max_hp: ent.max_hp.map(|v| v as f64),
+        attack_power: ent.attack_power,
+        magic_attack: ent.magic_attack,
+        defense_power: ent.defense_power,
+        magic_defense: ent.magic_defense,
+        endurance: ent.endurance,
+        strength: ent.strength,
+        intelligence: ent.intelligence,
+        agility: ent.agility,
+        ability_score: ent.ability_score,
+        season_strength: ent.season_strength,
+        attack_speed: ent.attack_speed,
+        cast_speed: ent.cast_speed,
+        haste: ent.haste,
+        lucky: ent.lucky,
+        crit_stat: ent.crit_stat,
+        versatility: ent.versatility,
+        resist: ent.resist,
+        dexterity: ent.dexterity,
+        crit_dmg: ent.crit_dmg,
+        lucky_dmg: ent.lucky_dmg,
+        crit_rate_measured: ratio_count_pct(s.crit_count, s.hit_count),
+        lucky_rate_measured: ratio_count_pct(s.lucky_count, s.hit_count),
     }
 }
 

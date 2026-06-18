@@ -5,6 +5,7 @@ use crate::error::AppError;
 pub enum Pkt {
     ServerHandover,
     SocialEnvelope,
+    WorldEnterScene,
     WorldEntityBatch,
     WorldEnterSnapshot,
     LocalDeltaBatch,
@@ -24,6 +25,7 @@ impl TryFrom<u32> for Pkt {
 
     fn try_from(pkt: u32) -> Result<Self, Self::Error> {
         Ok(match pkt {
+            0x00000003 => Pkt::WorldEnterScene, // EnterScene: 自キャラ入場時のフル属性(PlayerEnt.Attrs)
             0x00000006 => Pkt::WorldEntityBatch,
             0x00000015 => Pkt::WorldEnterSnapshot,
             0x0000002d => Pkt::WorldDeltaBatch,

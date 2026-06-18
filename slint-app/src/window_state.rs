@@ -20,6 +20,7 @@ pub struct Layout {
     pub main: Option<WinRect>,
     pub buffs: Option<WinRect>,
     pub self_status: Option<WinRect>,
+    pub stats: Option<WinRect>,
 }
 
 fn config_path() -> PathBuf {

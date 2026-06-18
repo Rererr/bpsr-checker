@@ -37,15 +37,33 @@ pub struct Entity {
     pub season_strength: Option<i32>,
 
     // Player combat stats (主に自キャラ。パケット attr から取得し戦闘中も追従する)
-    // ※ 整数系: attack_power / defense_power / endurance / dexterity
-    // ※ 割合系: attack_speed / haste / lucky は「値 / 100 = パーセント」(1% = 100)
+    // 命名はゲーム内ステータス画面の表記に合わせる（物理/魔法攻撃力, ファスト=haste など）。
+    // ※ 整数系: attack_power(物攻) / magic_attack(魔攻) / defense_power(物防) / magic_defense(魔防)
+    //          / endurance(耐久) / strength(筋力) / intelligence(知力) / agility(敏捷)
+    // ※ 割合系(値/100=%): attack_speed(攻撃速度) / cast_speed(詠唱速度) / haste(ファスト)
+    //          / lucky(幸運) / crit_stat(会心) / versatility(万能) / resist(レジスト)
+    //          / crit_dmg(会心ダメージ) / lucky_dmg(幸運の一撃倍率) / dexterity(器用さ)
+    // ※ attack_power / defense_power / endurance / dexterity / attack_speed / haste / lucky は
+    //   旧 probe で decode 配線済み。それ以外（magic_*/agility/crit_stat/versatility/resist/
+    //   cast_speed/crit_dmg/lucky_dmg）は attr_id 未確定で decode 未配線（実機 probe で確定後に配線）。
     pub attack_power: Option<i32>,
+    pub magic_attack: Option<i32>,
     pub defense_power: Option<i32>,
+    pub magic_defense: Option<i32>,
     pub endurance: Option<i32>,
+    pub strength: Option<i32>,
+    pub intelligence: Option<i32>,
+    pub agility: Option<i32>,
     pub dexterity: Option<i32>,
     pub attack_speed: Option<i32>,
+    pub cast_speed: Option<i32>,
     pub haste: Option<i32>,
     pub lucky: Option<i32>,
+    pub crit_stat: Option<i32>,
+    pub versatility: Option<i32>,
+    pub resist: Option<i32>,
+    pub crit_dmg: Option<i32>,
+    pub lucky_dmg: Option<i32>,
 
     // Monsters（curr_hp / max_hp は自キャラの HP にも流用する）
     pub monster_id: Option<u32>,

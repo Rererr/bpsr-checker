@@ -128,6 +128,20 @@ pub struct EntityAppear {
     #[prost(message, optional, tag = "3")]
     pub attrs: ::core::option::Option<EntityAttrs>,
 }
+/// EnterScene (WorldNtf method 0x3): 自キャラ入場時に届くフル属性スナップショット。
+/// PlayerEnt(=自キャラ Entity) の attrs に、会心/ファスト/万能/知力/敏捷/魔攻/魔防 等の
+/// 詳細ステータスが入る（SyncNearEntities の AOI 同期には含まれない）。
+/// PlayerEnt は EntityAppear と同型(uuid=1, ent_type=2, attrs=3)なので再利用する。
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EnterScene {
+    #[prost(message, optional, tag = "1")]
+    pub enter_scene_info: ::core::option::Option<EnterSceneInfo>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EnterSceneInfo {
+    #[prost(message, optional, tag = "2")]
+    pub player_ent: ::core::option::Option<EntityAppear>,
+}
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct InvItem {
     #[prost(message, optional, tag = "13")]

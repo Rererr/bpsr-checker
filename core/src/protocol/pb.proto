@@ -101,6 +101,13 @@ message EntityAppear {
   EntityAttrs attrs = 3;
 }
 
+// EnterScene (WorldNtf method 0x3): 自キャラ入場時に届くフル属性スナップショット。
+// PlayerEnt(=自キャラ Entity) の attrs に、会心/ファスト/万能/知力/敏捷/魔攻/魔防 等の
+// 詳細ステータスが入る（SyncNearEntities の AOI 同期には含まれない）。
+// PlayerEnt は EntityAppear と同型(uuid=1, ent_type=2, attrs=3)なので再利用する。
+message EnterScene { EnterSceneInfo enter_scene_info = 1; }
+message EnterSceneInfo { EntityAppear player_ent = 2; }
+
 message InvItem { ModuleAttrs mod_new_attr = 13; }
 
 message InvBags { map<int32, InvBag> packages = 1; }

@@ -90,6 +90,16 @@ fn decode_protobuf_int64(data: &[u8]) -> AppResult<i64> {
         .map_err(|e| AppError::Parse(format!("decode_varint i64: {e}")))
 }
 
+/// 自キャラ戦闘ステータス attr のデコード。ZDPS の isNoValue 準拠で**空 raw_data は値 0**を意味する
+/// （クラス変更等でステータスが 0 になると空 raw_data で届くため、空を 0 として反映しないと
+/// 古い値が残る）。デコード不能時も 0 を返す。
+fn decode_stat_i32(data: &[u8]) -> i32 {
+    if data.is_empty() {
+        return 0;
+    }
+    decode_protobuf_int32(data).unwrap_or(0)
+}
+
 pub(crate) fn now_ms() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -184,6 +194,13 @@ pub fn process_opcode(enc: &EncounterMutex, env: PktEnvelope) -> AppResult<()> {
             }
 
             match op {
+                Pkt::WorldEnterScene => {
+                    let Some(msg) = decode_packet::<pb::EnterScene>(data, "EnterScene") else {
+                        return Ok(());
+                    };
+                    process_enter_scene(&mut encounter, msg);
+                }
+
                 Pkt::WorldEntityBatch => {
                     let Some(msg) =
                         decode_packet::<pb::WorldEntityBatch>(data, "WorldEntityBatch")
@@ -753,6 +770,33 @@ pub(crate) fn take_time_series_sample(encounter: &mut Encounter, ts: u128, force
     encounter.last_sample_total_dmg = encounter.dmg_stats.total;
 }
 
+/// EnterScene (自キャラ入場) の PlayerEnt.attrs を処理する。
+/// AOI 同期(SyncNearEntities)には含まれない詳細ステータス（会心/ファスト/万能/知力/敏捷/
+/// 魔攻/魔防 等）がここに入る。PlayerEnt は自キャラなので、未確定なら local_player_uid も確定する。
+fn process_enter_scene(encounter: &mut Encounter, msg: pb::EnterScene) {
+    let Some(info) = msg.enter_scene_info else {
+        return;
+    };
+    let Some(player_ent) = info.player_ent else {
+        return;
+    };
+    let Some(attrs) = player_ent.attrs else {
+        return;
+    };
+    let player_uid = entity::get_player_uid(player_ent.uuid);
+    if player_uid == 0 {
+        return;
+    }
+    // EnterScene は自キャラの入場通知。local_player_uid 未確定ならここで確定させる
+    // （初回フル同期をこの経路で確実に取得するため）。
+    if encounter.local_player_uid == 0 {
+        encounter.local_player_uid = player_uid;
+    }
+    let target_entity = get_or_create_entity(encounter, player_uid, EntityKind::Player);
+    target_entity.entity_type = EntityKind::Player;
+    process_player_attrs(player_uid, target_entity, &attrs.attrs);
+}
+
 fn process_player_attrs(uid: i64, player_entity: &mut Entity, attrs: &[pb::RawAttr]) {
     use crate::capture::binary_reader::BinaryReader;
 
@@ -763,22 +807,27 @@ fn process_player_attrs(uid: i64, player_entity: &mut Entity, attrs: &[pb::RawAt
     let mut cache_season_str: Option<i32> = None;
 
     for attr in attrs {
-        if attr.raw_data.is_empty() || attr.id == 0 {
+        // 空 raw_data はスキップしない: ステータスが 0 になった通知（ZDPS の isNoValue=空）を
+        // 取りこぼすと古い値が残るため、ステータス系アームで空を 0 として反映する。
+        if attr.id == 0 {
             continue;
         }
 
         match attr.id {
             attr_type::ATTR_NAME => {
-                // Skip the leading length byte
-                let raw_bytes = attr.raw_data[1..].to_vec();
-                match BinaryReader::from(raw_bytes).read_string() {
-                    Ok(player_name) => {
-                        debug!("Found player name: {player_name}");
-                        cache_name = Some(player_name.clone());
-                        player_entity.name = Some(player_name);
-                    }
-                    Err(e) => {
-                        warn!("Failed to read player name: {e}");
+                // 空（名前なし）は先頭バイトのスライスで panic するため早期スキップ。
+                if !attr.raw_data.is_empty() {
+                    // Skip the leading length byte
+                    let raw_bytes = attr.raw_data[1..].to_vec();
+                    match BinaryReader::from(raw_bytes).read_string() {
+                        Ok(player_name) => {
+                            debug!("Found player name: {player_name}");
+                            cache_name = Some(player_name.clone());
+                            player_entity.name = Some(player_name);
+                        }
+                        Err(e) => {
+                            warn!("Failed to read player name: {e}");
+                        }
                     }
                 }
             }
@@ -821,40 +870,60 @@ fn process_player_attrs(uid: i64, player_entity: &mut Entity, attrs: &[pb::RawAt
                     }
                 }
             }
+            // 戦闘ステータスは空 raw_data を 0 として反映（クラス変更で 0 化した値の取りこぼし防止）。
             attr_type::ATTR_ATTACK_POWER => {
-                if let Ok(v) = decode_protobuf_int32(&attr.raw_data) {
-                    player_entity.attack_power = Some(v);
-                }
+                player_entity.attack_power = Some(decode_stat_i32(&attr.raw_data));
             }
             attr_type::ATTR_DEFENSE_POWER => {
-                if let Ok(v) = decode_protobuf_int32(&attr.raw_data) {
-                    player_entity.defense_power = Some(v);
-                }
+                player_entity.defense_power = Some(decode_stat_i32(&attr.raw_data));
             }
             attr_type::ATTR_ENDURANCE => {
-                if let Ok(v) = decode_protobuf_int32(&attr.raw_data) {
-                    player_entity.endurance = Some(v);
-                }
+                player_entity.endurance = Some(decode_stat_i32(&attr.raw_data));
+            }
+            attr_type::ATTR_STRENGTH => {
+                player_entity.strength = Some(decode_stat_i32(&attr.raw_data));
+            }
+            attr_type::ATTR_INTELLIGENCE => {
+                player_entity.intelligence = Some(decode_stat_i32(&attr.raw_data));
+            }
+            attr_type::ATTR_AGILITY => {
+                player_entity.agility = Some(decode_stat_i32(&attr.raw_data));
+            }
+            attr_type::ATTR_MAGIC_ATTACK => {
+                player_entity.magic_attack = Some(decode_stat_i32(&attr.raw_data));
+            }
+            attr_type::ATTR_MAGIC_DEFENSE => {
+                player_entity.magic_defense = Some(decode_stat_i32(&attr.raw_data));
+            }
+            attr_type::ATTR_CRIT => {
+                player_entity.crit_stat = Some(decode_stat_i32(&attr.raw_data));
+            }
+            attr_type::ATTR_CRIT_DMG => {
+                player_entity.crit_dmg = Some(decode_stat_i32(&attr.raw_data));
+            }
+            attr_type::ATTR_RESIST => {
+                player_entity.resist = Some(decode_stat_i32(&attr.raw_data));
+            }
+            attr_type::ATTR_CAST_SPEED => {
+                player_entity.cast_speed = Some(decode_stat_i32(&attr.raw_data));
+            }
+            attr_type::ATTR_VERSATILITY => {
+                player_entity.versatility = Some(decode_stat_i32(&attr.raw_data));
             }
             attr_type::ATTR_DEXTERITY => {
-                if let Ok(v) = decode_protobuf_int32(&attr.raw_data) {
-                    player_entity.dexterity = Some(v);
-                }
+                player_entity.dexterity = Some(decode_stat_i32(&attr.raw_data));
             }
             attr_type::ATTR_ATTACK_SPEED => {
-                if let Ok(v) = decode_protobuf_int32(&attr.raw_data) {
-                    player_entity.attack_speed = Some(v);
-                }
+                player_entity.attack_speed = Some(decode_stat_i32(&attr.raw_data));
             }
             attr_type::ATTR_HASTE => {
-                if let Ok(v) = decode_protobuf_int32(&attr.raw_data) {
-                    player_entity.haste = Some(v);
-                }
+                player_entity.haste = Some(decode_stat_i32(&attr.raw_data));
             }
             attr_type::ATTR_LUCKY => {
-                if let Ok(v) = decode_protobuf_int32(&attr.raw_data) {
-                    player_entity.lucky = Some(v);
-                }
+                player_entity.lucky = Some(decode_stat_i32(&attr.raw_data));
+            }
+            attr_type::ATTR_LUCKY_DMG => {
+                player_entity.lucky_dmg = Some(decode_stat_i32(&attr.raw_data));
             }
             _ => {}
         }

@@ -7,6 +7,52 @@ use std::path::PathBuf;
 pub const DEFAULT_NAME_TEMPLATE: &str = "{name} {spec}({score} - {seasonLv} - {seasonStr})";
 pub const DEFAULT_COPY_TEMPLATE: &str = "{rank}. {name} ({class}) {dmg} / {dps} DPS ({pct})";
 
+/// 自キャラ ステータス窓の項目カタログ: (key, 日本語ラベル, グループ, 既定で表示するか)。
+/// ラベル・グループはゲーム内ステータス画面の表記に準拠（docs/images の参考スクショ）。
+/// ※ key は設定 `stats_enabled` と Slint の "stat.<key>" トグルキーに対応。
+/// ※ 「会心/幸運」はステータス値（attr由来の%）、「会心率/幸運率(実測)」は命中データ由来の別項目。
+/// ※ attr_id 未確定の項目（魔攻/魔防/敏捷/会心/万能/レジスト/詠唱速度/会心ダメージ/幸運倍率/器用さ）は
+///   実機 probe 確定までは値が「—」表示になる（デモモードではデモ値を表示）。
+pub const STAT_CATALOG: &[(&str, &str, &str, bool)] = &[
+    // 基本
+    ("hp", "HP", "基本", true),
+    ("atk-phys", "物理攻撃力", "基本", true),
+    ("atk-magic", "魔法攻撃力", "基本", false),
+    ("strength", "筋力", "基本", true),
+    ("intelligence", "知力", "基本", false),
+    ("agility", "敏捷", "基本", false),
+    ("endurance", "耐久力", "基本", true),
+    ("ability-score", "能力スコア", "基本", false),
+    ("season-strength", "幻夢強度", "基本", false),
+    // 会心・幸運（実測率＋ステータス値）
+    ("crit-rate", "会心率(実測)", "会心・幸運", true),
+    ("crit", "会心", "会心・幸運", true),
+    ("lucky-rate", "幸運率(実測)", "会心・幸運", true),
+    ("lucky", "幸運", "会心・幸運", true),
+    // 副次（％）
+    ("haste", "ファスト", "副次", true),
+    ("dexterity", "器用さ", "副次", false),
+    ("versatility", "万能", "副次", false),
+    ("resist", "レジスト", "副次", false),
+    // 攻撃詳細
+    ("attack-speed", "攻撃速度", "攻撃", false),
+    ("cast-speed", "詠唱速度", "攻撃", false),
+    ("crit-dmg", "会心ダメージ", "攻撃", false),
+    ("lucky-dmg", "幸運の一撃倍率", "攻撃", false),
+    // 生存
+    ("def-phys", "物理防御力", "生存", false),
+    ("def-magic", "魔法防御力", "生存", false),
+];
+
+/// カタログの既定表示項目（キー一覧）。
+pub fn default_stats_enabled() -> Vec<String> {
+    STAT_CATALOG
+        .iter()
+        .filter(|(_, _, _, on)| *on)
+        .map(|(k, _, _, _)| k.to_string())
+        .collect()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
@@ -40,6 +86,10 @@ pub struct Settings {
     pub show_buff_overlay: bool,
     pub imagine_only_mode: bool,
     pub show_self_status_overlay: bool,
+    /// 自キャラ ステータス窓（攻撃力/会心/HP 等のリアルタイム表示）を出すか。
+    pub show_stats_overlay: bool,
+    /// ステータス窓に表示する項目キーの一覧（順序＝表示順）。`stat_catalog()` のキーから選択。
+    pub stats_enabled: Vec<String>,
     pub show_element: bool,
     pub show_damage_mode: bool,
     pub compact_split_mode: bool,
@@ -91,6 +141,8 @@ impl Default for Settings {
             show_buff_overlay: false,
             imagine_only_mode: false,
             show_self_status_overlay: false,
+            show_stats_overlay: false,
+            stats_enabled: default_stats_enabled(),
             show_element: true,
             show_damage_mode: true,
             compact_split_mode: false,

@@ -361,6 +361,36 @@ fn prime_entities(enc: &EncounterMutex) {
             processor::process_scene_delta(&mut e, delta);
         }
     }
+
+    // 自キャラの戦闘ステータスをデモ値で投入（表示の器を確認するため）。
+    // 値はゲーム内ステータス画面（docs/images の参考スクショ）のスケールに合わせる。
+    // ※ 割合系は「値 / 100 = %」（例: crit_stat 2485 = 24.85%）。
+    if let Ok(mut e) = enc.lock() {
+        if let Some(ent) = e.entities.get_mut(&SELF_UID) {
+            ent.curr_hp = Some(320_000);
+            ent.max_hp = Some(398_624);
+            ent.attack_power = Some(3_569); // 物理攻撃力
+            ent.magic_attack = Some(0); // 魔法攻撃力
+            ent.defense_power = Some(12_387); // 物理防御力
+            ent.magic_defense = Some(179); // 魔法防御力
+            ent.endurance = Some(28_342);
+            ent.strength = Some(5_507);
+            ent.intelligence = Some(543);
+            ent.agility = Some(543);
+            ent.season_strength = Some(3_184); // 幻夢強度
+            ent.ability_score = Some(47_421); // 能力スコア
+            ent.attack_speed = Some(3_124); // 31.24%
+            ent.cast_speed = Some(3_040); // 30.4%
+            ent.haste = Some(3_040); // ファスト 30.4%
+            ent.lucky = Some(632); // 6.32%
+            ent.crit_stat = Some(2_485); // 会心 24.85%
+            ent.versatility = Some(2_647); // 万能 26.47%
+            ent.resist = Some(0); // レジスト 0%
+            ent.dexterity = Some(4_172); // 器用さ 41.72%
+            ent.crit_dmg = Some(5_000); // 会心ダメージ 50%
+            ent.lucky_dmg = Some(4_158); // 幸運の一撃倍率 41.58%
+        }
+    }
 }
 
 fn ensure_all_buffs(enc: &EncounterMutex, rng: &mut Rng, first: bool) {

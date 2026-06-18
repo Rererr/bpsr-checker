@@ -44,16 +44,32 @@ pub mod attr_type {
     pub const ATTR_SEASON_STRENGTH: i32 = 0x2CB0;
     pub const ATTR_POS: i32 = 0x34;
 
-    // 自キャラ戦闘ステータス（probe 実測 + ゲーム内パネル照合で確定）。
-    // 各 stat は {id, id+1, id+2}（合計/基礎/補正）の3連で届くため先頭 id を使う。
-    pub const ATTR_ATTACK_POWER: i32 = 0x32; // 攻撃力（整数）
-    pub const ATTR_DEFENSE_POWER: i32 = 0x33; // 防御力（整数）
-    pub const ATTR_ENDURANCE: i32 = 0x2B20; // 11040 耐久力（整数）
-    pub const ATTR_DEXTERITY: i32 = 0x2B84; // 11140 器用さ（整数）
-    pub const ATTR_ATTACK_SPEED: i32 = 0x2DC8; // 11720 攻撃速度（値/100 = %）
-    pub const ATTR_HASTE: i32 = 0x2E9A; // 11930 ファスト/迅速（値/100 = %）
-    pub const ATTR_LUCKY: i32 = 0x3188; // 12680 幸運（値/100 = %）
-    // 会心率はパケットに送られないため、命中データからの実測値を別途使う。
+    // 自キャラ戦闘ステータス（EnterScene の PlayerEnt.attrs から取得。2026-06-19 実機 probe +
+    // ゲーム内ステータス画面ツールチップで全項目を値一致確認）。
+    // 各 stat は {id, id+1, id+2}（合計/基礎/補正）の3連で届くため先頭 id（合計）を使う。
+    // ％系は「表示%」の id を採用（ゲーム内パネル表示と一致。別途あるレーティング id は不採用）。
+    // 整数系
+    pub const ATTR_ATTACK_POWER: i32 = 0x2C42; // 11330 物理攻撃力 (AttrAttack)
+    pub const ATTR_MAGIC_ATTACK: i32 = 0x2C4C; // 11340 魔法攻撃力 (AttrMAttack)
+    pub const ATTR_DEFENSE_POWER: i32 = 0x2C56; // 11350 物理防御力 (AttrDefense)
+    pub const ATTR_MAGIC_DEFENSE: i32 = 0x2C60; // 11360 魔法防御力 (AttrMDefense)
+    pub const ATTR_ENDURANCE: i32 = 0x2B20; // 11040 耐久力
+    pub const ATTR_STRENGTH: i32 = 0x2B02; // 11010 筋力
+    pub const ATTR_INTELLIGENCE: i32 = 0x2B0C; // 11020 知力
+    pub const ATTR_AGILITY: i32 = 0x2B16; // 11030 敏捷
+    // 割合系（値/100 = %・「表示%(万分比)」の id を採用。別途あるレーティング id は不採用）
+    pub const ATTR_CRIT: i32 = 0x2DBE; // 11710 会心 (AttrCrit, 2485=24.85%)
+    pub const ATTR_ATTACK_SPEED: i32 = 0x2DC8; // 11720 攻撃速度 (AttrAttackSpeedPCT)
+    pub const ATTR_CAST_SPEED: i32 = 0x2DD2; // 11730 詠唱速度 (AttrCastSpeedPCT)
+    pub const ATTR_HASTE: i32 = 0x2E9A; // 11930 ファスト/急速 (AttrHastePct)
+    pub const ATTR_LUCKY: i32 = 0x2E04; // 11780 幸運 (AttrLuckyStrikeProb, 633=6.33%)
+    pub const ATTR_DEXTERITY: i32 = 0x2EA4; // 11940 器用さ (AttrMasteryPct=精通)
+    pub const ATTR_VERSATILITY: i32 = 0x2EAE; // 11950 万能 (AttrVersatilityPct=全能)
+    pub const ATTR_CRIT_DMG: i32 = 0x30DE; // 12510 会心ダメージ (AttrCritDamage, 5710=57.1%)
+    pub const ATTR_RESIST: i32 = 0x30E8; // 12520 レジスト (AttrCritDamageRes=暴击伤害抵抗)
+    pub const ATTR_LUCKY_DMG: i32 = 0x30F2; // 12530 幸運の一撃ダメージ倍率 (AttrLuckDamInc)
+    // 能力スコア(46169)=ATTR_FIGHT_POINT(0x272E)・幻夢強度=ATTR_SEASON_STRENGTH(0x2CB0)。
+    // 会心率/幸運率は命中データからの実測値を別途使う（[[self-stats-overlay-progress]]）。
 }
 
 pub mod damage {

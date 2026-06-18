@@ -54,6 +54,7 @@ struct SettingsUi {
     abbreviate-scores: bool,
     privacy-mask: bool,
     self-status: bool,
+    stats-overlay: bool,
     buff-overlay: bool,
     imagine-only: bool,
     aot: bool,
@@ -117,6 +118,21 @@ struct UidCandidate {
     uid-str: string,
     label: string,    // "名前 #1234"
     selected: bool,
+}
+
+// 自キャラ ステータス窓の1行（Rust が整形した value を表示するだけ）。
+struct StatEntryUi {
+    label: string,
+    value: string,
+    accent: bool,    // 実測率など強調表示する項目
+}
+
+// ステータス表示項目の設定カタログ（表示ON/OFFのトグル一覧用）。
+struct StatCatalogItem {
+    key: string,
+    label: string,
+    group-head: string, // グループ先頭の項目のみ見出し文字列（それ以外は空）
+    enabled: bool,
 }
 
 // 3分計測 結果パネルのプレイヤー行
@@ -1054,6 +1070,27 @@ component OverlaySection inherits VerticalLayout {
     ToggleRow { label: @tr("常に最前面"); checked: root.cfg.aot; toggled => { root.set-bool("aot", !root.cfg.aot); } }
 }
 
+// 自キャラ ステータス窓（表示ON/OFF＋表示する項目のカスタマイズ）
+component StatsSection inherits VerticalLayout {
+    in property <SettingsUi> cfg;
+    in property <[StatCatalogItem]> catalog;
+    callback set-bool(string, bool);
+    spacing: 1px;
+    Text { text: @tr("ステータス窓"); color: #888; font-size: 10px; }
+    ToggleRow { label: @tr("自キャラ ステータス"); checked: root.cfg.stats-overlay; toggled => { root.set-bool("stats-overlay", !root.cfg.stats-overlay); } }
+    // 表示する項目（ゲーム内パネル単位でグループ表示。実測率とステータス値は別項目）
+    Text { text: @tr("表示する項目"); color: #888; font-size: 9px; }
+    for item in root.catalog: VerticalLayout {
+        spacing: 1px;
+        if item.group-head != "": Text { text: item.group-head; color: #666; font-size: 9px; }
+        ToggleRow {
+            label: item.label;
+            checked: item.enabled;
+            toggled => { root.set-bool("stat.\{item.key}", !item.enabled); }
+        }
+    }
+}
+
 // 戦闘（終了判定・更新間隔・3分計測）
 component CombatSection inherits VerticalLayout {
     in property <SettingsUi> cfg;
@@ -1133,6 +1170,7 @@ export component MainWindow inherits Window {
     in property <string> selected-uid-value;  // 自キャラUID入力欄（開時/確定時に push）
     in property <string> selected-uid-name;    // 解決名/状態表示
     in property <[UidCandidate]> uid-candidates;
+    in property <[StatCatalogItem]> stat-catalog; // ステータス窓の表示項目トグル一覧
     in property <float> win-opacity: 0.85;
     in property <float> font-scale: 1.0; // 本体テーブル＋ヘッダの文字倍率（font_size/12）
     in property <bool> copied; // コピー直後の一時フィードバック
@@ -1202,7 +1240,7 @@ export component MainWindow inherits Window {
     changed width => { root.narrow-header = root.width < 600px; }
     // 設定パネルの列数（窓幅でレスポンシブに 1/2/3）。短ラベルが多いので幅があれば3列まで。
     property <int> set-cols: root.width >= 660px ? 3 : (root.width >= 440px ? 2 : 1);
-    // セクション index(0=キャラ,1=表示列,2=表示,3=オーバーレイ,4=戦闘,5=履歴) の所属カラムを返す。
+    // セクション index(0=キャラ,1=表示列,2=表示,3=オーバーレイ,4=戦闘,5=履歴,6=ステータス窓) の所属カラムを返す。
     pure function scol(i: int) -> int {
         if (root.set-cols <= 1) {
             return 0;
@@ -1655,6 +1693,7 @@ export component MainWindow inherits Window {
                             if root.scol(3) == 0: OverlaySection { cfg: root.cfg-ui; set-bool(k, v) => { root.set-bool(k, v); } }
                             if root.scol(4) == 0: CombatSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
                             if root.scol(5) == 0: HistorySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
+                            if root.scol(6) == 0: StatsSection { cfg: root.cfg-ui; catalog: root.stat-catalog; set-bool(k, v) => { root.set-bool(k, v); } }
                         }
                         // ── 列1（2列以上のとき）──
                         if root.set-cols >= 2: VerticalLayout {
@@ -1669,6 +1708,7 @@ export component MainWindow inherits Window {
                             if root.scol(3) == 1: OverlaySection { cfg: root.cfg-ui; set-bool(k, v) => { root.set-bool(k, v); } }
                             if root.scol(4) == 1: CombatSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
                             if root.scol(5) == 1: HistorySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
+                            if root.scol(6) == 1: StatsSection { cfg: root.cfg-ui; catalog: root.stat-catalog; set-bool(k, v) => { root.set-bool(k, v); } }
                         }
                         // ── 列2（3列のとき）──
                         if root.set-cols >= 3: VerticalLayout {
@@ -1683,6 +1723,7 @@ export component MainWindow inherits Window {
                             if root.scol(3) == 2: OverlaySection { cfg: root.cfg-ui; set-bool(k, v) => { root.set-bool(k, v); } }
                             if root.scol(4) == 2: CombatSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
                             if root.scol(5) == 2: HistorySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
+                            if root.scol(6) == 2: StatsSection { cfg: root.cfg-ui; catalog: root.stat-catalog; set-bool(k, v) => { root.set-bool(k, v); } }
                         }
                     }
                     // ── 不透明度（常に全幅。2列以上のときは複数列ぶんの横幅で操作しやすく）──
@@ -2042,6 +2083,63 @@ export component SelfStatusOverlay inherits Window {
     // 最小化（×の左隣・タスクバー常駐モード時のみ）
     if root.show-minimize: OverlayMinButton { x: root.width - 2 * self.width - 6px; y: 2px; minimize => { root.minimize(); } }
     // 閉じる（右上・ResizeEdges より後＝最上層で右上角クリックを優先）
+    OverlayCloseButton { x: root.width - self.width - 2px; y: 2px; close => { root.close-window(); } }
+}
+
+// ─── 自キャラ ステータス オーバーレイ（攻撃力/会心/HP 等のリアルタイム表示）──────
+component StatValueRow inherits Rectangle {
+    in property <StatEntryUi> e;
+    in property <float> font-scale: 1.0;
+    height: 17px;
+    HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 6px;
+        spacing: 8px;
+        Text { text: root.e.label; color: #ffffffb3; font-size: 10px * root.font-scale; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+        Text { text: root.e.value; color: root.e.accent ? Theme.accent : #ffffffe6; font-size: 10px * root.font-scale; vertical-alignment: center; horizontal-alignment: right; }
+    }
+}
+
+export component StatsOverlay inherits Window {
+    in property <[StatEntryUi]> stats;
+    in property <bool> waiting;
+    in property <float> font-scale: 1.0; // メインの font_size に連動
+    in property <bool> show-minimize;    // タスクバー常駐モード時のみ最小化ボタンを出す
+    callback start-drag();
+    callback start-resize(int);
+    callback close-window();
+    callback minimize();
+
+    title: @tr("自キャラ ステータス");
+    default-font-family: "Yu Gothic UI";
+    no-frame: true;
+    always-on-top: true;
+    background: #0a0a12d1;
+    preferred-width: 200px;
+    preferred-height: 220px;
+
+    // 全面ドラッグ（外周フレーム相当）
+    drag := TouchArea {
+        mouse-cursor: move;
+        pointer-event(ev) => {
+            if (ev.kind == PointerEventKind.down) {
+                root.start-drag();
+            }
+        }
+    }
+    VerticalLayout {
+        padding: 8px;
+        spacing: 2px;
+        alignment: start; // 上詰め
+        if root.waiting: Text { text: @tr("自キャラ判定中..."); color: #ffffff4d; font-size: 10px * root.font-scale; horizontal-alignment: center; }
+        if !root.waiting && root.stats.length == 0: Text { text: @tr("表示項目なし"); color: #ffffff4d; font-size: 10px * root.font-scale; horizontal-alignment: center; }
+        for s in root.stats: StatValueRow { e: s; font-scale: root.font-scale; }
+    }
+    // 縁ドラッグでリサイズ（最前面・最後の子＝最上層で縁イベントを捕捉）
+    ResizeEdges { width: 100%; height: 100%; resize(d) => { root.start-resize(d); } }
+    // 最小化（×の左隣・タスクバー常駐モード時のみ）
+    if root.show-minimize: OverlayMinButton { x: root.width - 2 * self.width - 6px; y: 2px; minimize => { root.minimize(); } }
+    // 閉じる（右上）
     OverlayCloseButton { x: root.width - self.width - 2px; y: 2px; close => { root.close-window(); } }
 }
 

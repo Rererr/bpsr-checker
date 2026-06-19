@@ -1163,6 +1163,23 @@ component OverlaySection inherits SectionCard {
     // ── 外観（ステータス窓／ステータス／イマジンタイマーの3窓共通・メイン窓とは独立）──
     Text { text: @tr("外観"); color: SettingsStyle.sub-label; font-size: SettingsStyle.sub-label-size; }
     OpacityRow { value: root.overlay-opacity; changed(v) => { root.set-overlay-opacity(v); } }
+    // 完全透明（不透明度0）時の警告。クリック透過になり当該オーバーレイ自体は操作不可になる。
+    if root.overlay-opacity <= 0.001: Rectangle {
+        background: #ffb45422;
+        border-width: 1px;
+        border-color: #ffb45466;
+        border-radius: 4px;
+        HorizontalLayout {
+            padding: 6px;
+            Text {
+                text: @tr("完全透明中はクリック透過になり、オーバーレイの移動・最小化・閉じるができません。設定パネルで不透明度を上げると操作に戻れます。");
+                color: #ffcf8a;
+                font-size: 10px;
+                wrap: word-wrap;
+                horizontal-stretch: 1;
+            }
+        }
+    }
     StepperRow { label: @tr("フォントサイズ"); value-text: root.nums.overlay-font-size; dec => { root.bump-num("overlay-font-size", -1); } inc => { root.bump-num("overlay-font-size", 1); } }
     // フォント（和文対応のシステムフォントをプリセット選択）
     VerticalLayout {

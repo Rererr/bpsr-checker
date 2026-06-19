@@ -963,23 +963,31 @@ fn apply_overlay_appearance(
     let scale = (c.overlay_font_size / 12.0) as f32;
     let font: slint::SharedString = c.overlay_font.clone().into();
     let key: slint::SharedString = c.overlay_text_color.clone().into();
+    // 完全透明（不透明度0）のときは当該オーバーレイをクリック透過（HUD化）にし、
+    // ゲーム側へクリックを通す＝オーバーレイ自体は移動/最小化/×できなくなる。
+    // 不透明度を0より上げると hittest が戻り操作可能に復帰する。
+    // （トレイの「クリックスルー」一括切替とは別系統。不透明度変更時に本値で上書きする。）
+    let pass_through = op <= 0.001;
     if let Some(o) = self_o.upgrade() {
         o.set_overlay_opacity(op);
         o.set_overlay_font(font.clone());
         o.set_text_color_key(key.clone());
         o.set_font_scale(scale);
+        overlay::set_click_through(o.window(), pass_through);
     }
     if let Some(o) = buff_o.upgrade() {
         o.set_overlay_opacity(op);
         o.set_overlay_font(font.clone());
         o.set_text_color_key(key.clone());
         o.set_font_scale(scale);
+        overlay::set_click_through(o.window(), pass_through);
     }
     if let Some(o) = stats_o.upgrade() {
         o.set_overlay_opacity(op);
         o.set_overlay_font(font.clone());
         o.set_text_color_key(key.clone());
         o.set_font_scale(scale);
+        overlay::set_click_through(o.window(), pass_through);
     }
 }
 
@@ -2154,7 +2162,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let buff_o = buff_overlay.as_weak();
         let stats_o = stats_overlay.as_weak();
         main.on_set_overlay_opacity(move |v| {
-            let clamped = v.clamp(0.05, 1.0) as f64;
+            // オーバーレイのみ完全透明(0)を許可。スライダー左端付近(<0.04)は0へスナップして
+            // 「完全透明＝クリック透過」をはっきり選べるようにする。それ以外は下限0.04。
+            let clamped: f64 = if v < 0.04 { 0.0 } else { v.clamp(0.04, 1.0) as f64 };
             cfg_o.borrow_mut().overlay_opacity = clamped;
             if let Some(m) = w.upgrade() {
                 m.set_overlay_opacity(clamped as f32);

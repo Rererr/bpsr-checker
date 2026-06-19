@@ -871,9 +871,26 @@ fn show_drill(
     m.set_view(1);
 }
 
-/// アクセントカラーのプリセット名 → (accent, accent-strong)（0xAARRGGBB）。
-/// 未知の値は既定の sky にフォールバックする。
+/// アクセントカラー設定 → (accent, accent-strong)（0xAARRGGBB）。
+/// "#rrggbb" 指定時は彩度を上げ明度を落とした派生色を accent-strong（塗り）に用いる。
+/// プリセット名（旧設定）も後方互換で受け付け、未知値は既定 sky にフォールバックする。
 fn accent_colors(theme: &str) -> (u32, u32) {
+    if let Some(hex) = theme.strip_prefix('#') {
+        if hex.len() == 6 {
+            if let Ok(val) = u32::from_str_radix(hex, 16) {
+                let (r, g, b) = (
+                    ((val >> 16) & 0xff) as u8,
+                    ((val >> 8) & 0xff) as u8,
+                    (val & 0xff) as u8,
+                );
+                let (h, s, v) = rgb_to_hsv(r, g, b);
+                let (sr, sg, sb) = hsv_to_rgb_u8(h, (s * 1.2).min(1.0), v * 0.62);
+                let accent = 0xff00_0000 | ((r as u32) << 16) | ((g as u32) << 8) | b as u32;
+                let strong = 0xff00_0000 | ((sr as u32) << 16) | ((sg as u32) << 8) | sb as u32;
+                return (accent, strong);
+            }
+        }
+    }
     match theme {
         "emerald" => (0xff34d399, 0xff0f9d6e),
         "amber" => (0xfffbc02d, 0xffb07a1e),
@@ -890,6 +907,18 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
     let theme = m.global::<Theme>();
     theme.set_accent(slint::Color::from_argb_encoded(accent));
     theme.set_accent_strong(slint::Color::from_argb_encoded(accent_strong));
+    // アクセント色HSVピッカーの位置（accent 色を HSV へ変換して反映）。
+    {
+        let (ar, ag, ab) = (
+            ((accent >> 16) & 0xff) as u8,
+            ((accent >> 8) & 0xff) as u8,
+            (accent & 0xff) as u8,
+        );
+        let (ah, asat, av) = rgb_to_hsv(ar, ag, ab);
+        m.set_accent_h(ah);
+        m.set_accent_s(asat);
+        m.set_accent_v(av);
+    }
     m.set_cols(ColumnFlags {
         crit: c.show_crit,
         crit_value: c.show_crit_value,
@@ -935,7 +964,16 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         show_in_taskbar: c.show_in_taskbar,
         overlay_font: c.overlay_font.clone().into(),
         overlay_text_color: c.overlay_text_color.clone().into(),
+        overlay_font_bold: c.overlay_font_bold,
     });
+    // 文字色HSVピッカーの初期/同期位置（現在の文字色を HSV へ変換して反映）。
+    {
+        let col = resolve_overlay_text_color(&c.overlay_text_color);
+        let (th, ts, tv) = rgb_to_hsv(col.red(), col.green(), col.blue());
+        m.set_overlay_text_h(th);
+        m.set_overlay_text_s(ts);
+        m.set_overlay_text_v(tv);
+    }
     let int_str = |v: f64| -> slint::SharedString { format!("{}", v as i64).into() };
     m.set_nums(SettingsNumUi {
         combat_exit: int_str(c.combat_exit_sec),
@@ -950,6 +988,76 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
     });
 }
 
+/// オーバーレイ文字色文字列を実際の色へ解決する。
+/// プリセットキー（white/warm/cool/green/amber）または "#rrggbb" 形式を受け付ける。
+fn resolve_overlay_text_color(s: &str) -> slint::Color {
+    if let Some(hex) = s.strip_prefix('#') {
+        if hex.len() == 6 {
+            if let Ok(v) = u32::from_str_radix(hex, 16) {
+                return slint::Color::from_rgb_u8(
+                    ((v >> 16) & 0xff) as u8,
+                    ((v >> 8) & 0xff) as u8,
+                    (v & 0xff) as u8,
+                );
+            }
+        }
+    }
+    let (r, g, b) = match s {
+        "warm" => (0xff, 0xe9, 0xcf),
+        "cool" => (0xcf, 0xe6, 0xff),
+        "green" => (0xcd, 0xfb, 0xd8),
+        "amber" => (0xff, 0xe7, 0xa8),
+        _ => (0xff, 0xff, 0xff), // white（既定）
+    };
+    slint::Color::from_rgb_u8(r, g, b)
+}
+
+/// RGB(各 u8) → HSV（h/s/v とも 0..1）。h は色相を 0..1 に正規化（×360 で度）。
+fn rgb_to_hsv(r: u8, g: u8, b: u8) -> (f32, f32, f32) {
+    let (rf, gf, bf) = (r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0);
+    let max = rf.max(gf).max(bf);
+    let min = rf.min(gf).min(bf);
+    let d = max - min;
+    let v = max;
+    let s = if max <= 0.0 { 0.0 } else { d / max };
+    let h = if d <= 0.0 {
+        0.0
+    } else if (max - rf).abs() < f32::EPSILON {
+        (((gf - bf) / d).rem_euclid(6.0)) / 6.0
+    } else if (max - gf).abs() < f32::EPSILON {
+        (((bf - rf) / d) + 2.0) / 6.0
+    } else {
+        (((rf - gf) / d) + 4.0) / 6.0
+    };
+    (h.rem_euclid(1.0), s, v)
+}
+
+/// HSV（各 0..1）→ RGB(各 u8)。
+fn hsv_to_rgb_u8(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
+    let h6 = h.rem_euclid(1.0) * 6.0;
+    let i = h6.floor() as i32;
+    let f = h6 - i as f32;
+    let p = v * (1.0 - s);
+    let q = v * (1.0 - s * f);
+    let t = v * (1.0 - s * (1.0 - f));
+    let (rf, gf, bf) = match i.rem_euclid(6) {
+        0 => (v, t, p),
+        1 => (q, v, p),
+        2 => (p, v, t),
+        3 => (p, q, v),
+        4 => (t, p, v),
+        _ => (v, p, q),
+    };
+    let to_u8 = |x: f32| (x * 255.0).round().clamp(0.0, 255.0) as u8;
+    (to_u8(rf), to_u8(gf), to_u8(bf))
+}
+
+/// HSV（各 0..1）→ "#rrggbb"。
+fn hsv_to_hex(h: f32, s: f32, v: f32) -> String {
+    let (r, g, b) = hsv_to_rgb_u8(h, s, v);
+    format!("#{r:02x}{g:02x}{b:02x}")
+}
+
 /// オーバーレイ3窓（バフ/デバフ・ステータス・イマジンタイマー）共通の外観を反映する。
 /// メイン窓とは独立した不透明度・フォントファミリ・基準テキスト色・フォントサイズを一括適用。
 /// 表示/非表示に関わらずプロパティは窓側に保持されるため、起動時と設定変更時のみ呼べばよい。
@@ -962,7 +1070,8 @@ fn apply_overlay_appearance(
     let op = c.overlay_opacity as f32;
     let scale = (c.overlay_font_size / 12.0) as f32;
     let font: slint::SharedString = c.overlay_font.clone().into();
-    let key: slint::SharedString = c.overlay_text_color.clone().into();
+    let bold = c.overlay_font_bold;
+    let text_col = resolve_overlay_text_color(&c.overlay_text_color);
     // 完全透明（不透明度0）のときは当該オーバーレイをクリック透過（HUD化）にし、
     // ゲーム側へクリックを通す＝オーバーレイ自体は移動/最小化/×できなくなる。
     // 不透明度を0より上げると hittest が戻り操作可能に復帰する。
@@ -971,21 +1080,24 @@ fn apply_overlay_appearance(
     if let Some(o) = self_o.upgrade() {
         o.set_overlay_opacity(op);
         o.set_overlay_font(font.clone());
-        o.set_text_color_key(key.clone());
+        o.set_overlay_font_bold(bold);
+        o.set_text_base(text_col);
         o.set_font_scale(scale);
         overlay::set_click_through(o.window(), pass_through);
     }
     if let Some(o) = buff_o.upgrade() {
         o.set_overlay_opacity(op);
         o.set_overlay_font(font.clone());
-        o.set_text_color_key(key.clone());
+        o.set_overlay_font_bold(bold);
+        o.set_text_base(text_col);
         o.set_font_scale(scale);
         overlay::set_click_through(o.window(), pass_through);
     }
     if let Some(o) = stats_o.upgrade() {
         o.set_overlay_opacity(op);
         o.set_overlay_font(font.clone());
-        o.set_text_color_key(key.clone());
+        o.set_overlay_font_bold(bold);
+        o.set_text_base(text_col);
         o.set_font_scale(scale);
         overlay::set_click_through(o.window(), pass_through);
     }
@@ -1096,6 +1208,21 @@ fn build_stat_catalog(enabled: &[String]) -> Vec<StatCatalogItem> {
         });
     }
     out
+}
+
+/// カタログを2列へ分割する。グループ境界（group_head が非空＝グループ先頭）を跨がず、
+/// 左右の項目数がなるべく均等になる境界で割る。各列の先頭グループ見出しを保持するため。
+fn split_stat_catalog(items: &[StatCatalogItem]) -> (Vec<StatCatalogItem>, Vec<StatCatalogItem>) {
+    let half = items.len() / 2;
+    // half 以上に達した最初のグループ先頭で割る（無ければ末尾＝右列空）。
+    let split = items
+        .iter()
+        .enumerate()
+        .skip(1)
+        .find(|(i, it)| *i >= half && !it.group_head.is_empty())
+        .map(|(i, _)| i)
+        .unwrap_or(items.len());
+    (items[..split].to_vec(), items[split..].to_vec())
 }
 
 /// 3桁区切りの整数文字列（例: 28500 → "28,500"）。
@@ -1695,10 +1822,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let uid_candidates = Rc::new(VecModel::<UidCandidate>::default());
     main.set_uid_candidates(uid_candidates.clone().into());
 
-    // ステータス窓の表示項目トグル一覧（設定の有効集合から生成・トグルで再生成）
-    let stat_catalog = Rc::new(VecModel::<StatCatalogItem>::default());
-    stat_catalog.set_vec(build_stat_catalog(&cfg.borrow().stats_enabled));
-    main.set_stat_catalog(stat_catalog.clone().into());
+    // ステータス窓の表示項目トグル一覧（設定の有効集合から生成・トグルで再生成）。
+    // 設定パネルでは2列表示するため、グループ境界で左右へ分割した2モデルを持つ。
+    let stat_catalog_left = Rc::new(VecModel::<StatCatalogItem>::default());
+    let stat_catalog_right = Rc::new(VecModel::<StatCatalogItem>::default());
+    {
+        let (l, r) = split_stat_catalog(&build_stat_catalog(&cfg.borrow().stats_enabled));
+        stat_catalog_left.set_vec(l);
+        stat_catalog_right.set_vec(r);
+    }
+    main.set_stat_catalog_left(stat_catalog_left.clone().into());
+    main.set_stat_catalog_right(stat_catalog_right.clone().into());
 
     // 自キャラ ステータス オーバーレイ（別ウィンドウ）
     let stats_overlay = StatsOverlay::new()?;
@@ -2007,7 +2141,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let self_ov = self_overlay.as_weak();
         let buff_ov = buff_overlay.as_weak();
         let stats_ov = stats_overlay.as_weak();
-        let stat_catalog_sb = stat_catalog.clone();
+        let stat_catalog_left_sb = stat_catalog_left.clone();
+        let stat_catalog_right_sb = stat_catalog_right.clone();
         let taskbar_flag_cb = taskbar_flag.clone();
         main.on_set_bool(move |key, val| {
             {
@@ -2031,6 +2166,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .filter(|k| set.contains(k))
                             .collect();
                     }
+                    // ステータス表示項目の一括ON/OFF（カタログ全項目を1クリックで切替）
+                    "stats-all-on" => {
+                        c.stats_enabled = settings::STAT_CATALOG
+                            .iter()
+                            .map(|(k, _, _, _)| k.to_string())
+                            .collect();
+                    }
+                    "stats-all-off" => c.stats_enabled.clear(),
                     "buff-overlay" => c.show_buff_overlay = val,
                     // 専用モードON時はイマジンタイマーを強制表示（旧UIと同挙動）
                     "imagine-only" => {
@@ -2060,6 +2203,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "imagine-col-basilisk" => c.show_imagine_basilisk = val,
                     "show-consumable" => c.show_consumable = val,
                     "show-in-taskbar" => c.show_in_taskbar = val,
+                    "overlay-font-bold" => c.overlay_font_bold = val,
                     other => log::warn!("unknown setting key: {other}"),
                 }
             }
@@ -2098,9 +2242,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
-            // ステータス表示項目のトグルはカタログモデルを再生成してチェック状態へ反映。
-            if key.as_str().starts_with("stat.") {
-                stat_catalog_sb.set_vec(build_stat_catalog(&c.stats_enabled));
+            // ステータス表示項目のトグル・一括切替はカタログモデルを再生成してチェック状態へ反映。
+            if key.as_str().starts_with("stat.")
+                || key.as_str() == "stats-all-on"
+                || key.as_str() == "stats-all-off"
+            {
+                let (l, r) = split_stat_catalog(&build_stat_catalog(&c.stats_enabled));
+                stat_catalog_left_sb.set_vec(l);
+                stat_catalog_right_sb.set_vec(r);
+            }
+            // フォント太字はオーバーレイ外観へ即反映。
+            if key.as_str() == "overlay-font-bold" {
+                apply_overlay_appearance(&c, &self_ov, &buff_ov, &stats_ov);
             }
             settings::save(&c);
             if key.as_str() == "self-status-overlay" {
@@ -2171,6 +2324,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             apply_overlay_appearance(&cfg_o.borrow(), &self_o, &buff_o, &stats_o);
             settings::save(&cfg_o.borrow());
+        });
+    }
+    // 文字色 HSV ピッカー操作。h/s/v(各0..1)を hex 化して保存し、全オーバーレイへ即反映。
+    {
+        let w = main.as_weak();
+        let cfg_p = cfg.clone();
+        let self_o = self_overlay.as_weak();
+        let buff_o = buff_overlay.as_weak();
+        let stats_o = stats_overlay.as_weak();
+        main.on_pick_overlay_text(move |h, s, v| {
+            cfg_p.borrow_mut().overlay_text_color = hsv_to_hex(h, s, v);
+            let c = cfg_p.borrow();
+            if let Some(m) = w.upgrade() {
+                apply_settings(&m, &c);
+                // ドラッグ追従を滑らかに: h/s/v は入力値そのままで上書き（hex 量子化の戻りで跳ねさせない）
+                m.set_overlay_text_h(h);
+                m.set_overlay_text_s(s);
+                m.set_overlay_text_v(v);
+            }
+            apply_overlay_appearance(&c, &self_o, &buff_o, &stats_o);
+            settings::save(&c);
+        });
+    }
+    // アクセント色 HSV ピッカー操作。h/s/v(各0..1)を hex 化して保存し、Theme へ即反映。
+    {
+        let w = main.as_weak();
+        let cfg_a = cfg.clone();
+        main.on_pick_accent(move |h, s, v| {
+            cfg_a.borrow_mut().accent_theme = hsv_to_hex(h, s, v);
+            let c = cfg_a.borrow();
+            if let Some(m) = w.upgrade() {
+                apply_settings(&m, &c);
+                // ドラッグ追従を滑らかに: h/s/v は入力値そのままで上書き（hex 量子化の戻りで跳ねさせない）
+                m.set_accent_h(h);
+                m.set_accent_s(s);
+                m.set_accent_v(v);
+            }
+            settings::save(&c);
         });
     }
     // 数値設定ステッパー（key と方向 dir=±1）。キー毎に step/範囲を持ち、必要なら即適用。

@@ -120,6 +120,18 @@ msgstr "Imagine debuff timer"
 msgid "イマジン専用モード"
 msgstr "Imagine-only mode"
 
+msgid "イマジンタイマー"
+msgstr "Imagine timer"
+
+msgid "ステータス"
+msgstr "Stats"
+
+msgid "すべてオン"
+msgstr "All on"
+
+msgid "すべてオフ"
+msgstr "All off"
+
 msgid "キャラクター"
 msgstr "Character"
 
@@ -197,6 +209,9 @@ msgstr "Appearance"
 
 msgid "完全透明中はクリック透過になり、オーバーレイの移動・最小化・閉じるができません。設定パネルで不透明度を上げると操作に戻れます。"
 msgstr "While fully transparent the overlay is click-through: you can't move, minimize, or close it. Raise the opacity in the settings panel to interact again."
+
+msgid "太字"
+msgstr "Bold"
 
 msgid "フォント"
 msgstr "Font"

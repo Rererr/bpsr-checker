@@ -113,9 +113,12 @@ pub struct Settings {
     pub overlay_font_size: f64,
     /// オーバーレイ窓共通のフォントファミリ名（システムにある実フォント名をそのまま保持）。
     pub overlay_font: String,
-    /// オーバーレイ窓共通の基準テキスト色プリセットキー（white/warm/cool/green/amber）。
+    /// オーバーレイ窓共通の基準テキスト色（プリセットキー white/warm/... または "#rrggbb"）。
     /// 白系ラベル・値テキストのみ再着色し、意味色（アクセント／職業色／デバフ赤）は対象外。
     pub overlay_text_color: String,
+    /// オーバーレイ窓共通フォントの太字（既定 false）。
+    #[serde(default)]
+    pub overlay_font_bold: bool,
 }
 
 impl Default for Settings {
@@ -168,6 +171,7 @@ impl Default for Settings {
             overlay_font_size: 12.0,
             overlay_font: "Yu Gothic UI".to_string(),
             overlay_text_color: "white".to_string(),
+            overlay_font_bold: false,
         }
     }
 }

@@ -106,6 +106,16 @@ pub struct Settings {
     /// メインウィンドウをタスクバーに常駐させるか（true=タスクバー表示／最小化はOS最小化、
     /// false=従来のトレイ格納・skip_taskbar）。
     pub show_in_taskbar: bool,
+    /// オーバーレイ窓（ステータス／ステータス窓／イマジンタイマー）共通の背景不透明度（0.05〜1.0）。
+    /// メイン窓の opacity とは独立。文字・バーは不透明のまま（背景のみ透ける）。
+    pub overlay_opacity: f64,
+    /// オーバーレイ窓共通のフォントサイズ（px）。メインの font_size とは独立。
+    pub overlay_font_size: f64,
+    /// オーバーレイ窓共通のフォントファミリ名（システムにある実フォント名をそのまま保持）。
+    pub overlay_font: String,
+    /// オーバーレイ窓共通の基準テキスト色プリセットキー（white/warm/cool/green/amber）。
+    /// 白系ラベル・値テキストのみ再着色し、意味色（アクセント／職業色／デバフ赤）は対象外。
+    pub overlay_text_color: String,
 }
 
 impl Default for Settings {
@@ -154,6 +164,10 @@ impl Default for Settings {
             show_imagine_basilisk: true,
             show_consumable: true,
             show_in_taskbar: false,
+            overlay_opacity: 0.82,
+            overlay_font_size: 12.0,
+            overlay_font: "Yu Gothic UI".to_string(),
+            overlay_text_color: "white".to_string(),
         }
     }
 }

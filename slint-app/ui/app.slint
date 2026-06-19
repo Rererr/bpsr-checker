@@ -70,6 +70,8 @@ struct SettingsUi {
     show-imagine-basilisk: bool,
     show-consumable: bool,
     show-in-taskbar: bool,
+    overlay-font: string,        // オーバーレイ共通フォントファミリ名
+    overlay-text-color: string,  // オーバーレイ共通の基準テキスト色プリセットキー
 }
 
 // 数値設定の表示用（Rust が cfg から整形して set）。ステッパーで増減する。
@@ -82,6 +84,7 @@ struct SettingsNumUi {
     three-min-dur: string,
     graph-count: string,
     font-size: string,
+    overlay-font-size: string,  // オーバーレイ共通フォントサイズ（独立）
 }
 
 struct SkillRowUi {
@@ -180,6 +183,90 @@ export global Theme {
     in-out property <color> accent-strong: #2d6cdf;
 }
 
+// 設定パネルのデザイントークン（見出し階層・操作系・カードを一元化し質感を統一）。
+// 散在していた #888/#ddd/#cdd/#666/#ffffff10/#ffffff12/#ffffff28/3px 等をここへ集約する。
+global SettingsStyle {
+    // 見出し階層（3段）: section-title（カード見出し）> sub-label（名前付き小グループ）> group-head（カタログ内の極小見出し）
+    out property <color> section-title: #c2c2d6;
+    out property <length> section-title-size: 11px;
+    out property <color> sub-label: #9a9aae;
+    out property <length> sub-label-size: 10px;
+    out property <color> group-head: #76768c;
+    out property <length> group-head-size: 9px;
+    // 行ラベル・補足
+    out property <color> row-label: #dcdce4;
+    out property <length> row-label-size: 12px;
+    out property <color> hint: #6f6f7e;
+    out property <length> hint-size: 9px;
+    // 操作系（トグル/ステッパー/セグ/入力欄の地・ホバー・角丸・行高）
+    out property <color> control-bg: #ffffff14;
+    out property <color> control-bg-hover: #ffffff28;
+    out property <color> row-hover: #ffffff10;
+    out property <length> radius: 3px;
+    out property <length> row-height: 26px;
+    // セクションカード
+    out property <color> card-bg: #ffffff08;
+    out property <color> card-border: #ffffff14;
+    out property <length> card-radius: 6px;
+    out property <length> card-pad: 6px;
+}
+
+// オーバーレイ窓（ステータス／ステータス窓／イマジンタイマー）共通の外観スタイル。
+// 基準テキスト色プリセット（キー→色）を一元管理。白系の意味を持たない文字だけを再着色し、
+// 意味色（アクセント／職業色／デバフ赤）は各所のリテラルのまま維持する。
+global OverlayStyle {
+    public pure function base-color(key: string) -> color {
+        if (key == "warm") {
+            return #ffe9cf;
+        }
+        if (key == "cool") {
+            return #cfe6ff;
+        }
+        if (key == "green") {
+            return #cdfbd8;
+        }
+        if (key == "amber") {
+            return #ffe7a8;
+        }
+        return #ffffff; // white（既定・現行と同一の見た目）
+    }
+}
+
+// 設定セクションの見出し（左アクセント細バー＋タイトル）。階層を一目で示す。
+component SectionTitle inherits HorizontalLayout {
+    in property <string> title;
+    spacing: 6px;
+    Rectangle {
+        width: 3px;
+        background: Theme.accent;
+        border-radius: 1.5px;
+    }
+    Text {
+        text: root.title;
+        color: SettingsStyle.section-title;
+        font-size: SettingsStyle.section-title-size;
+        font-weight: 600;
+        vertical-alignment: center;
+        horizontal-stretch: 1;
+    }
+}
+
+// 設定セクションのカード枠（薄い背景＋枠＋見出し＋本体）。本体は @children を流し込む。
+// 各 Section コンポーネントはこれを継承し、見出しは title プロパティ、内容は子要素で渡す。
+component SectionCard inherits Rectangle {
+    in property <string> title;
+    background: SettingsStyle.card-bg;
+    border-width: 1px;
+    border-color: SettingsStyle.card-border;
+    border-radius: SettingsStyle.card-radius;
+    VerticalLayout {
+        padding: SettingsStyle.card-pad;
+        spacing: 2px;
+        SectionTitle { title: root.title; }
+        @children
+    }
+}
+
 component TabButton inherits TouchArea {
     in property <string> label;
     in property <bool> active;
@@ -262,8 +349,8 @@ component SegButton inherits TouchArea {
     width: 50px;
     height: 22px;
     Rectangle {
-        background: root.active ? Theme.accent-strong : (root.has-hover ? #ffffff20 : #ffffff10);
-        border-radius: 3px;
+        background: root.active ? Theme.accent-strong : (root.has-hover ? SettingsStyle.control-bg-hover : SettingsStyle.control-bg);
+        border-radius: SettingsStyle.radius;
         Text { text: root.label; color: root.active ? white : #bbb; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
     }
 }
@@ -754,10 +841,10 @@ component ToggleRow inherits TouchArea {
     in property <string> label;
     in property <bool> checked;
     callback toggled();
-    height: 26px;
+    height: SettingsStyle.row-height;
     clicked => { root.toggled(); }
     Rectangle {
-        background: root.has-hover ? #ffffff10 : transparent;
+        background: root.has-hover ? SettingsStyle.row-hover : transparent;
         HorizontalLayout {
             padding-left: 10px;
             padding-right: 10px;
@@ -769,7 +856,7 @@ component ToggleRow inherits TouchArea {
                     height: 16px;
                     border-width: 1px;
                     border-color: #777;
-                    border-radius: 3px;
+                    border-radius: SettingsStyle.radius;
                     background: root.checked ? Theme.accent-strong : transparent;
                     // チェックマークはフォント依存(✓はDingbatsで欠落環境あり)を避け Path 描画
                     if root.checked: Path {
@@ -786,7 +873,7 @@ component ToggleRow inherits TouchArea {
                     }
                 }
             }
-            Text { text: root.label; color: #ddd; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+            Text { text: root.label; color: SettingsStyle.row-label; font-size: SettingsStyle.row-label-size; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
         }
     }
 }
@@ -800,7 +887,7 @@ component OpacityRow inherits Rectangle {
         padding-left: 10px;
         padding-right: 10px;
         spacing: 10px;
-        Text { text: @tr("不透明度"); color: #ddd; font-size: 12px; vertical-alignment: center; width: 80px; }
+        Text { text: @tr("不透明度"); color: SettingsStyle.row-label; font-size: SettingsStyle.row-label-size; vertical-alignment: center; width: 80px; }
         VerticalLayout {
             horizontal-stretch: 1;
             alignment: center;
@@ -834,28 +921,28 @@ component StepperRow inherits Rectangle {
     in property <string> value-text;
     callback dec();
     callback inc();
-    height: 26px;
+    height: SettingsStyle.row-height;
     HorizontalLayout {
         padding-left: 10px;
         padding-right: 10px;
         spacing: 6px;
-        Text { text: root.label; color: #ddd; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+        Text { text: root.label; color: SettingsStyle.row-label; font-size: SettingsStyle.row-label-size; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
         dec-btn := TouchArea {
             width: 22px;
             clicked => { root.dec(); }
             Rectangle {
-                background: dec-btn.has-hover ? #ffffff28 : #ffffff12;
-                border-radius: 3px;
+                background: dec-btn.has-hover ? SettingsStyle.control-bg-hover : SettingsStyle.control-bg;
+                border-radius: SettingsStyle.radius;
                 Text { text: "-"; color: white; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
             }
         }
-        Text { text: root.value-text; color: #cdd; font-size: 12px; width: 44px; horizontal-alignment: center; vertical-alignment: center; }
+        Text { text: root.value-text; color: #cdd; font-size: SettingsStyle.row-label-size; width: 44px; horizontal-alignment: center; vertical-alignment: center; }
         inc-btn := TouchArea {
             width: 22px;
             clicked => { root.inc(); }
             Rectangle {
-                background: inc-btn.has-hover ? #ffffff28 : #ffffff12;
-                border-radius: 3px;
+                background: inc-btn.has-hover ? SettingsStyle.control-bg-hover : SettingsStyle.control-bg;
+                border-radius: SettingsStyle.radius;
                 Text { text: "+"; color: white; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
             }
         }
@@ -875,16 +962,16 @@ component TemplateField inherits VerticalLayout {
     spacing: 2px;
     padding-left: 10px;
     padding-right: 10px;
-    Text { text: root.label; color: #bbb; font-size: 10px; }
+    Text { text: root.label; color: SettingsStyle.sub-label; font-size: SettingsStyle.sub-label-size; }
     HorizontalLayout {
         spacing: 4px;
         Rectangle {
             horizontal-stretch: 1;
             height: 34px;
-            background: #ffffff14;
+            background: SettingsStyle.control-bg;
             border-width: 1px;
             border-color: ti.has-focus ? Theme.accent : #ffffff26;
-            border-radius: 3px;
+            border-radius: SettingsStyle.radius;
             ti := TextInput {
                 x: 5px;
                 width: parent.width - 10px;
@@ -902,13 +989,13 @@ component TemplateField inherits VerticalLayout {
             width: 44px;
             clicked => { root.reset(); }
             Rectangle {
-                background: reset-btn.has-hover ? #ffffff28 : #ffffff12;
-                border-radius: 3px;
+                background: reset-btn.has-hover ? SettingsStyle.control-bg-hover : SettingsStyle.control-bg;
+                border-radius: SettingsStyle.radius;
                 Text { text: @tr("リセット"); color: #cdd; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; }
             }
         }
     }
-    if root.hint != "": Text { text: root.hint; color: #666; font-size: 9px; wrap: word-wrap; }
+    if root.hint != "": Text { text: root.hint; color: SettingsStyle.hint; font-size: SettingsStyle.hint-size; wrap: word-wrap; }
     Text { text: root.preview; color: #cfcfe0; font-size: 10px; wrap: word-wrap; }
 }
 
@@ -917,25 +1004,24 @@ component TemplateField inherits VerticalLayout {
 // MainWindow 側で最大3カラムへ振り分け、同じ定義を列ごとに条件配置する。
 
 // キャラクター（自キャラUID入力・解決名・候補チップ・ヒント）
-component CharacterSection inherits VerticalLayout {
+component CharacterSection inherits SectionCard {
     in property <string> uid-value;
     in property <string> uid-name;
     in property <[UidCandidate]> candidates;
     callback set-uid(string); // 空文字=クリア
-    spacing: 1px;
-    Text { text: @tr("キャラクター"); color: #888; font-size: 10px; }
+    title: @tr("キャラクター");
     HorizontalLayout {
         padding-left: 10px;
         padding-right: 10px;
         spacing: 6px;
         height: 28px;
-        Text { text: @tr("自キャラUID"); color: #ddd; font-size: 12px; vertical-alignment: center; width: 76px; }
+        Text { text: @tr("自キャラUID"); color: SettingsStyle.row-label; font-size: SettingsStyle.row-label-size; vertical-alignment: center; width: 76px; }
         Rectangle {
             horizontal-stretch: 1;
-            background: #ffffff14;
+            background: SettingsStyle.control-bg;
             border-width: 1px;
             border-color: uidti.has-focus ? Theme.accent : #ffffff26;
-            border-radius: 3px;
+            border-radius: SettingsStyle.radius;
             uidti := TextInput {
                 x: 5px;
                 width: parent.width - 10px;
@@ -953,8 +1039,8 @@ component CharacterSection inherits VerticalLayout {
             width: 44px;
             clicked => { root.set-uid(""); }
             Rectangle {
-                background: uidclear.has-hover ? #ffffff28 : #ffffff12;
-                border-radius: 3px;
+                background: uidclear.has-hover ? SettingsStyle.control-bg-hover : SettingsStyle.control-bg;
+                border-radius: SettingsStyle.radius;
                 Text { text: @tr("クリア"); color: #cdd; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; }
             }
         }
@@ -981,15 +1067,14 @@ component CharacterSection inherits VerticalLayout {
             }
         }
     }
-    Text { text: @tr("自動判定が外れた時に手動で自分を指定（Enterで確定）"); color: #555; font-size: 9px; wrap: word-wrap; }
+    Text { text: @tr("自動判定が外れた時に手動で自分を指定（Enterで確定）"); color: SettingsStyle.hint; font-size: SettingsStyle.hint-size; wrap: word-wrap; }
 }
 
 // 表示列（一覧に出す列のトグル）
-component DisplayColsSection inherits VerticalLayout {
+component DisplayColsSection inherits SectionCard {
     in property <SettingsUi> cfg;
     callback set-bool(string, bool);
-    spacing: 1px;
-    Text { text: @tr("表示列"); color: #888; font-size: 10px; }
+    title: @tr("表示列");
     ToggleRow { label: @tr("会心率"); checked: root.cfg.show-crit; toggled => { root.set-bool("show-crit", !root.cfg.show-crit); } }
     ToggleRow { label: @tr("会心ダメ率"); checked: root.cfg.show-crit-value; toggled => { root.set-bool("show-crit-value", !root.cfg.show-crit-value); } }
     ToggleRow { label: @tr("幸運率"); checked: root.cfg.show-lucky; toggled => { root.set-bool("show-lucky", !root.cfg.show-lucky); } }
@@ -1001,14 +1086,13 @@ component DisplayColsSection inherits VerticalLayout {
 }
 
 // 表示（強調・省略・マスク・フォントサイズ・起動タブ）
-component DisplaySection inherits VerticalLayout {
+component DisplaySection inherits SectionCard {
     in property <SettingsUi> cfg;
     in property <SettingsNumUi> nums;
     callback set-bool(string, bool);
     callback bump-num(string, int);
     callback set-str(string, string);
-    spacing: 1px;
-    Text { text: @tr("表示"); color: #888; font-size: 10px; }
+    title: @tr("表示");
     ToggleRow { label: @tr("自分を強調"); checked: root.cfg.highlight-local; toggled => { root.set-bool("highlight-local", !root.cfg.highlight-local); } }
     ToggleRow { label: @tr("スコア省略(K/M)"); checked: root.cfg.abbreviate-scores; toggled => { root.set-bool("abbreviate-scores", !root.cfg.abbreviate-scores); } }
     ToggleRow { label: @tr("名前マスク"); checked: root.cfg.privacy-mask; toggled => { root.set-bool("privacy-mask", !root.cfg.privacy-mask); } }
@@ -1020,7 +1104,7 @@ component DisplaySection inherits VerticalLayout {
         padding-left: 10px;
         padding-right: 10px;
         spacing: 3px;
-        Text { text: @tr("起動時のタブ"); color: #ddd; font-size: 12px; }
+        Text { text: @tr("起動時のタブ"); color: SettingsStyle.row-label; font-size: SettingsStyle.row-label-size; }
         HorizontalLayout {
             spacing: 6px;
             SegButton { label: @tr("DPS"); active: root.cfg.startup-tab == "dps"; clicked => { root.set-str("startup-tab", "dps"); } }
@@ -1036,7 +1120,7 @@ component DisplaySection inherits VerticalLayout {
         padding-left: 10px;
         padding-right: 10px;
         spacing: 3px;
-        Text { text: @tr("アクセントカラー"); color: #ddd; font-size: 12px; }
+        Text { text: @tr("アクセントカラー"); color: SettingsStyle.row-label; font-size: SettingsStyle.row-label-size; }
         HorizontalLayout {
             spacing: 6px;
             ThemeSwatch { c: #4fc3f7; selected: root.cfg.accent-theme == "sky"; clicked => { root.set-str("accent-theme", "sky"); } }
@@ -1052,53 +1136,100 @@ component DisplaySection inherits VerticalLayout {
 }
 
 // オーバーレイ（バフ/デバフ窓・最前面）。不透明度は全幅化のため setbox 側へ分離。
-component OverlaySection inherits VerticalLayout {
+component OverlaySection inherits SectionCard {
     in property <SettingsUi> cfg;
+    in property <SettingsNumUi> nums;
+    in property <float> overlay-opacity;
     callback set-bool(string, bool);
-    spacing: 1px;
-    Text { text: @tr("オーバーレイ"); color: #888; font-size: 10px; }
+    callback set-overlay-opacity(float);
+    callback bump-num(string, int);
+    callback set-str(string, string);
+    title: @tr("オーバーレイ");
     ToggleRow { label: @tr("自キャラ バフ/デバフ"); checked: root.cfg.self-status; toggled => { root.set-bool("self-status-overlay", !root.cfg.self-status); } }
     ToggleRow { label: @tr("イマジンデバフタイマー"); checked: root.cfg.buff-overlay; toggled => { root.set-bool("buff-overlay", !root.cfg.buff-overlay); } }
     ToggleRow { label: @tr("イマジン専用モード"); checked: root.cfg.imagine-only; toggled => { root.set-bool("imagine-only", !root.cfg.imagine-only); } }
     ToggleRow { label: @tr("全プレイヤー自動追加"); checked: root.cfg.auto-add; toggled => { root.set-bool("auto-add-players", !root.cfg.auto-add); } }
-    // タイマーに表示するイマジン列（パーティ構成に合わせて不要列を消す）
-    Text { text: @tr("タイマー表示イマジン"); color: #888; font-size: 9px; }
-    ToggleRow { label: @tr("ティナ"); checked: root.cfg.show-imagine-tina; toggled => { root.set-bool("imagine-col-tina", !root.cfg.show-imagine-tina); } }
-    ToggleRow { label: @tr("アルーナ"); checked: root.cfg.show-imagine-aluna; toggled => { root.set-bool("imagine-col-aluna", !root.cfg.show-imagine-aluna); } }
-    ToggleRow { label: @tr("タータ"); checked: root.cfg.show-imagine-tarta; toggled => { root.set-bool("imagine-col-tarta", !root.cfg.show-imagine-tarta); } }
-    ToggleRow { label: @tr("バジリスク"); checked: root.cfg.show-imagine-basilisk; toggled => { root.set-bool("imagine-col-basilisk", !root.cfg.show-imagine-basilisk); } }
+    // タイマーに表示するイマジン列（パーティ構成に合わせて不要列を消す）。
+    // タイマー本体(buff-overlay)が OFF のときは無関係なので畳んで初見の圧を下げる。
+    if root.cfg.buff-overlay: VerticalLayout {
+        spacing: 1px;
+        Text { text: @tr("タイマー表示イマジン"); color: SettingsStyle.sub-label; font-size: SettingsStyle.sub-label-size; }
+        ToggleRow { label: @tr("ティナ"); checked: root.cfg.show-imagine-tina; toggled => { root.set-bool("imagine-col-tina", !root.cfg.show-imagine-tina); } }
+        ToggleRow { label: @tr("アルーナ"); checked: root.cfg.show-imagine-aluna; toggled => { root.set-bool("imagine-col-aluna", !root.cfg.show-imagine-aluna); } }
+        ToggleRow { label: @tr("タータ"); checked: root.cfg.show-imagine-tarta; toggled => { root.set-bool("imagine-col-tarta", !root.cfg.show-imagine-tarta); } }
+        ToggleRow { label: @tr("バジリスク"); checked: root.cfg.show-imagine-basilisk; toggled => { root.set-bool("imagine-col-basilisk", !root.cfg.show-imagine-basilisk); } }
+    }
     ToggleRow { label: @tr("常に最前面"); checked: root.cfg.aot; toggled => { root.set-bool("aot", !root.cfg.aot); } }
+    // ── 外観（ステータス窓／ステータス／イマジンタイマーの3窓共通・メイン窓とは独立）──
+    Text { text: @tr("外観"); color: SettingsStyle.sub-label; font-size: SettingsStyle.sub-label-size; }
+    OpacityRow { value: root.overlay-opacity; changed(v) => { root.set-overlay-opacity(v); } }
+    StepperRow { label: @tr("フォントサイズ"); value-text: root.nums.overlay-font-size; dec => { root.bump-num("overlay-font-size", -1); } inc => { root.bump-num("overlay-font-size", 1); } }
+    // フォント（和文対応のシステムフォントをプリセット選択）
+    VerticalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 3px;
+        Text { text: @tr("フォント"); color: SettingsStyle.row-label; font-size: SettingsStyle.row-label-size; }
+        HorizontalLayout {
+            spacing: 6px;
+            SegButton { label: @tr("ゴシック"); active: root.cfg.overlay-font == "Yu Gothic UI"; clicked => { root.set-str("overlay-font", "Yu Gothic UI"); } }
+            SegButton { label: @tr("メイリオ"); active: root.cfg.overlay-font == "Meiryo"; clicked => { root.set-str("overlay-font", "Meiryo"); } }
+            SegButton { label: @tr("UD"); active: root.cfg.overlay-font == "BIZ UDPGothic"; clicked => { root.set-str("overlay-font", "BIZ UDPGothic"); } }
+            SegButton { label: @tr("明朝"); active: root.cfg.overlay-font == "Yu Mincho"; clicked => { root.set-str("overlay-font", "Yu Mincho"); } }
+            SegButton { label: @tr("等幅"); active: root.cfg.overlay-font == "MS Gothic"; clicked => { root.set-str("overlay-font", "MS Gothic"); } }
+            // 固定幅セグボタン列による行の max-width 制限を解除
+            Rectangle { horizontal-stretch: 1; }
+        }
+    }
+    // 文字色（基準色プリセット。白系ラベル/値のみ再着色・意味色は維持）
+    VerticalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 3px;
+        Text { text: @tr("文字色"); color: SettingsStyle.row-label; font-size: SettingsStyle.row-label-size; }
+        HorizontalLayout {
+            spacing: 6px;
+            ThemeSwatch { c: #ffffff; selected: root.cfg.overlay-text-color == "white"; clicked => { root.set-str("overlay-text-color", "white"); } }
+            ThemeSwatch { c: #ffe9cf; selected: root.cfg.overlay-text-color == "warm"; clicked => { root.set-str("overlay-text-color", "warm"); } }
+            ThemeSwatch { c: #cfe6ff; selected: root.cfg.overlay-text-color == "cool"; clicked => { root.set-str("overlay-text-color", "cool"); } }
+            ThemeSwatch { c: #cdfbd8; selected: root.cfg.overlay-text-color == "green"; clicked => { root.set-str("overlay-text-color", "green"); } }
+            ThemeSwatch { c: #ffe7a8; selected: root.cfg.overlay-text-color == "amber"; clicked => { root.set-str("overlay-text-color", "amber"); } }
+            Rectangle { horizontal-stretch: 1; }
+        }
+    }
 }
 
 // 自キャラ ステータス窓（表示ON/OFF＋表示する項目のカスタマイズ）
-component StatsSection inherits VerticalLayout {
+component StatsSection inherits SectionCard {
     in property <SettingsUi> cfg;
     in property <[StatCatalogItem]> catalog;
     callback set-bool(string, bool);
-    spacing: 1px;
-    Text { text: @tr("ステータス窓"); color: #888; font-size: 10px; }
+    title: @tr("ステータス窓");
     ToggleRow { label: @tr("自キャラ ステータス"); checked: root.cfg.stats-overlay; toggled => { root.set-bool("stats-overlay", !root.cfg.stats-overlay); } }
-    // 表示する項目（ゲーム内パネル単位でグループ表示。実測率とステータス値は別項目）
-    Text { text: @tr("表示する項目"); color: #888; font-size: 9px; }
-    for item in root.catalog: VerticalLayout {
+    // 表示する項目（ゲーム内パネル単位でグループ表示。実測率とステータス値は別項目）。
+    // ステータス窓が OFF のときはカタログ(~23項目)を畳んで初見の圧と列の縦長を抑える。
+    if root.cfg.stats-overlay: VerticalLayout {
         spacing: 1px;
-        if item.group-head != "": Text { text: item.group-head; color: #666; font-size: 9px; }
-        ToggleRow {
-            label: item.label;
-            checked: item.enabled;
-            toggled => { root.set-bool("stat.\{item.key}", !item.enabled); }
+        Text { text: @tr("表示する項目"); color: SettingsStyle.sub-label; font-size: SettingsStyle.sub-label-size; }
+        for item in root.catalog: VerticalLayout {
+            spacing: 1px;
+            if item.group-head != "": Text { text: item.group-head; color: SettingsStyle.group-head; font-size: SettingsStyle.group-head-size; }
+            ToggleRow {
+                label: item.label;
+                checked: item.enabled;
+                toggled => { root.set-bool("stat.\{item.key}", !item.enabled); }
+            }
         }
     }
 }
 
 // 戦闘（終了判定・更新間隔・3分計測）
-component CombatSection inherits VerticalLayout {
+component CombatSection inherits SectionCard {
     in property <SettingsUi> cfg;
     in property <SettingsNumUi> nums;
     callback set-bool(string, bool);
     callback bump-num(string, int);
-    spacing: 1px;
-    Text { text: @tr("戦闘"); color: #888; font-size: 10px; }
+    title: @tr("戦闘");
     StepperRow { label: @tr("戦闘終了(秒)"); value-text: root.nums.combat-exit; dec => { root.bump-num("combat-exit", -1); } inc => { root.bump-num("combat-exit", 1); } }
     StepperRow { label: @tr("更新間隔(ms)"); value-text: root.nums.poll-interval; dec => { root.bump-num("poll-interval", -1); } inc => { root.bump-num("poll-interval", 1); } }
     StepperRow { label: @tr("3分計測(秒)"); value-text: root.nums.three-min-dur; dec => { root.bump-num("three-min-dur", -1); } inc => { root.bump-num("three-min-dur", 1); } }
@@ -1106,13 +1237,12 @@ component CombatSection inherits VerticalLayout {
 }
 
 // 履歴・グラフ
-component HistorySection inherits VerticalLayout {
+component HistorySection inherits SectionCard {
     in property <SettingsUi> cfg;
     in property <SettingsNumUi> nums;
     callback set-bool(string, bool);
     callback bump-num(string, int);
-    spacing: 1px;
-    Text { text: @tr("履歴・グラフ"); color: #888; font-size: 10px; }
+    title: @tr("履歴・グラフ");
     StepperRow { label: @tr("履歴保持数"); value-text: root.nums.history-limit; dec => { root.bump-num("history-limit", -1); } inc => { root.bump-num("history-limit", 1); } }
     StepperRow { label: @tr("グラフ標本数"); value-text: root.nums.ts-samples; dec => { root.bump-num("ts-samples", -1); } inc => { root.bump-num("ts-samples", 1); } }
     StepperRow { label: @tr("グラフ間隔(ms)"); value-text: root.nums.ts-interval; dec => { root.bump-num("ts-interval", -1); } inc => { root.bump-num("ts-interval", 1); } }
@@ -1172,6 +1302,7 @@ export component MainWindow inherits Window {
     in property <[UidCandidate]> uid-candidates;
     in property <[StatCatalogItem]> stat-catalog; // ステータス窓の表示項目トグル一覧
     in property <float> win-opacity: 0.85;
+    in property <float> overlay-opacity: 0.82; // オーバーレイ3窓共通の背景不透明度（メインとは独立）
     in property <float> font-scale: 1.0; // 本体テーブル＋ヘッダの文字倍率（font_size/12）
     in property <bool> copied; // コピー直後の一時フィードバック
     in property <bool> show-graph-col;    // 一覧にDPS推移列を出すか（graph設定＋被ダメ以外）
@@ -1216,6 +1347,7 @@ export component MainWindow inherits Window {
     callback toggle-settings();
     callback set-bool(string, bool);
     callback set-opacity(float);
+    callback set-overlay-opacity(float);
     callback bump-num(string, int);
     callback set-str(string, string);
     callback reset-str(string);
@@ -1241,14 +1373,24 @@ export component MainWindow inherits Window {
     // 設定パネルの列数（窓幅でレスポンシブに 1/2/3）。短ラベルが多いので幅があれば3列まで。
     property <int> set-cols: root.width >= 660px ? 3 : (root.width >= 440px ? 2 : 1);
     // セクション index(0=キャラ,1=表示列,2=表示,3=オーバーレイ,4=戦闘,5=履歴,6=ステータス窓) の所属カラムを返す。
+    // ステータス窓(6)は表示項目カタログ(~23行)で突出して縦長になるため、列の高さ差を抑えるよう
+    // 各ブレークポイントで専用カラム寄りに割り当てる（実機観測で 3列 ~580/530/650px・2列 ~860/900px）。
     pure function scol(i: int) -> int {
         if (root.set-cols <= 1) {
             return 0;
         }
         if (root.set-cols == 2) {
-            return i <= 2 ? 0 : 1;
+            // 列0: キャラ/表示列/表示/オーバーレイ、 列1: 戦闘/履歴/ステータス窓
+            return i <= 3 ? 0 : 1;
         }
-        return i <= 1 ? 0 : (i <= 3 ? 1 : 2);
+        // 3列: 列2=ステータス窓専用、 列1=表示/オーバーレイ、 列0=キャラ/表示列/戦闘/履歴
+        if (i == 6) {
+            return 2;
+        }
+        if (i == 2 || i == 3) {
+            return 1;
+        }
+        return 0;
     }
 
     title: @tr("DPSメーター");
@@ -1668,7 +1810,7 @@ export component MainWindow inherits Window {
                 viewport-width: self.width;
                 setbox := VerticalLayout {
                     padding: 4px;
-                    spacing: 6px;
+                    spacing: 8px;
                     // 横の layoutinfo を定数化し、列数(set-cols)→窓幅→set-cols の binding loop を断つ。
                     // 実幅は親 Flickable の viewport-width(=自幅)で決まるので各値は表示に影響しない。
                     min-width: 0px;
@@ -1686,11 +1828,11 @@ export component MainWindow inherits Window {
                             min-width: 0px;
                             preferred-width: 0px;
                             alignment: start; // 上詰め（カラム間の高さ差で見出し直下に隙間が出るのを防ぐ）
-                            spacing: 1px;
+                            spacing: 8px; // カード間の縦余白（セクション境界）
                             if root.scol(0) == 0: CharacterSection { uid-value: root.selected-uid-value; uid-name: root.selected-uid-name; candidates: root.uid-candidates; set-uid(u) => { root.set-selected-uid(u); } }
                             if root.scol(1) == 0: DisplayColsSection { cfg: root.cfg-ui; set-bool(k, v) => { root.set-bool(k, v); } }
                             if root.scol(2) == 0: DisplaySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } }
-                            if root.scol(3) == 0: OverlaySection { cfg: root.cfg-ui; set-bool(k, v) => { root.set-bool(k, v); } }
+                            if root.scol(3) == 0: OverlaySection { cfg: root.cfg-ui; nums: root.nums; overlay-opacity: root.overlay-opacity; set-bool(k, v) => { root.set-bool(k, v); } set-overlay-opacity(v) => { root.set-overlay-opacity(v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } }
                             if root.scol(4) == 0: CombatSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
                             if root.scol(5) == 0: HistorySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
                             if root.scol(6) == 0: StatsSection { cfg: root.cfg-ui; catalog: root.stat-catalog; set-bool(k, v) => { root.set-bool(k, v); } }
@@ -1701,11 +1843,11 @@ export component MainWindow inherits Window {
                             min-width: 0px;
                             preferred-width: 0px;
                             alignment: start;
-                            spacing: 1px;
+                            spacing: 8px; // カード間の縦余白（セクション境界）
                             if root.scol(0) == 1: CharacterSection { uid-value: root.selected-uid-value; uid-name: root.selected-uid-name; candidates: root.uid-candidates; set-uid(u) => { root.set-selected-uid(u); } }
                             if root.scol(1) == 1: DisplayColsSection { cfg: root.cfg-ui; set-bool(k, v) => { root.set-bool(k, v); } }
                             if root.scol(2) == 1: DisplaySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } }
-                            if root.scol(3) == 1: OverlaySection { cfg: root.cfg-ui; set-bool(k, v) => { root.set-bool(k, v); } }
+                            if root.scol(3) == 1: OverlaySection { cfg: root.cfg-ui; nums: root.nums; overlay-opacity: root.overlay-opacity; set-bool(k, v) => { root.set-bool(k, v); } set-overlay-opacity(v) => { root.set-overlay-opacity(v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } }
                             if root.scol(4) == 1: CombatSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
                             if root.scol(5) == 1: HistorySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
                             if root.scol(6) == 1: StatsSection { cfg: root.cfg-ui; catalog: root.stat-catalog; set-bool(k, v) => { root.set-bool(k, v); } }
@@ -1716,36 +1858,40 @@ export component MainWindow inherits Window {
                             min-width: 0px;
                             preferred-width: 0px;
                             alignment: start;
-                            spacing: 1px;
+                            spacing: 8px; // カード間の縦余白（セクション境界）
                             if root.scol(0) == 2: CharacterSection { uid-value: root.selected-uid-value; uid-name: root.selected-uid-name; candidates: root.uid-candidates; set-uid(u) => { root.set-selected-uid(u); } }
                             if root.scol(1) == 2: DisplayColsSection { cfg: root.cfg-ui; set-bool(k, v) => { root.set-bool(k, v); } }
                             if root.scol(2) == 2: DisplaySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } }
-                            if root.scol(3) == 2: OverlaySection { cfg: root.cfg-ui; set-bool(k, v) => { root.set-bool(k, v); } }
+                            if root.scol(3) == 2: OverlaySection { cfg: root.cfg-ui; nums: root.nums; overlay-opacity: root.overlay-opacity; set-bool(k, v) => { root.set-bool(k, v); } set-overlay-opacity(v) => { root.set-overlay-opacity(v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } }
                             if root.scol(4) == 2: CombatSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
                             if root.scol(5) == 2: HistorySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
                             if root.scol(6) == 2: StatsSection { cfg: root.cfg-ui; catalog: root.stat-catalog; set-bool(k, v) => { root.set-bool(k, v); } }
                         }
                     }
                     // ── 不透明度（常に全幅。2列以上のときは複数列ぶんの横幅で操作しやすく）──
-                    // ラベル「不透明度」は OpacityRow 内に持つため見出しは付けない。
-                    OpacityRow { value: root.win-opacity; changed(v) => { root.set-opacity(v); } }
-                    // ── テンプレート（常に全幅）──
-                    Text { text: @tr("テンプレート"); color: #888; font-size: 10px; }
-                    TemplateField {
-                        label: @tr("名前列テンプレ");
-                        value: root.name-template-value;
-                        preview: root.name-preview;
-                        hint: "{name} {class} {spec} {score} {seasonLv} {seasonStr}";
-                        changed(t) => { root.set-str("name-template", t); }
-                        reset => { root.reset-str("name-template"); }
+                    SectionCard {
+                        title: @tr("ウィンドウ");
+                        OpacityRow { value: root.win-opacity; changed(v) => { root.set-opacity(v); } }
                     }
-                    TemplateField {
-                        label: @tr("コピーテンプレ");
-                        value: root.copy-template-value;
-                        preview: root.copy-preview;
-                        hint: "{rank} {name} {class} {spec} {dmg} {dps} {pct} {crit} {critV} {lucky} {luckyV} {hits} {hpm} {score} {seasonLv} {seasonStr}";
-                        changed(t) => { root.set-str("copy-template", t); }
-                        reset => { root.reset-str("copy-template"); }
+                    // ── テンプレート（常に全幅）──
+                    SectionCard {
+                        title: @tr("テンプレート");
+                        TemplateField {
+                            label: @tr("名前列テンプレ");
+                            value: root.name-template-value;
+                            preview: root.name-preview;
+                            hint: "{name} {class} {spec} {score} {seasonLv} {seasonStr}";
+                            changed(t) => { root.set-str("name-template", t); }
+                            reset => { root.reset-str("name-template"); }
+                        }
+                        TemplateField {
+                            label: @tr("コピーテンプレ");
+                            value: root.copy-template-value;
+                            preview: root.copy-preview;
+                            hint: "{rank} {name} {class} {spec} {dmg} {dps} {pct} {crit} {critV} {lucky} {luckyV} {hits} {hpm} {score} {seasonLv} {seasonStr}";
+                            changed(t) => { root.set-str("copy-template", t); }
+                            reset => { root.reset-str("copy-template"); }
+                        }
                     }
                 }
             }
@@ -2014,7 +2160,10 @@ component OverlayMinButton inherits TouchArea {
 component StatusRow inherits Rectangle {
     in property <StatusEntryUi> e;
     in property <float> font-scale: 1.0;
-    height: 16px;
+    in property <color> text-base: #ffffff;
+    // 行高・各列幅は font-scale に追従（大きいフォントで行内テキストの行高が固定行高を超え、
+    // elide 指定のラベルが縦に収まらず丸ごと消えるのを防ぐ）。
+    height: 16px * root.font-scale;
     border-width: 1px;
     border-color: root.e.border-color;
     border-radius: 3px;
@@ -2023,10 +2172,10 @@ component StatusRow inherits Rectangle {
         padding-left: 5px;
         padding-right: 5px;
         spacing: 5px;
-        Text { text: root.e.name; color: #ffffffd9; font-size: 9px * root.font-scale; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
+        Text { text: root.e.name; color: root.text-base.with-alpha(0.85); font-size: 9px * root.font-scale; overflow: elide; horizontal-stretch: 1; min-width: 56px * root.font-scale; vertical-alignment: center; }
         VerticalLayout {
             alignment: center;
-            width: 64px;
+            width: 64px * root.font-scale;
             Rectangle {
                 height: 4px;
                 background: #ffffff1f;
@@ -2034,8 +2183,8 @@ component StatusRow inherits Rectangle {
                 Rectangle { x: 0; width: parent.width * root.e.bar-ratio; height: 100%; background: root.e.bar-color; border-radius: 2px; }
             }
         }
-        Text { text: root.e.layer-text; color: #ffffff73; font-size: 8px * root.font-scale; width: 22px; vertical-alignment: center; }
-        Text { text: root.e.remaining-text; color: root.e.is-low ? #ff7043 : #ffffffe6; font-size: 9px * root.font-scale; width: 36px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.e.layer-text; color: root.text-base.with-alpha(0.45); font-size: 8px * root.font-scale; width: 22px * root.font-scale; vertical-alignment: center; }
+        Text { text: root.e.remaining-text; color: root.e.is-low ? #ff7043 : root.text-base.with-alpha(0.90); font-size: 9px * root.font-scale; width: 36px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
     }
 }
 
@@ -2045,16 +2194,20 @@ export component SelfStatusOverlay inherits Window {
     in property <bool> waiting;
     in property <float> font-scale: 1.0; // メインの font_size に連動
     in property <bool> show-minimize; // タスクバー常駐モード時のみ最小化ボタンを出す
+    in property <float> overlay-opacity: 0.82;        // 背景不透明度（メインとは独立）
+    in property <string> overlay-font: "Yu Gothic UI"; // フォントファミリ
+    in property <string> text-color-key: "white";     // 基準テキスト色プリセットキー
+    property <color> text-base: OverlayStyle.base-color(root.text-color-key);
     callback start-drag();
     callback start-resize(int);
     callback close-window();
     callback minimize();
 
     title: @tr("自キャラ バフ/デバフ表示");
-    default-font-family: "Yu Gothic UI";
+    default-font-family: root.overlay-font;
     no-frame: true;
     always-on-top: true;
-    background: #0a0a12d1;
+    background: #0a0a12.with-alpha(root.overlay-opacity);
     preferred-width: 220px;
     preferred-height: 180px;
 
@@ -2071,12 +2224,12 @@ export component SelfStatusOverlay inherits Window {
         padding: 8px;
         spacing: 3px;
         alignment: start; // 上詰め（既定stretchだと余白分配で下寄り/間延びする）
-        if root.waiting: Text { text: @tr("自キャラ判定中..."); color: #ffffff4d; font-size: 10px * root.font-scale; horizontal-alignment: center; }
-        if !root.waiting && root.buffs.length == 0 && root.debuffs.length == 0: Text { text: @tr("バフ/デバフなし"); color: #ffffff4d; font-size: 10px * root.font-scale; horizontal-alignment: center; }
-        if !root.waiting && root.buffs.length > 0: Text { text: @tr("バフ"); color: #ffffff66; font-size: 9px * root.font-scale; }
-        for b in root.buffs: StatusRow { e: b; font-scale: root.font-scale; }
-        if !root.waiting && root.debuffs.length > 0: Text { text: @tr("デバフ"); color: #ffffff66; font-size: 9px * root.font-scale; }
-        for d in root.debuffs: StatusRow { e: d; font-scale: root.font-scale; }
+        if root.waiting: Text { text: @tr("自キャラ判定中..."); color: root.text-base.with-alpha(0.30); font-size: 10px * root.font-scale; horizontal-alignment: center; }
+        if !root.waiting && root.buffs.length == 0 && root.debuffs.length == 0: Text { text: @tr("バフ/デバフなし"); color: root.text-base.with-alpha(0.30); font-size: 10px * root.font-scale; horizontal-alignment: center; }
+        if !root.waiting && root.buffs.length > 0: Text { text: @tr("バフ"); color: root.text-base.with-alpha(0.40); font-size: 9px * root.font-scale; }
+        for b in root.buffs: StatusRow { e: b; font-scale: root.font-scale; text-base: root.text-base; }
+        if !root.waiting && root.debuffs.length > 0: Text { text: @tr("デバフ"); color: root.text-base.with-alpha(0.40); font-size: 9px * root.font-scale; }
+        for d in root.debuffs: StatusRow { e: d; font-scale: root.font-scale; text-base: root.text-base; }
     }
     // 縁ドラッグでリサイズ（最前面・最後の子＝最上層で縁イベントを捕捉）
     ResizeEdges { width: 100%; height: 100%; resize(d) => { root.start-resize(d); } }
@@ -2090,13 +2243,16 @@ export component SelfStatusOverlay inherits Window {
 component StatValueRow inherits Rectangle {
     in property <StatEntryUi> e;
     in property <float> font-scale: 1.0;
-    height: 17px;
+    in property <color> text-base: #ffffff;
+    // 行高は font-scale に追従（固定 17px だと大きいフォントで行が縦に収まらず、
+    // elide 指定のラベルが丸ごと消える）。
+    height: 17px * root.font-scale;
     HorizontalLayout {
         padding-left: 6px;
         padding-right: 6px;
         spacing: 8px;
-        Text { text: root.e.label; color: #ffffffb3; font-size: 10px * root.font-scale; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-        Text { text: root.e.value; color: root.e.accent ? Theme.accent : #ffffffe6; font-size: 10px * root.font-scale; vertical-alignment: center; horizontal-alignment: right; }
+        Text { text: root.e.label; color: root.text-base.with-alpha(0.70); font-size: 10px * root.font-scale; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+        Text { text: root.e.value; color: root.e.accent ? Theme.accent : root.text-base.with-alpha(0.90); font-size: 10px * root.font-scale; vertical-alignment: center; horizontal-alignment: right; }
     }
 }
 
@@ -2105,16 +2261,20 @@ export component StatsOverlay inherits Window {
     in property <bool> waiting;
     in property <float> font-scale: 1.0; // メインの font_size に連動
     in property <bool> show-minimize;    // タスクバー常駐モード時のみ最小化ボタンを出す
+    in property <float> overlay-opacity: 0.82;        // 背景不透明度（メインとは独立）
+    in property <string> overlay-font: "Yu Gothic UI"; // フォントファミリ
+    in property <string> text-color-key: "white";     // 基準テキスト色プリセットキー
+    property <color> text-base: OverlayStyle.base-color(root.text-color-key);
     callback start-drag();
     callback start-resize(int);
     callback close-window();
     callback minimize();
 
     title: @tr("自キャラ ステータス");
-    default-font-family: "Yu Gothic UI";
+    default-font-family: root.overlay-font;
     no-frame: true;
     always-on-top: true;
-    background: #0a0a12d1;
+    background: #0a0a12.with-alpha(root.overlay-opacity);
     preferred-width: 200px;
     preferred-height: 220px;
 
@@ -2131,9 +2291,9 @@ export component StatsOverlay inherits Window {
         padding: 8px;
         spacing: 2px;
         alignment: start; // 上詰め
-        if root.waiting: Text { text: @tr("自キャラ判定中..."); color: #ffffff4d; font-size: 10px * root.font-scale; horizontal-alignment: center; }
-        if !root.waiting && root.stats.length == 0: Text { text: @tr("表示項目なし"); color: #ffffff4d; font-size: 10px * root.font-scale; horizontal-alignment: center; }
-        for s in root.stats: StatValueRow { e: s; font-scale: root.font-scale; }
+        if root.waiting: Text { text: @tr("自キャラ判定中..."); color: root.text-base.with-alpha(0.30); font-size: 10px * root.font-scale; horizontal-alignment: center; }
+        if !root.waiting && root.stats.length == 0: Text { text: @tr("表示項目なし"); color: root.text-base.with-alpha(0.30); font-size: 10px * root.font-scale; horizontal-alignment: center; }
+        for s in root.stats: StatValueRow { e: s; font-scale: root.font-scale; text-base: root.text-base; }
     }
     // 縁ドラッグでリサイズ（最前面・最後の子＝最上層で縁イベントを捕捉）
     ResizeEdges { width: 100%; height: 100%; resize(d) => { root.start-resize(d); } }
@@ -2163,8 +2323,9 @@ struct BuffPlayerRow {
 component CircularCell inherits Rectangle {
     in property <BuffCell> cell;
     in property <float> font-scale: 1.0;
-    width: 28px;
-    height: 28px;
+    // 円とストロークも font-scale に追従（大きいフォントで数字が円からはみ出さないように）。
+    width: 28px * root.font-scale;
+    height: 28px * root.font-scale;
     opacity: root.cell.active ? 1.0 : 0.25;
     Path {
         width: 100%;
@@ -2175,7 +2336,7 @@ component CircularCell inherits Rectangle {
         viewbox-height: 28;
         commands: "M 14 1.5 A 12.5 12.5 0 1 1 13.99 1.5";
         stroke: #ffffff1f;
-        stroke-width: 3px;
+        stroke-width: 3px * root.font-scale;
         fill: transparent;
     }
     Path {
@@ -2187,7 +2348,7 @@ component CircularCell inherits Rectangle {
         viewbox-height: 28;
         commands: root.cell.arc-commands;
         stroke: root.cell.color;
-        stroke-width: 3px;
+        stroke-width: 3px * root.font-scale;
         fill: transparent;
     }
     Text {
@@ -2204,20 +2365,23 @@ component CircularCell inherits Rectangle {
 component BuffPlayerRowItem inherits Rectangle {
     in property <BuffPlayerRow> p;
     in property <float> font-scale: 1.0;
+    in property <color> text-base: #ffffff;
     in property <bool> show-tina: true;
     in property <bool> show-aluna: true;
     in property <bool> show-tarta: true;
     in property <bool> show-basilisk: true;
-    height: 30px;
+    height: 30px * root.font-scale;
     HorizontalLayout {
         spacing: 4px;
-        Text { text: root.p.name; color: #cdd; font-size: 10px * root.font-scale; width: 46px; overflow: elide; vertical-alignment: center; }
-        if root.show-tina: VerticalLayout { width: 48px; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.tina; font-scale: root.font-scale; } } }
-        if root.show-aluna: VerticalLayout { width: 48px; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.aluna; font-scale: root.font-scale; } } }
-        if root.show-tarta: VerticalLayout { width: 48px; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.tarta; font-scale: root.font-scale; } } }
-        if root.show-basilisk: VerticalLayout { width: 48px; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.basilisk; font-scale: root.font-scale; } } }
-        // ヘッダと同じ末尾スペーサー（列の右寄せズレ防止＋×ボタン余白）
-        Rectangle { min-width: 14px; horizontal-stretch: 1; }
+        // 名前列は伸縮（min-width は font-scale 追従）。窓を広げると余白でなく名前列が広がり、
+        // 大きいフォントでも名前が見切れにくい。ヘッダの名前スペーサーと同設定で列を揃える。
+        Text { text: root.p.name; color: root.text-base.with-alpha(0.87); font-size: 10px * root.font-scale; min-width: 46px * root.font-scale; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
+        if root.show-tina: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.tina; font-scale: root.font-scale; } } }
+        if root.show-aluna: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.aluna; font-scale: root.font-scale; } } }
+        if root.show-tarta: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.tarta; font-scale: root.font-scale; } } }
+        if root.show-basilisk: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.basilisk; font-scale: root.font-scale; } } }
+        // ×ボタン用の右余白（固定。横拡大は名前列が吸収する）
+        Rectangle { width: 20px * root.font-scale; }
     }
 }
 
@@ -2230,16 +2394,20 @@ export component BuffOverlay inherits Window {
     in property <bool> show-tarta: true;
     in property <bool> show-basilisk: true;
     in property <bool> show-minimize; // タスクバー常駐モード時のみ最小化ボタンを出す
+    in property <float> overlay-opacity: 0.82;        // 背景不透明度（メインとは独立）
+    in property <string> overlay-font: "Yu Gothic UI"; // フォントファミリ
+    in property <string> text-color-key: "white";     // 基準テキスト色プリセットキー
+    property <color> text-base: OverlayStyle.base-color(root.text-color-key);
     callback start-drag();
     callback start-resize(int);
     callback close-window();
     callback minimize();
 
     title: @tr("イマジンデバフタイマー");
-    default-font-family: "Yu Gothic UI";
+    default-font-family: root.overlay-font;
     no-frame: true;
     always-on-top: true;
-    background: #0a0a12d1;
+    background: #0a0a12.with-alpha(root.overlay-opacity);
     preferred-width: 250px;
     preferred-height: 150px;
 
@@ -2255,20 +2423,22 @@ export component BuffOverlay inherits Window {
         padding: 8px;
         spacing: 2px;
         alignment: start; // 上詰め
-        if root.empty: Text { text: @tr("DPS一覧でピンアイコンをクリック"); color: #ffffff59; font-size: 10px * root.font-scale; horizontal-alignment: center; }
+        if root.empty: Text { text: @tr("DPS一覧でピンアイコンをクリック"); color: root.text-base.with-alpha(0.35); font-size: 10px * root.font-scale; horizontal-alignment: center; }
         if !root.empty: HorizontalLayout {
             spacing: 4px;
-            Rectangle { width: 46px; }
-            if root.show-tina: Text { text: @tr("ティナ"); color: #ff4d6d; font-size: 9px * root.font-scale; width: 48px; horizontal-alignment: center; vertical-alignment: center; }
-            if root.show-aluna: Text { text: @tr("アルーナ"); color: #5fd35f; font-size: 9px * root.font-scale; width: 48px; horizontal-alignment: center; vertical-alignment: center; }
-            if root.show-tarta: Text { text: @tr("タータ"); color: #b98bff; font-size: 9px * root.font-scale; width: 48px; horizontal-alignment: center; vertical-alignment: center; }
-            if root.show-basilisk: Text { text: @tr("バジリスク"); color: #d9a05b; font-size: 9px * root.font-scale; width: 48px; horizontal-alignment: center; vertical-alignment: center; }
-            // 末尾スペーサー: 横拡大を可能にし(最大幅を無限化)、右上の×ボタン用の余白を確保
-            Rectangle { min-width: 14px; horizontal-stretch: 1; }
+            // 名前列スペーサー: 行の名前列(伸縮・min 46px*scale)と同設定で列を揃える。
+            Rectangle { min-width: 46px * root.font-scale; horizontal-stretch: 1; }
+            if root.show-tina: Text { text: @tr("ティナ"); color: #ff4d6d; font-size: 9px * root.font-scale; width: 48px * root.font-scale; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+            if root.show-aluna: Text { text: @tr("アルーナ"); color: #5fd35f; font-size: 9px * root.font-scale; width: 48px * root.font-scale; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+            if root.show-tarta: Text { text: @tr("タータ"); color: #b98bff; font-size: 9px * root.font-scale; width: 48px * root.font-scale; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+            if root.show-basilisk: Text { text: @tr("バジリスク"); color: #d9a05b; font-size: 9px * root.font-scale; width: 48px * root.font-scale; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+            // ×ボタン用の右余白（固定。横拡大は名前列が吸収する）
+            Rectangle { width: 20px * root.font-scale; }
         }
         for p in root.players: BuffPlayerRowItem {
             p: p;
             font-scale: root.font-scale;
+            text-base: root.text-base;
             show-tina: root.show-tina;
             show-aluna: root.show-aluna;
             show-tarta: root.show-tarta;

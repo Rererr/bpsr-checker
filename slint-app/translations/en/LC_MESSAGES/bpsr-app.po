@@ -189,6 +189,30 @@ msgstr "Graph interval (ms)"
 msgid "グラフ表示人数"
 msgstr "Graph player count"
 
+msgid "ウィンドウ"
+msgstr "Window"
+
+msgid "外観"
+msgstr "Appearance"
+
+msgid "フォント"
+msgstr "Font"
+
+msgid "文字色"
+msgstr "Text color"
+
+msgid "ゴシック"
+msgstr "Gothic"
+
+msgid "メイリオ"
+msgstr "Meiryo"
+
+msgid "明朝"
+msgstr "Mincho"
+
+msgid "等幅"
+msgstr "Mono"
+
 msgid "テンプレート"
 msgstr "Template"
 

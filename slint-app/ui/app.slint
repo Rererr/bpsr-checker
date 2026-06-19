@@ -71,7 +71,8 @@ struct SettingsUi {
     show-consumable: bool,
     show-in-taskbar: bool,
     overlay-font: string,        // オーバーレイ共通フォントファミリ名
-    overlay-text-color: string,  // オーバーレイ共通の基準テキスト色プリセットキー
+    overlay-text-color: string,  // オーバーレイ共通の基準テキスト色（プリセットキー or #rrggbb）
+    overlay-font-bold: bool,     // オーバーレイ共通フォントの太字
 }
 
 // 数値設定の表示用（Rust が cfg から整形して set）。ステッパーで増減する。
@@ -211,26 +212,8 @@ global SettingsStyle {
     out property <length> card-pad: 6px;
 }
 
-// オーバーレイ窓（ステータス／ステータス窓／イマジンタイマー）共通の外観スタイル。
-// 基準テキスト色プリセット（キー→色）を一元管理。白系の意味を持たない文字だけを再着色し、
-// 意味色（アクセント／職業色／デバフ赤）は各所のリテラルのまま維持する。
-global OverlayStyle {
-    public pure function base-color(key: string) -> color {
-        if (key == "warm") {
-            return #ffe9cf;
-        }
-        if (key == "cool") {
-            return #cfe6ff;
-        }
-        if (key == "green") {
-            return #cdfbd8;
-        }
-        if (key == "amber") {
-            return #ffe7a8;
-        }
-        return #ffffff; // white（既定・現行と同一の見た目）
-    }
-}
+// 基準テキスト色（プリセットキー→色・hex 解決）は Rust 側 resolve_overlay_text_color に集約。
+// 各オーバーレイは解決済みの text-base(color) を Rust から受け取る。
 
 // 設定セクションの見出し（左アクセント細バー＋タイトル）。階層を一目で示す。
 component SectionTitle inherits HorizontalLayout {
@@ -342,12 +325,16 @@ component HeaderButton inherits TouchArea {
     }
 }
 
-// 設定パネルのセグメントボタン（起動タブ選択など）
+// 設定パネルのセグメントボタン（起動タブ選択など）。
+// fill=true で固定50px幅を解除し、行内で均等に伸縮（狭い列でもはみ出さない）。
 component SegButton inherits TouchArea {
     in property <string> label;
     in property <bool> active;
-    width: 50px;
+    in property <bool> fill: false;
     height: 22px;
+    min-width: root.fill ? 44px : 50px;
+    max-width: root.fill ? 100000px : 50px;
+    horizontal-stretch: root.fill ? 1 : 0;
     Rectangle {
         background: root.active ? Theme.accent-strong : (root.has-hover ? SettingsStyle.control-bg-hover : SettingsStyle.control-bg);
         border-radius: SettingsStyle.radius;
@@ -818,36 +805,100 @@ component CandidateChip inherits TouchArea {
     }
 }
 
-// アクセントカラーのプリセットスウォッチ（設定パネル・クリックで即適用）
-component ThemeSwatch inherits TouchArea {
-    in property <color> c;
-    in property <bool> selected;
-    width: 20px;
-    height: 20px;
+// HSV カラーピッカー（彩度/明度の正方形フィールド＋右の縦 色相スライダー）。状態は持たず、表示は
+// h/s/v(各 0..1)入力から描き、操作時は pick(h,s,v) を即コールバック（不透明度スライダーと同じ round-trip）。
+// 色相 h は 0..1 で持ち、hsv() へ渡すときに ×360（度）する。
+component HsvPicker inherits HorizontalLayout {
+    in property <float> h;
+    in property <float> s;
+    in property <float> v;
+    callback pick(float, float, float);
+    spacing: 6px;
+    // 彩度(x→右で高) / 明度(y→上で高) の正方形フィールド。背景＝純色相、白横グラデで彩度、黒縦グラデで明度。
     Rectangle {
-        x: 1px;
-        y: 1px;
-        width: 18px;
-        height: 18px;
-        border-radius: 9px;
-        background: root.c;
-        border-width: root.selected ? 2px : 1px;
-        border-color: root.selected ? white : (root.has-hover ? #ffffffaa : #ffffff40);
+        width: 140px;
+        height: 140px;
+        border-radius: 4px;
+        border-width: 1px;
+        border-color: #ffffff20;
+        clip: true;
+        background: hsv(root.h * 360, 1, 1);
+        Rectangle { width: 100%; height: 100%; background: @linear-gradient(90deg, #ffffff 0%, #ffffff00 100%); }
+        Rectangle { width: 100%; height: 100%; background: @linear-gradient(180deg, #00000000 0%, #000000 100%); }
+        // 選択カーソル（暗縁＋白リングで任意背景に視認可）
+        Rectangle {
+            x: root.s * parent.width - self.width / 2;
+            y: (1.0 - root.v) * parent.height - self.height / 2;
+            width: 14px;
+            height: 14px;
+            border-radius: 7px;
+            background: transparent;
+            border-width: 3px;
+            border-color: #00000066;
+            Rectangle {
+                x: 2px;
+                y: 2px;
+                width: 10px;
+                height: 10px;
+                border-radius: 5px;
+                background: transparent;
+                border-width: 2px;
+                border-color: #ffffff;
+            }
+        }
+        sv-ta := TouchArea {
+            moved => { root.pick(root.h, (self.mouse-x / self.width).clamp(0.0, 1.0), (1.0 - self.mouse-y / self.height).clamp(0.0, 1.0)); }
+            pointer-event(e) => {
+                if (e.kind == PointerEventKind.down) {
+                    root.pick(root.h, (self.mouse-x / self.width).clamp(0.0, 1.0), (1.0 - self.mouse-y / self.height).clamp(0.0, 1.0));
+                }
+            }
+        }
     }
+    // 縦 色相スライダー（上=0 → 下=1。border-radius で角丸・clip 無しでマーカーを欠けさせない）
+    Rectangle {
+        width: 16px;
+        height: 140px;
+        border-radius: 8px;
+        background: @linear-gradient(180deg, #ff0000 0%, #ffff00 16.66%, #00ff00 33.33%, #00ffff 50%, #0000ff 66.66%, #ff00ff 83.33%, #ff0000 100%);
+        // 横マーカー（バーをまたぐ白線＋暗縁）
+        Rectangle {
+            x: -2px;
+            y: root.h * (parent.height - self.height);
+            width: parent.width + 4px;
+            height: 4px;
+            border-radius: 2px;
+            background: #ffffff;
+            border-width: 1px;
+            border-color: #00000088;
+        }
+        hue-ta := TouchArea {
+            moved => { root.pick((self.mouse-y / self.height).clamp(0.0, 1.0), root.s, root.v); }
+            pointer-event(e) => {
+                if (e.kind == PointerEventKind.down) {
+                    root.pick((self.mouse-y / self.height).clamp(0.0, 1.0), root.s, root.v);
+                }
+            }
+        }
+    }
+    // 列が広いとき固定幅の SV/色相が間延びしないよう左寄せ（余白を吸収）
+    Rectangle { horizontal-stretch: 1; }
 }
 
 // 設定パネルのトグル行（カスタムチェックボックス）
 component ToggleRow inherits TouchArea {
     in property <string> label;
     in property <bool> checked;
+    // 横パディング（既定 10px。2列表示など幅の狭い文脈ではラベル領域を稼ぐため小さくできる）。
+    in property <length> pad-x: 10px;
     callback toggled();
     height: SettingsStyle.row-height;
     clicked => { root.toggled(); }
     Rectangle {
         background: root.has-hover ? SettingsStyle.row-hover : transparent;
         HorizontalLayout {
-            padding-left: 10px;
-            padding-right: 10px;
+            padding-left: root.pad-x;
+            padding-right: root.pad-x;
             spacing: 8px;
             VerticalLayout {
                 alignment: center;
@@ -902,11 +953,25 @@ component OpacityRow inherits Rectangle {
                     background: Theme.accent-strong;
                     border-radius: 3px;
                 }
+                // つまみ（現在値の視認と把持性向上。トラックより大きく中央に重ねる）
+                Rectangle {
+                    width: 14px;
+                    height: 14px;
+                    border-radius: 7px;
+                    x: (parent.width - self.width) * root.value;
+                    y: (parent.height - self.height) / 2;
+                    background: #eaeaf2;
+                    border-width: 1px;
+                    border-color: #00000055;
+                }
+                // クリック領域は行全体(30px)へ縦に拡張し当てやすくする（トラック自体は細い 6px のまま）。
                 ta := TouchArea {
-                    moved => { root.changed(self.mouse-x / self.width); }
+                    y: (parent.height - self.height) / 2;
+                    height: 30px;
+                    moved => { root.changed((self.mouse-x / self.width).clamp(0.0, 1.0)); }
                     pointer-event(e) => {
                         if (e.kind == PointerEventKind.down) {
-                            root.changed(self.mouse-x / self.width);
+                            root.changed((self.mouse-x / self.width).clamp(0.0, 1.0));
                         }
                     }
                 }
@@ -1089,9 +1154,13 @@ component DisplayColsSection inherits SectionCard {
 component DisplaySection inherits SectionCard {
     in property <SettingsUi> cfg;
     in property <SettingsNumUi> nums;
+    in property <float> accent-h;          // アクセント色ピッカーの色相(0..1)
+    in property <float> accent-s;          // 同 彩度(0..1)
+    in property <float> accent-v;          // 同 明度(0..1)
     callback set-bool(string, bool);
     callback bump-num(string, int);
     callback set-str(string, string);
+    callback pick-accent(float, float, float); // アクセント色ピッカー操作(h,s,v)
     title: @tr("表示");
     ToggleRow { label: @tr("自分を強調"); checked: root.cfg.highlight-local; toggled => { root.set-bool("highlight-local", !root.cfg.highlight-local); } }
     ToggleRow { label: @tr("スコア省略(K/M)"); checked: root.cfg.abbreviate-scores; toggled => { root.set-bool("abbreviate-scores", !root.cfg.abbreviate-scores); } }
@@ -1115,22 +1184,17 @@ component DisplaySection inherits SectionCard {
             Rectangle { horizontal-stretch: 1; }
         }
     }
-    // アクセントカラー: プリセットスウォッチ（クリックで即適用・全ウィンドウ再起動不要）
+    // アクセントカラー: HSV ピッカーで任意色を選択（クリックで即適用・全ウィンドウ再起動不要）
     VerticalLayout {
         padding-left: 10px;
         padding-right: 10px;
         spacing: 3px;
         Text { text: @tr("アクセントカラー"); color: SettingsStyle.row-label; font-size: SettingsStyle.row-label-size; }
-        HorizontalLayout {
-            spacing: 6px;
-            ThemeSwatch { c: #4fc3f7; selected: root.cfg.accent-theme == "sky"; clicked => { root.set-str("accent-theme", "sky"); } }
-            ThemeSwatch { c: #34d399; selected: root.cfg.accent-theme == "emerald"; clicked => { root.set-str("accent-theme", "emerald"); } }
-            ThemeSwatch { c: #fbc02d; selected: root.cfg.accent-theme == "amber"; clicked => { root.set-str("accent-theme", "amber"); } }
-            ThemeSwatch { c: #fb7185; selected: root.cfg.accent-theme == "rose"; clicked => { root.set-str("accent-theme", "rose"); } }
-            ThemeSwatch { c: #a78bfa; selected: root.cfg.accent-theme == "violet"; clicked => { root.set-str("accent-theme", "violet"); } }
-            ThemeSwatch { c: #cfd2dc; selected: root.cfg.accent-theme == "mono"; clicked => { root.set-str("accent-theme", "mono"); } }
-            // 固定幅スウォッチ列による行の max-width 制限を解除（起動時のタブと同じ対策）
-            Rectangle { horizontal-stretch: 1; }
+        HsvPicker {
+            h: root.accent-h;
+            s: root.accent-s;
+            v: root.accent-v;
+            pick(h, s, v) => { root.pick-accent(h, s, v); }
         }
     }
 }
@@ -1140,25 +1204,16 @@ component OverlaySection inherits SectionCard {
     in property <SettingsUi> cfg;
     in property <SettingsNumUi> nums;
     in property <float> overlay-opacity;
+    in property <float> text-h;            // 文字色ピッカーの色相(0..1)
+    in property <float> text-s;            // 文字色ピッカーの彩度(0..1)
+    in property <float> text-v;            // 文字色ピッカーの明度(0..1)
     callback set-bool(string, bool);
     callback set-overlay-opacity(float);
     callback bump-num(string, int);
     callback set-str(string, string);
+    callback pick-text(float, float, float); // 文字色ピッカー操作(h,s,v)
     title: @tr("オーバーレイ");
     ToggleRow { label: @tr("自キャラ バフ/デバフ"); checked: root.cfg.self-status; toggled => { root.set-bool("self-status-overlay", !root.cfg.self-status); } }
-    ToggleRow { label: @tr("イマジンデバフタイマー"); checked: root.cfg.buff-overlay; toggled => { root.set-bool("buff-overlay", !root.cfg.buff-overlay); } }
-    ToggleRow { label: @tr("イマジン専用モード"); checked: root.cfg.imagine-only; toggled => { root.set-bool("imagine-only", !root.cfg.imagine-only); } }
-    ToggleRow { label: @tr("全プレイヤー自動追加"); checked: root.cfg.auto-add; toggled => { root.set-bool("auto-add-players", !root.cfg.auto-add); } }
-    // タイマーに表示するイマジン列（パーティ構成に合わせて不要列を消す）。
-    // タイマー本体(buff-overlay)が OFF のときは無関係なので畳んで初見の圧を下げる。
-    if root.cfg.buff-overlay: VerticalLayout {
-        spacing: 1px;
-        Text { text: @tr("タイマー表示イマジン"); color: SettingsStyle.sub-label; font-size: SettingsStyle.sub-label-size; }
-        ToggleRow { label: @tr("ティナ"); checked: root.cfg.show-imagine-tina; toggled => { root.set-bool("imagine-col-tina", !root.cfg.show-imagine-tina); } }
-        ToggleRow { label: @tr("アルーナ"); checked: root.cfg.show-imagine-aluna; toggled => { root.set-bool("imagine-col-aluna", !root.cfg.show-imagine-aluna); } }
-        ToggleRow { label: @tr("タータ"); checked: root.cfg.show-imagine-tarta; toggled => { root.set-bool("imagine-col-tarta", !root.cfg.show-imagine-tarta); } }
-        ToggleRow { label: @tr("バジリスク"); checked: root.cfg.show-imagine-basilisk; toggled => { root.set-bool("imagine-col-basilisk", !root.cfg.show-imagine-basilisk); } }
-    }
     ToggleRow { label: @tr("常に最前面"); checked: root.cfg.aot; toggled => { root.set-bool("aot", !root.cfg.aot); } }
     // ── 外観（ステータス窓／ステータス／イマジンタイマーの3窓共通・メイン窓とは独立）──
     Text { text: @tr("外観"); color: SettingsStyle.sub-label; font-size: SettingsStyle.sub-label-size; }
@@ -1181,60 +1236,118 @@ component OverlaySection inherits SectionCard {
         }
     }
     StepperRow { label: @tr("フォントサイズ"); value-text: root.nums.overlay-font-size; dec => { root.bump-num("overlay-font-size", -1); } inc => { root.bump-num("overlay-font-size", 1); } }
-    // フォント（和文対応のシステムフォントをプリセット選択）
+    // フォント（和文対応のシステムフォントをプリセット選択）。
+    // 5プリセットを 3列×2段のグリッドに均等伸縮で並べ、どの列幅でもはみ出さない。
     VerticalLayout {
         padding-left: 10px;
         padding-right: 10px;
         spacing: 3px;
         Text { text: @tr("フォント"); color: SettingsStyle.row-label; font-size: SettingsStyle.row-label-size; }
-        HorizontalLayout {
+        GridLayout {
             spacing: 6px;
-            SegButton { label: @tr("ゴシック"); active: root.cfg.overlay-font == "Yu Gothic UI"; clicked => { root.set-str("overlay-font", "Yu Gothic UI"); } }
-            SegButton { label: @tr("メイリオ"); active: root.cfg.overlay-font == "Meiryo"; clicked => { root.set-str("overlay-font", "Meiryo"); } }
-            SegButton { label: @tr("UD"); active: root.cfg.overlay-font == "BIZ UDPGothic"; clicked => { root.set-str("overlay-font", "BIZ UDPGothic"); } }
-            SegButton { label: @tr("明朝"); active: root.cfg.overlay-font == "Yu Mincho"; clicked => { root.set-str("overlay-font", "Yu Mincho"); } }
-            SegButton { label: @tr("等幅"); active: root.cfg.overlay-font == "MS Gothic"; clicked => { root.set-str("overlay-font", "MS Gothic"); } }
-            // 固定幅セグボタン列による行の max-width 制限を解除
-            Rectangle { horizontal-stretch: 1; }
+            Row {
+                SegButton { fill: true; label: @tr("ゴシック"); active: root.cfg.overlay-font == "Yu Gothic UI"; clicked => { root.set-str("overlay-font", "Yu Gothic UI"); } }
+                SegButton { fill: true; label: @tr("メイリオ"); active: root.cfg.overlay-font == "Meiryo"; clicked => { root.set-str("overlay-font", "Meiryo"); } }
+                SegButton { fill: true; label: @tr("UD"); active: root.cfg.overlay-font == "BIZ UDPGothic"; clicked => { root.set-str("overlay-font", "BIZ UDPGothic"); } }
+            }
+            Row {
+                SegButton { fill: true; label: @tr("明朝"); active: root.cfg.overlay-font == "Yu Mincho"; clicked => { root.set-str("overlay-font", "Yu Mincho"); } }
+                SegButton { fill: true; label: @tr("等幅"); active: root.cfg.overlay-font == "MS Gothic"; clicked => { root.set-str("overlay-font", "MS Gothic"); } }
+            }
         }
     }
-    // 文字色（基準色プリセット。白系ラベル/値のみ再着色・意味色は維持）
+    ToggleRow { label: @tr("太字"); checked: root.cfg.overlay-font-bold; toggled => { root.set-bool("overlay-font-bold", !root.cfg.overlay-font-bold); } }
+    // 文字色（白系ラベル/値のみ再着色・意味色は維持）。HSV ピッカーで任意色を選択。
     VerticalLayout {
         padding-left: 10px;
         padding-right: 10px;
         spacing: 3px;
         Text { text: @tr("文字色"); color: SettingsStyle.row-label; font-size: SettingsStyle.row-label-size; }
-        HorizontalLayout {
-            spacing: 6px;
-            ThemeSwatch { c: #ffffff; selected: root.cfg.overlay-text-color == "white"; clicked => { root.set-str("overlay-text-color", "white"); } }
-            ThemeSwatch { c: #ffe9cf; selected: root.cfg.overlay-text-color == "warm"; clicked => { root.set-str("overlay-text-color", "warm"); } }
-            ThemeSwatch { c: #cfe6ff; selected: root.cfg.overlay-text-color == "cool"; clicked => { root.set-str("overlay-text-color", "cool"); } }
-            ThemeSwatch { c: #cdfbd8; selected: root.cfg.overlay-text-color == "green"; clicked => { root.set-str("overlay-text-color", "green"); } }
-            ThemeSwatch { c: #ffe7a8; selected: root.cfg.overlay-text-color == "amber"; clicked => { root.set-str("overlay-text-color", "amber"); } }
-            Rectangle { horizontal-stretch: 1; }
+        HsvPicker {
+            h: root.text-h;
+            s: root.text-s;
+            v: root.text-v;
+            pick(h, s, v) => { root.pick-text(h, s, v); }
         }
+    }
+}
+
+// イマジンデバフタイマー（表示ON/OFF＋専用モード＋表示するイマジン列）
+component ImagineTimerSection inherits SectionCard {
+    in property <SettingsUi> cfg;
+    callback set-bool(string, bool);
+    title: @tr("イマジンタイマー");
+    ToggleRow { label: @tr("イマジンデバフタイマー"); checked: root.cfg.buff-overlay; toggled => { root.set-bool("buff-overlay", !root.cfg.buff-overlay); } }
+    ToggleRow { label: @tr("イマジン専用モード"); checked: root.cfg.imagine-only; toggled => { root.set-bool("imagine-only", !root.cfg.imagine-only); } }
+    ToggleRow { label: @tr("全プレイヤー自動追加"); checked: root.cfg.auto-add; toggled => { root.set-bool("auto-add-players", !root.cfg.auto-add); } }
+    // タイマーに表示するイマジン列（パーティ構成に合わせて不要列を消す）。
+    // タイマー本体(buff-overlay)が OFF のときは無関係なので畳んで初見の圧を下げる。
+    if root.cfg.buff-overlay: VerticalLayout {
+        spacing: 1px;
+        Text { text: @tr("タイマー表示イマジン"); color: SettingsStyle.sub-label; font-size: SettingsStyle.sub-label-size; }
+        ToggleRow { label: @tr("ティナ"); checked: root.cfg.show-imagine-tina; toggled => { root.set-bool("imagine-col-tina", !root.cfg.show-imagine-tina); } }
+        ToggleRow { label: @tr("アルーナ"); checked: root.cfg.show-imagine-aluna; toggled => { root.set-bool("imagine-col-aluna", !root.cfg.show-imagine-aluna); } }
+        ToggleRow { label: @tr("タータ"); checked: root.cfg.show-imagine-tarta; toggled => { root.set-bool("imagine-col-tarta", !root.cfg.show-imagine-tarta); } }
+        ToggleRow { label: @tr("バジリスク"); checked: root.cfg.show-imagine-basilisk; toggled => { root.set-bool("imagine-col-basilisk", !root.cfg.show-imagine-basilisk); } }
     }
 }
 
 // 自キャラ ステータス窓（表示ON/OFF＋表示する項目のカスタマイズ）
 component StatsSection inherits SectionCard {
     in property <SettingsUi> cfg;
-    in property <[StatCatalogItem]> catalog;
+    // 項目カタログは Rust 側でグループ境界を跨がず左右2列へ分割済み（見出しを各列で保持）。
+    in property <[StatCatalogItem]> catalog-left;
+    in property <[StatCatalogItem]> catalog-right;
     callback set-bool(string, bool);
-    title: @tr("ステータス窓");
+    title: @tr("ステータス");
     ToggleRow { label: @tr("自キャラ ステータス"); checked: root.cfg.stats-overlay; toggled => { root.set-bool("stats-overlay", !root.cfg.stats-overlay); } }
     // 表示する項目（ゲーム内パネル単位でグループ表示。実測率とステータス値は別項目）。
-    // ステータス窓が OFF のときはカタログ(~23項目)を畳んで初見の圧と列の縦長を抑える。
+    // ステータスが OFF のときはカタログ(~23項目)を畳んで初見の圧と列の縦長を抑える。
     if root.cfg.stats-overlay: VerticalLayout {
         spacing: 1px;
         Text { text: @tr("表示する項目"); color: SettingsStyle.sub-label; font-size: SettingsStyle.sub-label-size; }
-        for item in root.catalog: VerticalLayout {
-            spacing: 1px;
-            if item.group-head != "": Text { text: item.group-head; color: SettingsStyle.group-head; font-size: SettingsStyle.group-head-size; }
-            ToggleRow {
-                label: item.label;
-                checked: item.enabled;
-                toggled => { root.set-bool("stat.\{item.key}", !item.enabled); }
+        // ~23項目を1クリックで一括切替（個別トグルの手間を省く）。
+        HorizontalLayout {
+            spacing: 6px;
+            SegButton { fill: true; label: @tr("すべてオン"); clicked => { root.set-bool("stats-all-on", true); } }
+            SegButton { fill: true; label: @tr("すべてオフ"); clicked => { root.set-bool("stats-all-off", true); } }
+        }
+        // 項目を2列に分割（左=catalog-left / 右=catalog-right）。列間に薄い区切り線を入れて視認性を上げる。
+        HorizontalLayout {
+            spacing: 8px;
+            VerticalLayout {
+                horizontal-stretch: 1;
+                min-width: 0px;
+                spacing: 1px;
+                alignment: start;
+                for item in root.catalog-left: VerticalLayout {
+                    spacing: 1px;
+                    if item.group-head != "": Text { text: item.group-head; color: SettingsStyle.group-head; font-size: SettingsStyle.group-head-size; }
+                    ToggleRow {
+                        pad-x: 4px; // 狭い半幅列ではラベル省略を抑えるため左右パディングを詰める
+                        label: item.label;
+                        checked: item.enabled;
+                        toggled => { root.set-bool("stat.\{item.key}", !item.enabled); }
+                    }
+                }
+            }
+            // 列間の薄い区切り線（上下いっぱいに伸びる 1px。控えめだが視認できる程度）
+            Rectangle { width: 1px; background: #ffffff2e; }
+            VerticalLayout {
+                horizontal-stretch: 1;
+                min-width: 0px;
+                spacing: 1px;
+                alignment: start;
+                for item in root.catalog-right: VerticalLayout {
+                    spacing: 1px;
+                    if item.group-head != "": Text { text: item.group-head; color: SettingsStyle.group-head; font-size: SettingsStyle.group-head-size; }
+                    ToggleRow {
+                        pad-x: 4px; // 狭い半幅列ではラベル省略を抑えるため左右パディングを詰める
+                        label: item.label;
+                        checked: item.enabled;
+                        toggled => { root.set-bool("stat.\{item.key}", !item.enabled); }
+                    }
+                }
             }
         }
     }
@@ -1317,9 +1430,16 @@ export component MainWindow inherits Window {
     in property <string> selected-uid-value;  // 自キャラUID入力欄（開時/確定時に push）
     in property <string> selected-uid-name;    // 解決名/状態表示
     in property <[UidCandidate]> uid-candidates;
-    in property <[StatCatalogItem]> stat-catalog; // ステータス窓の表示項目トグル一覧
+    in property <[StatCatalogItem]> stat-catalog-left; // ステータス表示項目トグル一覧（左列・グループ境界で分割）
+    in property <[StatCatalogItem]> stat-catalog-right; // 同・右列
     in property <float> win-opacity: 0.85;
     in property <float> overlay-opacity: 0.82; // オーバーレイ3窓共通の背景不透明度（メインとは独立）
+    in property <float> overlay-text-h: 0;     // 文字色HSVピッカーの色相(0..1。Rustが現在色から算出)
+    in property <float> overlay-text-s: 0;     // 同 彩度(0..1)
+    in property <float> overlay-text-v: 1.0;   // 同 明度(0..1)
+    in property <float> accent-h: 0;           // アクセント色HSVピッカーの色相(0..1。Rustが現在色から算出)
+    in property <float> accent-s: 0;           // 同 彩度(0..1)
+    in property <float> accent-v: 1.0;         // 同 明度(0..1)
     in property <float> font-scale: 1.0; // 本体テーブル＋ヘッダの文字倍率（font_size/12）
     in property <bool> copied; // コピー直後の一時フィードバック
     in property <bool> show-graph-col;    // 一覧にDPS推移列を出すか（graph設定＋被ダメ以外）
@@ -1365,6 +1485,8 @@ export component MainWindow inherits Window {
     callback set-bool(string, bool);
     callback set-opacity(float);
     callback set-overlay-opacity(float);
+    callback pick-overlay-text(float, float, float); // 文字色HSVピッカー操作(h,s,v)
+    callback pick-accent(float, float, float);       // アクセント色HSVピッカー操作(h,s,v)
     callback bump-num(string, int);
     callback set-str(string, string);
     callback reset-str(string);
@@ -1389,19 +1511,19 @@ export component MainWindow inherits Window {
     changed width => { root.narrow-header = root.width < 600px; }
     // 設定パネルの列数（窓幅でレスポンシブに 1/2/3）。短ラベルが多いので幅があれば3列まで。
     property <int> set-cols: root.width >= 660px ? 3 : (root.width >= 440px ? 2 : 1);
-    // セクション index(0=キャラ,1=表示列,2=表示,3=オーバーレイ,4=戦闘,5=履歴,6=ステータス窓) の所属カラムを返す。
-    // ステータス窓(6)は表示項目カタログ(~23行)で突出して縦長になるため、列の高さ差を抑えるよう
-    // 各ブレークポイントで専用カラム寄りに割り当てる（実機観測で 3列 ~580/530/650px・2列 ~860/900px）。
+    // セクション index(0=キャラ,1=表示列,2=表示,3=オーバーレイ,4=戦闘,5=履歴,6=ステータス,7=イマジンタイマー) の所属カラムを返す。
+    // イマジンタイマー(7)とステータス(6)は同じ列へ積む（7=上, 6=下）。ステータスは表示項目を
+    // 2列化して縦を抑えるため、両者を専用カラムに置いても列の高さ差が出にくい。
     pure function scol(i: int) -> int {
         if (root.set-cols <= 1) {
             return 0;
         }
         if (root.set-cols == 2) {
-            // 列0: キャラ/表示列/表示/オーバーレイ、 列1: 戦闘/履歴/ステータス窓
+            // 列0: キャラ/表示列/表示/オーバーレイ、 列1: 戦闘/履歴/イマジンタイマー/ステータス
             return i <= 3 ? 0 : 1;
         }
-        // 3列: 列2=ステータス窓専用、 列1=表示/オーバーレイ、 列0=キャラ/表示列/戦闘/履歴
-        if (i == 6) {
+        // 3列: 列2=イマジンタイマー＋ステータス、 列1=表示/オーバーレイ、 列0=キャラ/表示列/戦闘/履歴
+        if (i == 6 || i == 7) {
             return 2;
         }
         if (i == 2 || i == 3) {
@@ -1834,7 +1956,7 @@ export component MainWindow inherits Window {
                     preferred-width: 0px;
                     max-width: 100000px;
                     // ── 設定セクションのレスポンシブ多列グリッド（窓幅で 1/2/3 列）──
-                    // 6セクションを scol(i) で各カラムへ振り分け。同じ定義を列ごとに条件配置する。
+                    // 8セクションを scol(i) で各カラムへ振り分け。同じ定義を列ごとに条件配置する。
                     HorizontalLayout {
                         spacing: 8px;
                         // ── 列0 ──
@@ -1848,11 +1970,12 @@ export component MainWindow inherits Window {
                             spacing: 8px; // カード間の縦余白（セクション境界）
                             if root.scol(0) == 0: CharacterSection { uid-value: root.selected-uid-value; uid-name: root.selected-uid-name; candidates: root.uid-candidates; set-uid(u) => { root.set-selected-uid(u); } }
                             if root.scol(1) == 0: DisplayColsSection { cfg: root.cfg-ui; set-bool(k, v) => { root.set-bool(k, v); } }
-                            if root.scol(2) == 0: DisplaySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } }
-                            if root.scol(3) == 0: OverlaySection { cfg: root.cfg-ui; nums: root.nums; overlay-opacity: root.overlay-opacity; set-bool(k, v) => { root.set-bool(k, v); } set-overlay-opacity(v) => { root.set-overlay-opacity(v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } }
+                            if root.scol(2) == 0: DisplaySection { cfg: root.cfg-ui; nums: root.nums; accent-h: root.accent-h; accent-s: root.accent-s; accent-v: root.accent-v; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } pick-accent(h, s, v) => { root.pick-accent(h, s, v); } }
+                            if root.scol(3) == 0: OverlaySection { cfg: root.cfg-ui; nums: root.nums; overlay-opacity: root.overlay-opacity; text-h: root.overlay-text-h; text-s: root.overlay-text-s; text-v: root.overlay-text-v; set-bool(k, v) => { root.set-bool(k, v); } set-overlay-opacity(v) => { root.set-overlay-opacity(v); } pick-text(h, s, v) => { root.pick-overlay-text(h, s, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } }
                             if root.scol(4) == 0: CombatSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
                             if root.scol(5) == 0: HistorySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
-                            if root.scol(6) == 0: StatsSection { cfg: root.cfg-ui; catalog: root.stat-catalog; set-bool(k, v) => { root.set-bool(k, v); } }
+                            if root.scol(7) == 0: ImagineTimerSection { cfg: root.cfg-ui; set-bool(k, v) => { root.set-bool(k, v); } }
+                            if root.scol(6) == 0: StatsSection { cfg: root.cfg-ui; catalog-left: root.stat-catalog-left; catalog-right: root.stat-catalog-right; set-bool(k, v) => { root.set-bool(k, v); } }
                         }
                         // ── 列1（2列以上のとき）──
                         if root.set-cols >= 2: VerticalLayout {
@@ -1863,11 +1986,12 @@ export component MainWindow inherits Window {
                             spacing: 8px; // カード間の縦余白（セクション境界）
                             if root.scol(0) == 1: CharacterSection { uid-value: root.selected-uid-value; uid-name: root.selected-uid-name; candidates: root.uid-candidates; set-uid(u) => { root.set-selected-uid(u); } }
                             if root.scol(1) == 1: DisplayColsSection { cfg: root.cfg-ui; set-bool(k, v) => { root.set-bool(k, v); } }
-                            if root.scol(2) == 1: DisplaySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } }
-                            if root.scol(3) == 1: OverlaySection { cfg: root.cfg-ui; nums: root.nums; overlay-opacity: root.overlay-opacity; set-bool(k, v) => { root.set-bool(k, v); } set-overlay-opacity(v) => { root.set-overlay-opacity(v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } }
+                            if root.scol(2) == 1: DisplaySection { cfg: root.cfg-ui; nums: root.nums; accent-h: root.accent-h; accent-s: root.accent-s; accent-v: root.accent-v; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } pick-accent(h, s, v) => { root.pick-accent(h, s, v); } }
+                            if root.scol(3) == 1: OverlaySection { cfg: root.cfg-ui; nums: root.nums; overlay-opacity: root.overlay-opacity; text-h: root.overlay-text-h; text-s: root.overlay-text-s; text-v: root.overlay-text-v; set-bool(k, v) => { root.set-bool(k, v); } set-overlay-opacity(v) => { root.set-overlay-opacity(v); } pick-text(h, s, v) => { root.pick-overlay-text(h, s, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } }
                             if root.scol(4) == 1: CombatSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
                             if root.scol(5) == 1: HistorySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
-                            if root.scol(6) == 1: StatsSection { cfg: root.cfg-ui; catalog: root.stat-catalog; set-bool(k, v) => { root.set-bool(k, v); } }
+                            if root.scol(7) == 1: ImagineTimerSection { cfg: root.cfg-ui; set-bool(k, v) => { root.set-bool(k, v); } }
+                            if root.scol(6) == 1: StatsSection { cfg: root.cfg-ui; catalog-left: root.stat-catalog-left; catalog-right: root.stat-catalog-right; set-bool(k, v) => { root.set-bool(k, v); } }
                         }
                         // ── 列2（3列のとき）──
                         if root.set-cols >= 3: VerticalLayout {
@@ -1878,11 +2002,12 @@ export component MainWindow inherits Window {
                             spacing: 8px; // カード間の縦余白（セクション境界）
                             if root.scol(0) == 2: CharacterSection { uid-value: root.selected-uid-value; uid-name: root.selected-uid-name; candidates: root.uid-candidates; set-uid(u) => { root.set-selected-uid(u); } }
                             if root.scol(1) == 2: DisplayColsSection { cfg: root.cfg-ui; set-bool(k, v) => { root.set-bool(k, v); } }
-                            if root.scol(2) == 2: DisplaySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } }
-                            if root.scol(3) == 2: OverlaySection { cfg: root.cfg-ui; nums: root.nums; overlay-opacity: root.overlay-opacity; set-bool(k, v) => { root.set-bool(k, v); } set-overlay-opacity(v) => { root.set-overlay-opacity(v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } }
+                            if root.scol(2) == 2: DisplaySection { cfg: root.cfg-ui; nums: root.nums; accent-h: root.accent-h; accent-s: root.accent-s; accent-v: root.accent-v; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } pick-accent(h, s, v) => { root.pick-accent(h, s, v); } }
+                            if root.scol(3) == 2: OverlaySection { cfg: root.cfg-ui; nums: root.nums; overlay-opacity: root.overlay-opacity; text-h: root.overlay-text-h; text-s: root.overlay-text-s; text-v: root.overlay-text-v; set-bool(k, v) => { root.set-bool(k, v); } set-overlay-opacity(v) => { root.set-overlay-opacity(v); } pick-text(h, s, v) => { root.pick-overlay-text(h, s, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } }
                             if root.scol(4) == 2: CombatSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
                             if root.scol(5) == 2: HistorySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
-                            if root.scol(6) == 2: StatsSection { cfg: root.cfg-ui; catalog: root.stat-catalog; set-bool(k, v) => { root.set-bool(k, v); } }
+                            if root.scol(7) == 2: ImagineTimerSection { cfg: root.cfg-ui; set-bool(k, v) => { root.set-bool(k, v); } }
+                            if root.scol(6) == 2: StatsSection { cfg: root.cfg-ui; catalog-left: root.stat-catalog-left; catalog-right: root.stat-catalog-right; set-bool(k, v) => { root.set-bool(k, v); } }
                         }
                     }
                     // ── 不透明度（常に全幅。2列以上のときは複数列ぶんの横幅で操作しやすく）──
@@ -2213,8 +2338,8 @@ export component SelfStatusOverlay inherits Window {
     in property <bool> show-minimize; // タスクバー常駐モード時のみ最小化ボタンを出す
     in property <float> overlay-opacity: 0.82;        // 背景不透明度（メインとは独立）
     in property <string> overlay-font: "Yu Gothic UI"; // フォントファミリ
-    in property <string> text-color-key: "white";     // 基準テキスト色プリセットキー
-    property <color> text-base: OverlayStyle.base-color(root.text-color-key);
+    in property <bool> overlay-font-bold;              // 太字（既定オフ）
+    in property <color> text-base: #ffffff;            // 基準テキスト色（Rust が解決して設定。白系ラベル/値のみ再着色）
     callback start-drag();
     callback start-resize(int);
     callback close-window();
@@ -2222,6 +2347,7 @@ export component SelfStatusOverlay inherits Window {
 
     title: @tr("自キャラ バフ/デバフ表示");
     default-font-family: root.overlay-font;
+    default-font-weight: root.overlay-font-bold ? 700 : 400;
     no-frame: true;
     always-on-top: true;
     background: #0a0a12.with-alpha(root.overlay-opacity);
@@ -2238,7 +2364,11 @@ export component SelfStatusOverlay inherits Window {
         }
     }
     VerticalLayout {
-        padding: 8px;
+        padding-left: 8px;
+        padding-right: 8px;
+        padding-bottom: 8px;
+        // 上部はヘッダー帯ぶんの余白を確保（完全透明時はヘッダーごと消すので詰める）
+        padding-top: root.overlay-opacity > 0.001 ? 20px : 0px;
         spacing: 3px;
         alignment: start; // 上詰め（既定stretchだと余白分配で下寄り/間延びする）
         if root.waiting: Text { text: @tr("自キャラ判定中..."); color: root.text-base.with-alpha(0.30); font-size: 10px * root.font-scale; horizontal-alignment: center; }
@@ -2250,10 +2380,10 @@ export component SelfStatusOverlay inherits Window {
     }
     // 縁ドラッグでリサイズ（最前面・最後の子＝最上層で縁イベントを捕捉）
     ResizeEdges { width: 100%; height: 100%; resize(d) => { root.start-resize(d); } }
-    // 最小化（×の左隣・タスクバー常駐モード時のみ）
-    if root.show-minimize: OverlayMinButton { x: root.width - 2 * self.width - 6px; y: 2px; minimize => { root.minimize(); } }
-    // 閉じる（右上・ResizeEdges より後＝最上層で右上角クリックを優先）
-    OverlayCloseButton { x: root.width - self.width - 2px; y: 2px; close => { root.close-window(); } }
+    // ヘッダーの操作ボタン（ResizeEdges より後＝最上層で右上角クリックを優先）。
+    // 上部のヘッダー帯（padding-top）に収まり、完全透明時はヘッダーごと非描画にする。
+    if root.overlay-opacity > 0.001 && root.show-minimize: OverlayMinButton { x: root.width - 2 * self.width - 6px; y: 2px; minimize => { root.minimize(); } }
+    if root.overlay-opacity > 0.001: OverlayCloseButton { x: root.width - self.width - 2px; y: 2px; close => { root.close-window(); } }
 }
 
 // ─── 自キャラ ステータス オーバーレイ（攻撃力/会心/HP 等のリアルタイム表示）──────
@@ -2280,8 +2410,8 @@ export component StatsOverlay inherits Window {
     in property <bool> show-minimize;    // タスクバー常駐モード時のみ最小化ボタンを出す
     in property <float> overlay-opacity: 0.82;        // 背景不透明度（メインとは独立）
     in property <string> overlay-font: "Yu Gothic UI"; // フォントファミリ
-    in property <string> text-color-key: "white";     // 基準テキスト色プリセットキー
-    property <color> text-base: OverlayStyle.base-color(root.text-color-key);
+    in property <bool> overlay-font-bold;              // 太字（既定オフ）
+    in property <color> text-base: #ffffff;            // 基準テキスト色（Rust が解決して設定。白系ラベル/値のみ再着色）
     callback start-drag();
     callback start-resize(int);
     callback close-window();
@@ -2289,6 +2419,7 @@ export component StatsOverlay inherits Window {
 
     title: @tr("自キャラ ステータス");
     default-font-family: root.overlay-font;
+    default-font-weight: root.overlay-font-bold ? 700 : 400;
     no-frame: true;
     always-on-top: true;
     background: #0a0a12.with-alpha(root.overlay-opacity);
@@ -2305,7 +2436,11 @@ export component StatsOverlay inherits Window {
         }
     }
     VerticalLayout {
-        padding: 8px;
+        padding-left: 8px;
+        padding-right: 8px;
+        padding-bottom: 8px;
+        // 上部はヘッダー帯ぶんの余白を確保（完全透明時はヘッダーごと消すので詰める）
+        padding-top: root.overlay-opacity > 0.001 ? 20px : 0px;
         spacing: 2px;
         alignment: start; // 上詰め
         if root.waiting: Text { text: @tr("自キャラ判定中..."); color: root.text-base.with-alpha(0.30); font-size: 10px * root.font-scale; horizontal-alignment: center; }
@@ -2314,10 +2449,10 @@ export component StatsOverlay inherits Window {
     }
     // 縁ドラッグでリサイズ（最前面・最後の子＝最上層で縁イベントを捕捉）
     ResizeEdges { width: 100%; height: 100%; resize(d) => { root.start-resize(d); } }
-    // 最小化（×の左隣・タスクバー常駐モード時のみ）
-    if root.show-minimize: OverlayMinButton { x: root.width - 2 * self.width - 6px; y: 2px; minimize => { root.minimize(); } }
-    // 閉じる（右上）
-    OverlayCloseButton { x: root.width - self.width - 2px; y: 2px; close => { root.close-window(); } }
+    // ヘッダーの操作ボタン（ResizeEdges より後＝最上層で右上角クリックを優先）。
+    // 上部のヘッダー帯（padding-top）に収まり、完全透明時はヘッダーごと非描画にする。
+    if root.overlay-opacity > 0.001 && root.show-minimize: OverlayMinButton { x: root.width - 2 * self.width - 6px; y: 2px; minimize => { root.minimize(); } }
+    if root.overlay-opacity > 0.001: OverlayCloseButton { x: root.width - self.width - 2px; y: 2px; close => { root.close-window(); } }
 }
 
 // ─── バフタイマー オーバーレイ（イマジンデバフの円形タイマー）────────────
@@ -2413,8 +2548,8 @@ export component BuffOverlay inherits Window {
     in property <bool> show-minimize; // タスクバー常駐モード時のみ最小化ボタンを出す
     in property <float> overlay-opacity: 0.82;        // 背景不透明度（メインとは独立）
     in property <string> overlay-font: "Yu Gothic UI"; // フォントファミリ
-    in property <string> text-color-key: "white";     // 基準テキスト色プリセットキー
-    property <color> text-base: OverlayStyle.base-color(root.text-color-key);
+    in property <bool> overlay-font-bold;              // 太字（既定オフ）
+    in property <color> text-base: #ffffff;            // 基準テキスト色（Rust が解決して設定。白系ラベル/値のみ再着色）
     callback start-drag();
     callback start-resize(int);
     callback close-window();
@@ -2422,6 +2557,7 @@ export component BuffOverlay inherits Window {
 
     title: @tr("イマジンデバフタイマー");
     default-font-family: root.overlay-font;
+    default-font-weight: root.overlay-font-bold ? 700 : 400;
     no-frame: true;
     always-on-top: true;
     background: #0a0a12.with-alpha(root.overlay-opacity);
@@ -2437,7 +2573,11 @@ export component BuffOverlay inherits Window {
         }
     }
     VerticalLayout {
-        padding: 8px;
+        padding-left: 8px;
+        padding-right: 8px;
+        padding-bottom: 8px;
+        // 上部はヘッダー帯ぶんの余白を確保（完全透明時はヘッダーごと消すので詰める）
+        padding-top: root.overlay-opacity > 0.001 ? 20px : 0px;
         spacing: 2px;
         alignment: start; // 上詰め
         if root.empty: Text { text: @tr("DPS一覧でピンアイコンをクリック"); color: root.text-base.with-alpha(0.35); font-size: 10px * root.font-scale; horizontal-alignment: center; }
@@ -2464,9 +2604,9 @@ export component BuffOverlay inherits Window {
     }
     // 縁ドラッグでリサイズ
     ResizeEdges { width: 100%; height: 100%; resize(d) => { root.start-resize(d); } }
-    // 最小化（×の左隣・タスクバー常駐モード時のみ）
-    if root.show-minimize: OverlayMinButton { x: root.width - 2 * self.width - 6px; y: 2px; minimize => { root.minimize(); } }
-    // 閉じる（右上・ResizeEdges より後＝最上層で右上角クリックを優先）
-    OverlayCloseButton { x: root.width - self.width - 2px; y: 2px; close => { root.close-window(); } }
+    // ヘッダーの操作ボタン（ResizeEdges より後＝最上層で右上角クリックを優先）。
+    // 上部のヘッダー帯（padding-top）に収まり、完全透明時はヘッダーごと非描画にする。
+    if root.overlay-opacity > 0.001 && root.show-minimize: OverlayMinButton { x: root.width - 2 * self.width - 6px; y: 2px; minimize => { root.minimize(); } }
+    if root.overlay-opacity > 0.001: OverlayCloseButton { x: root.width - self.width - 2px; y: 2px; close => { root.close-window(); } }
 }
 

@@ -1427,6 +1427,25 @@ struct PollState {
     restored_self: Option<window_state::WinRect>,
     restored_buffs: Option<window_state::WinRect>,
     restored_stats: Option<window_state::WinRect>,
+    // オーバーレイへ最後に push した内容（前回と同一なら set_vec を省いて無駄な再描画を避ける）。
+    // オーバーレイは sync_rows と違い set_vec で毎tick モデル全置換していたため、内容不変でも
+    // 5Hz で再描画され CPU を浪費していた（実測: 2窓表示で約11%/1コア）。
+    last_self_buffs: Vec<StatusEntryUi>,
+    last_self_debuffs: Vec<StatusEntryUi>,
+    last_stats_rows: Vec<StatEntryUi>,
+    last_buff_players: Vec<BuffPlayerRow>,
+}
+
+/// 内容が前回 push と一致する間は `set_vec` を呼ばない（VecModel 全置換による
+/// repeater 作り直し＝再描画を避ける）。変化時のみ更新し、キャッシュも差し替える。
+fn set_vec_if_changed<T>(model: &slint::VecModel<T>, last: &mut Vec<T>, next: Vec<T>)
+where
+    T: Clone + PartialEq + 'static,
+{
+    if *last != next {
+        model.set_vec(next.clone());
+        *last = next;
+    }
 }
 
 /// 初回 tick: winit 実体化後にメイン窓を復元する。復元が完了した tick で true を返す
@@ -2868,6 +2887,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
     let tray_holder: Rc<RefCell<Option<tray::Tray>>> = Rc::new(RefCell::new(None));
     let poll_ms = cfg.borrow().poll_interval_ms.max(50.0) as u64;
+    // オーバーレイ(バフ/ステータス/イマジン)はメイン表より低頻度で更新する。
+    // 稼働中バフのアーク/バーは残量比から毎tick変化するため set_vec_if_changed では
+    // 抑止できず、200ms poll では 5Hz で再描画され続ける（実測で戦闘中コストの主因）。
+    // 体感を保てる ~3Hz 相当へ間引く（poll が既に十分遅ければ stride=1＝毎tick）。
+    const OVERLAY_REFRESH_MS: u64 = 333;
+    let overlay_stride =
+        ((OVERLAY_REFRESH_MS as f64 / poll_ms as f64).round() as u64).max(1);
 
     let timer = Timer::default();
     timer.start(TimerMode::Repeated, Duration::from_millis(poll_ms), move || {
@@ -3058,6 +3084,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Drill::None => {}
         }
 
+        // オーバーレイは overlay_stride tick ごとにのみ更新（稼働中アーク/バーの 5Hz 再描画を間引く）。
+        // メイン表・ヘッダは毎tick維持。設定の即時反映も最大 ~stride 分だけ遅延するが体感影響は無い。
+        let refresh_overlays = st.tick % overlay_stride == 0;
+
         // オーバーレイの文字サイズは窓ごとに独立。
         // バフ/デバフ=メイン窓に追随、ステータス・イマジンは各専用設定。
         let (self_scale, stats_scale, imagine_scale) = {
@@ -3069,30 +3099,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
         };
 
-        // 自キャラ オーバーレイ更新（表示中のみ）
-        if cfg_poll.borrow().show_self_status_overlay {
+        // 自キャラ オーバーレイ更新（表示中のみ・低頻度）
+        if refresh_overlays && cfg_poll.borrow().show_self_status_overlay {
             if let Some(o) = self_overlay_w.upgrade() {
                 o.set_font_scale(self_scale);
                 let s = compute::get_self_buff_status(&enc_poll);
                 o.set_waiting(s.local_player_uid == 0.0);
-                self_buffs_poll.set_vec(build_status_entries(&s.buffs));
-                self_debuffs_poll.set_vec(build_status_entries(&s.debuffs));
+                set_vec_if_changed(&self_buffs_poll, &mut st.last_self_buffs, build_status_entries(&s.buffs));
+                set_vec_if_changed(&self_debuffs_poll, &mut st.last_self_debuffs, build_status_entries(&s.debuffs));
             }
         }
 
-        // 自キャラ ステータス オーバーレイ更新（表示中のみ）
-        if cfg_poll.borrow().show_stats_overlay {
+        // 自キャラ ステータス オーバーレイ更新（表示中のみ・低頻度）
+        if refresh_overlays && cfg_poll.borrow().show_stats_overlay {
             if let Some(o) = stats_overlay_w.upgrade() {
                 o.set_font_scale(stats_scale);
                 let s = compute::get_self_stats(&enc_poll);
                 o.set_waiting(s.local_player_uid == 0.0);
                 let enabled = cfg_poll.borrow().stats_enabled.clone();
-                stats_rows_poll.set_vec(build_stat_entries(&s, &enabled));
+                set_vec_if_changed(&stats_rows_poll, &mut st.last_stats_rows, build_stat_entries(&s, &enabled));
             }
         }
 
-        // バフタイマー オーバーレイ更新（表示中のみ）
-        if cfg_poll.borrow().show_buff_overlay {
+        // バフタイマー オーバーレイ更新（表示中のみ・低頻度）
+        if refresh_overlays && cfg_poll.borrow().show_buff_overlay {
             if let Some(o) = buff_overlay_w.upgrade() {
                 o.set_font_scale(imagine_scale);
                 {
@@ -3105,11 +3135,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 let watched_i: Vec<i64> = wl_poll.borrow().watched.clone();
                 o.set_empty(watched_i.is_empty());
-                if !watched_i.is_empty() {
+                // ウォッチが空なら空行で更新（古い行が残って名前が消えない不具合を防ぐ）。
+                // いずれも set_vec_if_changed で内容不変時は再描画を省く。
+                let next_buff_rows = if !watched_i.is_empty() {
                     let uids: Vec<f64> = watched_i.iter().map(|&u| u as f64).collect();
                     let t = compute::get_tracked_buffs(&enc_poll, uids);
-                    buff_players_poll.set_vec(build_buff_rows(&t, &watched_i));
-                }
+                    build_buff_rows(&t, &watched_i)
+                } else {
+                    Vec::new()
+                };
+                set_vec_if_changed(&buff_players_poll, &mut st.last_buff_players, next_buff_rows);
             }
         }
 

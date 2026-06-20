@@ -933,6 +933,9 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
     m.set_win_opacity(c.opacity as f32);
     m.set_overlay_opacity(c.overlay_opacity as f32);
     m.set_font_scale((c.font_size / 12.0) as f32);
+    // 本体フォント（バフ/デバフ オーバーレイもこのファミリ・太字・サイズに追随する）。
+    m.set_main_font(c.main_font.clone().into());
+    m.set_main_font_bold(c.main_font_bold);
     m.set_show_consumable(c.show_consumable);
     m.set_cfg_ui(SettingsUi {
         show_crit: c.show_crit,
@@ -962,9 +965,13 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         show_imagine_basilisk: c.show_imagine_basilisk,
         show_consumable: c.show_consumable,
         show_in_taskbar: c.show_in_taskbar,
-        overlay_font: c.overlay_font.clone().into(),
         overlay_text_color: c.overlay_text_color.clone().into(),
-        overlay_font_bold: c.overlay_font_bold,
+        main_font: c.main_font.clone().into(),
+        main_font_bold: c.main_font_bold,
+        stats_overlay_font: c.stats_overlay_font.clone().into(),
+        stats_overlay_font_bold: c.stats_overlay_font_bold,
+        imagine_overlay_font: c.imagine_overlay_font.clone().into(),
+        imagine_overlay_font_bold: c.imagine_overlay_font_bold,
     });
     // 文字色HSVピッカーの初期/同期位置（現在の文字色を HSV へ変換して反映）。
     {
@@ -984,7 +991,8 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         three_min_dur: int_str(c.three_min_duration_sec),
         graph_count: int_str(c.graph_player_count),
         font_size: int_str(c.font_size),
-        overlay_font_size: int_str(c.overlay_font_size),
+        stats_overlay_font_size: int_str(c.stats_overlay_font_size),
+        imagine_overlay_font_size: int_str(c.imagine_overlay_font_size),
     });
 }
 
@@ -1058,8 +1066,10 @@ fn hsv_to_hex(h: f32, s: f32, v: f32) -> String {
     format!("#{r:02x}{g:02x}{b:02x}")
 }
 
-/// オーバーレイ3窓（バフ/デバフ・ステータス・イマジンタイマー）共通の外観を反映する。
-/// メイン窓とは独立した不透明度・フォントファミリ・基準テキスト色・フォントサイズを一括適用。
+/// オーバーレイ3窓（バフ/デバフ・ステータス・イマジンタイマー）の外観を反映する。
+/// 不透明度・基準テキスト色は3窓共通。文字サイズ・フォント・太字は窓ごとに独立：
+/// バフ/デバフ=メイン窓設定(font_size/main_font/main_font_bold)に追随、
+/// ステータス・イマジンは各専用設定を使う。
 /// 表示/非表示に関わらずプロパティは窓側に保持されるため、起動時と設定変更時のみ呼べばよい。
 fn apply_overlay_appearance(
     c: &settings::Settings,
@@ -1068,37 +1078,37 @@ fn apply_overlay_appearance(
     stats_o: &slint::Weak<StatsOverlay>,
 ) {
     let op = c.overlay_opacity as f32;
-    let scale = (c.overlay_font_size / 12.0) as f32;
-    let font: slint::SharedString = c.overlay_font.clone().into();
-    let bold = c.overlay_font_bold;
     let text_col = resolve_overlay_text_color(&c.overlay_text_color);
     // 完全透明（不透明度0）のときは当該オーバーレイをクリック透過（HUD化）にし、
     // ゲーム側へクリックを通す＝オーバーレイ自体は移動/最小化/×できなくなる。
     // 不透明度を0より上げると hittest が戻り操作可能に復帰する。
     // （トレイの「クリックスルー」一括切替とは別系統。不透明度変更時に本値で上書きする。）
     let pass_through = op <= 0.001;
+    // バフ/デバフ窓: メイン窓のフォントサイズ・フォント・太字に追随。
     if let Some(o) = self_o.upgrade() {
         o.set_overlay_opacity(op);
-        o.set_overlay_font(font.clone());
-        o.set_overlay_font_bold(bold);
+        o.set_overlay_font(c.main_font.clone().into());
+        o.set_overlay_font_bold(c.main_font_bold);
         o.set_text_base(text_col);
-        o.set_font_scale(scale);
+        o.set_font_scale((c.font_size / 12.0) as f32);
         overlay::set_click_through(o.window(), pass_through);
     }
+    // イマジンタイマー窓: 専用フォント設定。
     if let Some(o) = buff_o.upgrade() {
         o.set_overlay_opacity(op);
-        o.set_overlay_font(font.clone());
-        o.set_overlay_font_bold(bold);
+        o.set_overlay_font(c.imagine_overlay_font.clone().into());
+        o.set_overlay_font_bold(c.imagine_overlay_font_bold);
         o.set_text_base(text_col);
-        o.set_font_scale(scale);
+        o.set_font_scale((c.imagine_overlay_font_size / 12.0) as f32);
         overlay::set_click_through(o.window(), pass_through);
     }
+    // ステータス窓: 専用フォント設定。
     if let Some(o) = stats_o.upgrade() {
         o.set_overlay_opacity(op);
-        o.set_overlay_font(font.clone());
-        o.set_overlay_font_bold(bold);
+        o.set_overlay_font(c.stats_overlay_font.clone().into());
+        o.set_overlay_font_bold(c.stats_overlay_font_bold);
         o.set_text_base(text_col);
-        o.set_font_scale(scale);
+        o.set_font_scale((c.stats_overlay_font_size / 12.0) as f32);
         overlay::set_click_through(o.window(), pass_through);
     }
 }
@@ -1447,6 +1457,10 @@ fn poll_overlay_restore(
     last_saved: &RefCell<window_state::Layout>,
 ) {
     let c = cfg.borrow();
+    // 完全透明(不透明度0)のオーバーレイはクリック透過(HUD)にする。apply_overlay_appearance は
+    // 起動時/表示トグル時に窓の winit 実体化より前へ走り set_cursor_hittest が空振りするため、
+    // 実体化を確認できるこの復元 tick で改めて適用する（EXSTYLE 競合回避のため taskbar_mode の前）。
+    let pass_through = c.overlay_opacity <= 0.001;
     if c.show_stats_overlay {
         if st.stats_rtick.is_none() {
             if let Some(o) = stats_overlay_w.upgrade() {
@@ -1460,6 +1474,7 @@ fn poll_overlay_restore(
                         (200, 220),
                     ));
                     st.stats_rtick = Some(st.tick);
+                    overlay::set_click_through(o.window(), pass_through);
                     #[cfg(windows)]
                     overlay::apply_taskbar_mode(o.window(), c.show_in_taskbar);
                 }
@@ -1482,6 +1497,7 @@ fn poll_overlay_restore(
                         (220, 180),
                     ));
                     st.self_rtick = Some(st.tick);
+                    overlay::set_click_through(o.window(), pass_through);
                     // 実体化したオーバーレイへ現在のタスクバー常駐モードを適用。
                     #[cfg(windows)]
                     overlay::apply_taskbar_mode(o.window(), c.show_in_taskbar);
@@ -1505,6 +1521,7 @@ fn poll_overlay_restore(
                         (250, 150),
                     ));
                     st.buff_rtick = Some(st.tick);
+                    overlay::set_click_through(o.window(), pass_through);
                     // 実体化したオーバーレイへ現在のタスクバー常駐モードを適用。
                     #[cfg(windows)]
                     overlay::apply_taskbar_mode(o.window(), c.show_in_taskbar);
@@ -1772,7 +1789,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let main = MainWindow::new()?;
     // 言語選択（既定は日本語。将来は設定から）。最初のコンポーネント生成後に呼ぶ。
     let _ = slint::select_bundled_translation("ja");
-    // 結果モーダルの透かし（画像コピーに写り込むクレジット）
+    // バージョン表示（設定パネル最下部＋結果モーダルの透かし。画像コピーに写り込むクレジット）
     main.set_app_version(format!("bpsr-checker v{}", env!("CARGO_PKG_VERSION")).into());
     let rows = Rc::new(VecModel::<Row>::default());
     main.set_rows(rows.clone().into());
@@ -2203,7 +2220,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "imagine-col-basilisk" => c.show_imagine_basilisk = val,
                     "show-consumable" => c.show_consumable = val,
                     "show-in-taskbar" => c.show_in_taskbar = val,
-                    "overlay-font-bold" => c.overlay_font_bold = val,
+                    "main-font-bold" => c.main_font_bold = val,
+                    "stats-overlay-font-bold" => c.stats_overlay_font_bold = val,
+                    "imagine-overlay-font-bold" => c.imagine_overlay_font_bold = val,
                     other => log::warn!("unknown setting key: {other}"),
                 }
             }
@@ -2251,8 +2270,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 stat_catalog_left_sb.set_vec(l);
                 stat_catalog_right_sb.set_vec(r);
             }
-            // フォント太字はオーバーレイ外観へ即反映。
-            if key.as_str() == "overlay-font-bold" {
+            // フォント太字はオーバーレイ外観へ即反映（メイン太字はバフ/デバフ窓へ波及）。
+            if matches!(
+                key.as_str(),
+                "main-font-bold" | "stats-overlay-font-bold" | "imagine-overlay-font-bold"
+            ) {
                 apply_overlay_appearance(&c, &self_ov, &buff_ov, &stats_ov);
             }
             settings::save(&c);
@@ -2405,8 +2427,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "font-size" => {
                         c.font_size = (c.font_size + d).clamp(10.0, 18.0);
                     }
-                    "overlay-font-size" => {
-                        c.overlay_font_size = (c.overlay_font_size + d).clamp(8.0, 24.0);
+                    "stats-overlay-font-size" => {
+                        c.stats_overlay_font_size = (c.stats_overlay_font_size + d).clamp(8.0, 100.0);
+                    }
+                    "imagine-overlay-font-size" => {
+                        c.imagine_overlay_font_size =
+                            (c.imagine_overlay_font_size + d).clamp(8.0, 24.0);
                     }
                     other => log::warn!("unknown num key: {other}"),
                 }
@@ -2434,7 +2460,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "copy-template" => c.copy_template = val.to_string(),
                     "startup-tab" => c.startup_tab = val.to_string(),
                     "accent-theme" => c.accent_theme = val.to_string(),
-                    "overlay-font" => c.overlay_font = val.to_string(),
+                    "main-font" => c.main_font = val.to_string(),
+                    "stats-overlay-font" => c.stats_overlay_font = val.to_string(),
+                    "imagine-overlay-font" => c.imagine_overlay_font = val.to_string(),
                     "overlay-text-color" => c.overlay_text_color = val.to_string(),
                     other => log::warn!("unknown str key: {other}"),
                 }
@@ -3030,13 +3058,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Drill::None => {}
         }
 
-        // オーバーレイの文字サイズはオーバーレイ専用設定（メインとは独立）
-        let overlay_scale = (cfg_poll.borrow().overlay_font_size / 12.0) as f32;
+        // オーバーレイの文字サイズは窓ごとに独立。
+        // バフ/デバフ=メイン窓に追随、ステータス・イマジンは各専用設定。
+        let (self_scale, stats_scale, imagine_scale) = {
+            let c = cfg_poll.borrow();
+            (
+                (c.font_size / 12.0) as f32,
+                (c.stats_overlay_font_size / 12.0) as f32,
+                (c.imagine_overlay_font_size / 12.0) as f32,
+            )
+        };
 
         // 自キャラ オーバーレイ更新（表示中のみ）
         if cfg_poll.borrow().show_self_status_overlay {
             if let Some(o) = self_overlay_w.upgrade() {
-                o.set_font_scale(overlay_scale);
+                o.set_font_scale(self_scale);
                 let s = compute::get_self_buff_status(&enc_poll);
                 o.set_waiting(s.local_player_uid == 0.0);
                 self_buffs_poll.set_vec(build_status_entries(&s.buffs));
@@ -3047,7 +3083,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // 自キャラ ステータス オーバーレイ更新（表示中のみ）
         if cfg_poll.borrow().show_stats_overlay {
             if let Some(o) = stats_overlay_w.upgrade() {
-                o.set_font_scale(overlay_scale);
+                o.set_font_scale(stats_scale);
                 let s = compute::get_self_stats(&enc_poll);
                 o.set_waiting(s.local_player_uid == 0.0);
                 let enabled = cfg_poll.borrow().stats_enabled.clone();
@@ -3058,7 +3094,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // バフタイマー オーバーレイ更新（表示中のみ）
         if cfg_poll.borrow().show_buff_overlay {
             if let Some(o) = buff_overlay_w.upgrade() {
-                o.set_font_scale(overlay_scale);
+                o.set_font_scale(imagine_scale);
                 {
                     // 表示するイマジン列を設定から反映（極小コスト・即時反映）
                     let c = cfg_poll.borrow();

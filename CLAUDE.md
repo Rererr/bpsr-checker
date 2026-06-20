@@ -97,6 +97,21 @@ Slint テストバックエンド同梱の MCP サーバーで、起動中の UI
 実機 UI の観測を一次情報とする。MCP 接続は Claude Code 起動時に確立するので、`scripts/run-mcp.ps1` で
 アプリを起動した状態でセッションを開始する（起動済みアプリに後から接続したい場合はセッション再起動）。
 
+#### セッション再起動せずに使う（推奨・現セッションでそのまま観測する手順）
+セッション途中でアプリを起動した等で `slint-ui` ツールが当セッションに無くても、**セッション再起動は不要**。
+MCP サーバーは素の HTTP JSON-RPC なので Bash/PowerShell から直接叩ける（クライアント登録不要・2026-06-20 実証）。
+1. `pwsh scripts/run-mcp.ps1` でアプリ起動（既定 8080・デモ）。`http://127.0.0.1:8080/mcp` を待受け。
+2. `POST http://127.0.0.1:8080/mcp` に順に投げる: (1) `initialize`（ヘッダ `Accept: application/json, text/event-stream`、
+   **ステートレス＝`Mcp-Session-Id` 不要**） (2) `notifications/initialized` (3) `tools/call`。
+3. レスポンスが SSE のときは `data:` 行を結合して JSON 化。`take_screenshot` は base64 PNG →
+   `[IO.File]::WriteAllBytes` で保存して Read で確認。
+- 引数キーは `windowHandle` / `elementHandle`（`window` ではない）。`get_element_tree` は**フラットな `elements[]`**
+  （nested children でない。`handle.index` / `typeNamesAndIds[].typeName` / `id` で識別）。窓ハンドルは index 0=`{}`,1,2…。
+- 設定セクションは `if settings-open` ガード＝開く前はツリーに出ない（`MainWindow::settings-btn` を click で開閉）。
+- **注意: `click_element` は実 handler を通り `settings::save` まで走る**＝トグルした設定が実 `settings.json` に
+  永続化される。検証後は必ず元へ戻す。座標は introspection がズレるので `take_screenshot` を一次情報に
+  （詳細・合成入力の限界は memory `slint-mcp-introspection-coords` 参照）。
+
 ### バージョン同期（git tag 前に必ず実施）
 バージョンの正典は **`slint-app/Cargo.toml` の `version`**。タグと同じ値へ更新し、
 コード変更と同一コミットで行う。配布物・梱包スクリプトもこの値を参照する。

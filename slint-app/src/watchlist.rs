@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-const MAX: usize = 20;
+const MAX: usize = 30;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Watchlist {

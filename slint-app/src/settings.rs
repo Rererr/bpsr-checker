@@ -109,16 +109,23 @@ pub struct Settings {
     /// オーバーレイ窓（ステータス／ステータス窓／イマジンタイマー）共通の背景不透明度（0.05〜1.0）。
     /// メイン窓の opacity とは独立。文字・バーは不透明のまま（背景のみ透ける）。
     pub overlay_opacity: f64,
-    /// オーバーレイ窓共通のフォントサイズ（px）。メインの font_size とは独立。
-    pub overlay_font_size: f64,
-    /// オーバーレイ窓共通のフォントファミリ名（システムにある実フォント名をそのまま保持）。
-    pub overlay_font: String,
     /// オーバーレイ窓共通の基準テキスト色（プリセットキー white/warm/... または "#rrggbb"）。
     /// 白系ラベル・値テキストのみ再着色し、意味色（アクセント／職業色／デバフ赤）は対象外。
+    /// 不透明度・文字色は3窓共通だが、文字サイズ・フォントは窓ごとに独立（下記）。
     pub overlay_text_color: String,
-    /// オーバーレイ窓共通フォントの太字（既定 false）。
-    #[serde(default)]
-    pub overlay_font_bold: bool,
+    /// メイン窓のフォントファミリ名（システムにある実フォント名をそのまま保持）。
+    /// バフ/デバフ オーバーレイはメイン窓のフォントサイズ(font_size)とこのフォントに追随する。
+    pub main_font: String,
+    /// メイン窓フォントの太字（既定 false）。バフ/デバフ オーバーレイも追随。
+    pub main_font_bold: bool,
+    /// ステータス オーバーレイ専用のフォントサイズ（px）・フォント・太字（メインとは独立）。
+    pub stats_overlay_font_size: f64,
+    pub stats_overlay_font: String,
+    pub stats_overlay_font_bold: bool,
+    /// イマジンタイマー オーバーレイ専用のフォントサイズ（px）・フォント・太字（メインとは独立）。
+    pub imagine_overlay_font_size: f64,
+    pub imagine_overlay_font: String,
+    pub imagine_overlay_font_bold: bool,
 }
 
 impl Default for Settings {
@@ -168,10 +175,15 @@ impl Default for Settings {
             show_consumable: true,
             show_in_taskbar: false,
             overlay_opacity: 0.82,
-            overlay_font_size: 12.0,
-            overlay_font: "Yu Gothic UI".to_string(),
             overlay_text_color: "white".to_string(),
-            overlay_font_bold: false,
+            main_font: "Yu Gothic UI".to_string(),
+            main_font_bold: false,
+            stats_overlay_font_size: 12.0,
+            stats_overlay_font: "Yu Gothic UI".to_string(),
+            stats_overlay_font_bold: false,
+            imagine_overlay_font_size: 12.0,
+            imagine_overlay_font: "Yu Gothic UI".to_string(),
+            imagine_overlay_font_bold: false,
         }
     }
 }

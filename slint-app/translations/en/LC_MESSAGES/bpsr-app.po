@@ -216,6 +216,9 @@ msgstr "Bold"
 msgid "フォント"
 msgstr "Font"
 
+msgid "文字"
+msgstr "Text"
+
 msgid "文字色"
 msgstr "Text color"
 

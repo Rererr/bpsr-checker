@@ -435,9 +435,7 @@ component PlayerRowItem inherits Rectangle {
     callback activate(string);
     callback toggle-watch(string);
     height: 20px * root.font-scale;
-    background: rowta.has-hover
-        ? #ffffff12
-        : ((root.entry.is-local && root.highlight-local) ? #ffd7001f : transparent);
+    background: rowta.has-hover ? #ffffff12 : transparent;
 
     // 行クリック（背面）。ウォッチピン等の TouchArea が前面で個別に捕捉する。
     rowta := TouchArea {
@@ -539,6 +537,21 @@ component PlayerRowItem inherits Rectangle {
             }
         }
     }
+
+    // 自キャラ マーカー: クラス色バー左の左余白に〉を描画（行塗りつぶしの代替）。
+    // フォント依存を避けるため Path で描く。font-scale に追従。
+    if (root.entry.is-local && root.highlight-local): Path {
+        x: 1px;
+        y: (parent.height - self.height) / 2;
+        width: 5px * root.font-scale;
+        height: 9px * root.font-scale;
+        viewbox-width: 5;
+        viewbox-height: 9;
+        commands: "M 1 1 L 4 4.5 L 1 8";
+        stroke: #ffd700;
+        stroke-width: 1.4px;
+        fill: transparent;
+    }
 }
 
 // 軽量分割表示の行（名前＋ダメージ＋DPSのみ。グラフ/ピン無し）
@@ -548,9 +561,7 @@ component CompactRowItem inherits Rectangle {
     in property <float> font-scale: 1.0;
     callback activate(string);
     height: 18px;
-    background: cta.has-hover
-        ? #ffffff12
-        : ((root.entry.is-local && root.highlight-local) ? #ffd7001f : transparent);
+    background: cta.has-hover ? #ffffff12 : transparent;
     Rectangle {
         x: 0;
         y: 0;
@@ -573,6 +584,20 @@ component CompactRowItem inherits Rectangle {
         }
         Text { text: root.entry.dmg-text; color: #e6e6f0; font-size: 11px * root.font-scale; width: 56px; horizontal-alignment: right; vertical-alignment: center; }
         Text { text: root.entry.dps-text; color: Theme.accent; font-size: 11px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+    }
+
+    // 自キャラ マーカー（RowItem と同様。クラス色バー左の左余白に〉）。
+    if (root.entry.is-local && root.highlight-local): Path {
+        x: 0.5px;
+        y: (parent.height - self.height) / 2;
+        width: 4.5px * root.font-scale;
+        height: 8px * root.font-scale;
+        viewbox-width: 5;
+        viewbox-height: 9;
+        commands: "M 1 1 L 4 4.5 L 1 8";
+        stroke: #ffd700;
+        stroke-width: 1.4px;
+        fill: transparent;
     }
 }
 
@@ -2581,7 +2606,6 @@ struct BuffPlayerRow {
 component CircularCell inherits Rectangle {
     in property <BuffCell> cell;
     in property <float> font-scale: 1.0;
-    in property <bool> hud-mode; // 完全透明(HUD)時は円の溝リングを消し、色付き円弧と数字のみ残す
     // 円とストロークも font-scale に追従（大きいフォントで数字が円からはみ出さないように）。
     width: 28px * root.font-scale;
     height: 28px * root.font-scale;
@@ -2594,7 +2618,8 @@ component CircularCell inherits Rectangle {
         viewbox-width: 28;
         viewbox-height: 28;
         commands: "M 14 1.5 A 12.5 12.5 0 1 1 13.99 1.5";
-        stroke: root.hud-mode ? transparent : #ffffff1f;
+        // 完全透明(HUD)時も溝リングは残す（タイマーの目盛りとして見せる）。白12%は背景漏れ無関係。
+        stroke: #ffffff1f;
         stroke-width: 3px * root.font-scale;
         fill: transparent;
     }
@@ -2629,17 +2654,16 @@ component BuffPlayerRowItem inherits Rectangle {
     in property <bool> show-aluna: true;
     in property <bool> show-tarta: true;
     in property <bool> show-basilisk: true;
-    in property <bool> hud-mode; // 完全透明(HUD)時は円の溝リングを消す（子 CircularCell へ伝播）
     height: 30px * root.font-scale;
     HorizontalLayout {
         spacing: 4px;
         // 名前列は伸縮（min-width は font-scale 追従）。窓を広げると余白でなく名前列が広がり、
         // 大きいフォントでも名前が見切れにくい。ヘッダの名前スペーサーと同設定で列を揃える。
         Text { text: root.p.name; color: root.text-base.with-alpha(0.87); font-size: 10px * root.font-scale; min-width: 46px * root.font-scale; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
-        if root.show-tina: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.tina; font-scale: root.font-scale; hud-mode: root.hud-mode; } } }
-        if root.show-aluna: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.aluna; font-scale: root.font-scale; hud-mode: root.hud-mode; } } }
-        if root.show-tarta: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.tarta; font-scale: root.font-scale; hud-mode: root.hud-mode; } } }
-        if root.show-basilisk: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.basilisk; font-scale: root.font-scale; hud-mode: root.hud-mode; } } }
+        if root.show-tina: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.tina; font-scale: root.font-scale; } } }
+        if root.show-aluna: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.aluna; font-scale: root.font-scale; } } }
+        if root.show-tarta: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.tarta; font-scale: root.font-scale; } } }
+        if root.show-basilisk: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.basilisk; font-scale: root.font-scale; } } }
         // ×ボタン用の右余白（固定。横拡大は名前列が吸収する）
         Rectangle { width: 20px * root.font-scale; }
     }
@@ -2706,7 +2730,6 @@ export component BuffOverlay inherits Window {
             p: p;
             font-scale: root.font-scale;
             text-base: root.text-base;
-            hud-mode: root.overlay-opacity <= 0.001;
             show-tina: root.show-tina;
             show-aluna: root.show-aluna;
             show-tarta: root.show-tarta;

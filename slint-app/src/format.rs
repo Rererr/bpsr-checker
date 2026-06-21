@@ -33,18 +33,19 @@ pub fn format_score(n: f64, abbreviate: bool) -> String {
     }
 }
 
-/// クラス名 → 表示色（utils.ts CLASS_COLORS）。
+/// クラス名 → 表示色（utils.ts CLASS_COLORS）。class.rs の name_ja()/name_en() 両方の
+/// 表記を受け付ける（表示言語で名前が変わっても色は固定）。
 pub fn class_color(class_name: &str) -> Color {
     let hex: u32 = match class_name {
-        "ストームブレイド" => 0xfd7cff,
-        "フロストメイジ" => 0x3498db,
-        "ゲイルランサー" => 0xc6ffd8,
-        "ヴァーダントオラクル" => 0x139348,
-        "ヘビーガーディアン" => 0x724d2d,
-        "ディバインアーチャー" => 0xfff090,
-        "シールドファイター" => 0xd1a700,
-        "ビートパフォーマー" => 0xe91e63,
-        "未実装クラス" => 0x7f8c8d,
+        "ストームブレイド" | "Stormblade" => 0xfd7cff,
+        "フロストメイジ" | "Frost Mage" => 0x3498db,
+        "ゲイルランサー" | "Wind Knight" => 0xc6ffd8,
+        "ヴァーダントオラクル" | "Verdant Oracle" => 0x139348,
+        "ヘヴィガーディアン" | "Heavy Guardian" => 0x724d2d,
+        "ディバインアーチャー" | "Marksman" => 0xfff090,
+        "シールドファイター" | "Shield Knight" => 0xd1a700,
+        "ビートパフォーマー" | "Beat Performer" => 0xe91e63,
+        "未実装クラス" | "Unimplemented Class" => 0x7f8c8d,
         _ => 0x95a5a6,
     };
     Color::from_rgb_u8((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)

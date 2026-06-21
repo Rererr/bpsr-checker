@@ -1,6 +1,7 @@
 use crate::engine::buff_source::BuffSourceKind;
 use crate::engine::class::{Class, ClassSpec};
 use crate::engine::combat_stats::CombatStats;
+use crate::engine::runtime_settings::{self, Lang};
 use crate::engine::encounter::{Encounter, EncounterMutex};
 use crate::engine::name_cache;
 use crate::engine::selected_uid;
@@ -327,7 +328,7 @@ fn attacker_display_name(encounter: &Encounter, attacker_uid: i64) -> String {
     }
     if let Some(mid) = e.monster_id {
         if let Some(name) = crate::engine::monster_names::get_boss_name(mid) {
-            return name.to_string();
+            return name;
         }
         return format!("モンスター#{mid}");
     }
@@ -449,22 +450,38 @@ fn make_player_row(
     time_series: &VecDeque<TimeSeriesPoint>,
     consumable: ConsumableTimes,
 ) -> PlayerRow {
+    // 表示言語に応じた名前（ja 以外は en。zh/ko は保留中のため en にフォールバック）。
+    let lang = runtime_settings::display_lang();
     let name_resolved = !name.is_empty();
     let display_name = if name_resolved {
         name.to_string()
-    } else {
+    } else if lang == Lang::Ja {
         format!("プレイヤー#{}", uid & 0xFFFF)
+    } else {
+        format!("Player#{}", uid & 0xFFFF)
+    };
+    let class = class.unwrap_or(Class::Unknown);
+    let class_name = match lang {
+        Lang::Ja => class.name_ja(),
+        _ => class.name_en(),
+    }
+    .to_string();
+    // 特化が未判明（None/Unknown）のときは空文字にして表示側で省略させる。
+    let class_spec_name = match class_spec {
+        Some(s) if s != ClassSpec::Unknown => match lang {
+            Lang::Ja => s.name_ja(),
+            _ => s.name(),
+        }
+        .to_string(),
+        _ => String::new(),
     };
 
     PlayerRow {
         uid: uid as f64,
         name: display_name,
         name_resolved,
-        class_name: class.unwrap_or(Class::Unknown).name_ja().to_string(),
-        class_spec_name: class_spec
-            .unwrap_or(ClassSpec::Unknown)
-            .name_ja()
-            .to_string(),
+        class_name,
+        class_spec_name,
         ability_score: f64::from(ability_score.unwrap_or(-1)),
         season_level: f64::from(season_level.unwrap_or(-1)),
         season_strength: f64::from(season_strength.unwrap_or(-1)),

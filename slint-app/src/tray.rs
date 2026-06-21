@@ -15,11 +15,19 @@ pub struct Tray {
 }
 
 /// トレイを生成（イベントループ稼働後に呼ぶこと）。失敗時は None。
+/// メニュー文言は表示言語に追従（ja 以外は en。zh/ko は保留中のため en）。
 pub fn create() -> Option<Tray> {
+    use bpsr_core::engine::runtime_settings::{self, Lang};
+    let ja = runtime_settings::display_lang() == Lang::Ja;
+    let (s_click, s_show, s_quit) = if ja {
+        ("クリックスルー", "メインを表示/非表示", "終了")
+    } else {
+        ("Click-through", "Show / Hide Main", "Quit")
+    };
     let menu = Menu::new();
-    let click_through = CheckMenuItem::new("クリックスルー", true, false, None);
-    let show_hide = MenuItem::new("メインを表示/非表示", true, None);
-    let quit = MenuItem::new("終了", true, None);
+    let click_through = CheckMenuItem::new(s_click, true, false, None);
+    let show_hide = MenuItem::new(s_show, true, None);
+    let quit = MenuItem::new(s_quit, true, None);
 
     let res = menu
         .append(&click_through)

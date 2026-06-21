@@ -11,3 +11,16 @@ translation_work/
 # WinDivert 配布バイナリ（DL物・配布同梱用）
 windivert/
 dist-slint/
+
+# ゲームファイルから抽出したローカライズ文字列（著作物・ローカル派生・非コミット）
+tools/_loc/
+tools/_*.tsv
+tools/_*.json
+
+# ゲームファイルのリバースエンジニアリング用ツール・調査メモ（手法はローカル管理・非コミット。
+# 生成物の名前辞書 JSON のみ同梱する）
+tools/*.mjs
+tools/*.ps1
+docs/i18n-game-extraction.md
+docs/buff-investigation.md
+docs/global-metadata-investigation.md

@@ -1,160 +1,160 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: bpsr-app\n"
-"Language: en\n"
+"Language: zh\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-# ソース(msgid)は日本語。ここで英語へ翻訳する。
-# 日英で同一の文字列（"DPS" / "%" 等）は msgid フォールバックで足りるため省略。
+# ソース(msgid)は日本語。ここで簡体字中国語へ翻訳する。
+# Imagine / Tina 等の固有名詞や font 名(Meiryo)は en と同様そのまま残す。
 
 msgid "DPSメーター"
-msgstr "DPS Checker"
+msgstr "DPS统计"
 
 msgid "回復"
-msgstr "Heal"
+msgstr "治疗"
 
 msgid "被ダメ"
-msgstr "Taken"
+msgstr "承伤"
 
 msgid "履歴"
-msgstr "History"
+msgstr "历史"
 
 msgid "プレイヤー"
-msgstr "Player"
+msgstr "玩家"
 
 msgid "ダメージ"
-msgstr "Damage"
+msgstr "伤害"
 
 msgid "終了"
-msgstr "Quit"
+msgstr "退出"
 
 msgid "データなし"
-msgstr "No data"
+msgstr "暂无数据"
 
 msgid "経過"
-msgstr "Elapsed"
+msgstr "时长"
 
 msgid "合計DPS"
-msgstr "Total DPS"
+msgstr "总DPS"
 
 msgid "戻る"
-msgstr "Back"
+msgstr "返回"
 
 msgid "スキル"
-msgstr "Skill"
+msgstr "技能"
 
 msgid "会心率"
-msgstr "Crit%"
+msgstr "暴击率"
 
 msgid "会心ダメ率"
-msgstr "CritDmg%"
+msgstr "暴伤%"
 
 msgid "幸運率"
-msgstr "Lucky%"
+msgstr "幸运率"
 
 msgid "幸運ダメ率"
-msgstr "LuckyDmg%"
+msgstr "幸伤%"
 
 msgid "ヒット数"
-msgstr "Hits"
+msgstr "命中"
 
 msgid "毎分ヒット数"
-msgstr "Hits/m"
+msgstr "命中/分"
 
 msgid "戦力"
-msgstr "Score"
+msgstr "战力"
 
 msgid "設定"
-msgstr "Settings"
+msgstr "设置"
 
 msgid "言語"
-msgstr "Language"
+msgstr "语言"
 
 msgid "再起動後に反映されます"
-msgstr "Applies after restart"
+msgstr "重启后生效"
 
 msgid "前面"
-msgstr "Pin"
+msgstr "置顶"
 
 msgid "表示列"
-msgstr "Columns"
+msgstr "显示列"
 
 msgid "表示"
-msgstr "Display"
+msgstr "显示"
 
 msgid "オーバーレイ"
-msgstr "Overlay"
+msgstr "悬浮窗"
 
 msgid "自分を強調"
-msgstr "Highlight self"
+msgstr "高亮自己"
 
 msgid "スコア省略(K/M)"
-msgstr "Abbrev. scores (K/M)"
+msgstr "战力简写(K/M)"
 
 msgid "常に最前面"
-msgstr "Always on top"
+msgstr "始终置顶"
 
 msgid "不透明度"
-msgstr "Opacity"
+msgstr "不透明度"
 
 msgid "名前マスク"
-msgstr "Privacy mask"
+msgstr "隐藏昵称"
 
 msgid "自キャラ バフ/デバフ表示"
-msgstr "Self Buff/Debuff Display"
+msgstr "显示自身增益/减益"
 
 msgid "自キャラ判定中..."
-msgstr "Detecting character..."
+msgstr "识别角色中..."
 
 msgid "バフ/デバフなし"
-msgstr "No active buffs/debuffs"
+msgstr "无增益/减益"
 
 msgid "バフ"
-msgstr "Buffs"
+msgstr "增益"
 
 msgid "デバフ"
-msgstr "Debuffs"
+msgstr "减益"
 
 msgid "自キャラ バフ/デバフ"
-msgstr "Self buffs/debuffs"
+msgstr "自身增益/减益"
 
 msgid "イマジンデバフタイマー"
-msgstr "Imagine debuff timer"
+msgstr "Imagine减益计时器"
 
 msgid "イマジン専用モード"
-msgstr "Imagine-only mode"
+msgstr "仅Imagine模式"
 
 msgid "イマジンタイマー"
-msgstr "Imagine timer"
+msgstr "Imagine计时器"
 
 msgid "ステータス"
-msgstr "Stats"
+msgstr "属性"
 
 msgid "すべてオン"
-msgstr "All on"
+msgstr "全部开启"
 
 msgid "すべてオフ"
-msgstr "All off"
+msgstr "全部关闭"
 
 msgid "キャラクター"
-msgstr "Character"
+msgstr "角色"
 
 msgid "自キャラUID"
-msgstr "Your UID"
+msgstr "自身UID"
 
 msgid "クリア"
-msgstr "Clear"
+msgstr "清除"
 
 msgid "候補"
-msgstr "Candidates"
+msgstr "候选"
 
 msgid "自動判定が外れた時に手動で自分を指定（Enterで確定）"
-msgstr "Set your character manually if auto-detection is wrong (Enter to apply)"
+msgstr "自动识别错误时手动指定自己（回车确定）"
 
 msgid "DPS一覧でピンアイコンをクリック"
-msgstr "Pin a player in the DPS list"
+msgstr "在DPS列表点击置顶图标"
 
 msgid "ティナ"
 msgstr "Tina"
@@ -169,205 +169,214 @@ msgid "バジリスク"
 msgstr "Basilisk"
 
 msgid "全プレイヤー自動追加"
-msgstr "Auto-add all players"
+msgstr "自动添加所有玩家"
 
 msgid "タイマー表示イマジン"
-msgstr "Timer imagines"
+msgstr "计时显示Imagine"
 
 msgid "食事/シロップ"
-msgstr "Food / Syrup"
+msgstr "食物/糖浆"
 
 msgid "戦闘"
-msgstr "Combat"
+msgstr "战斗"
 
 msgid "戦闘終了(秒)"
-msgstr "Combat exit (s)"
+msgstr "战斗结束(秒)"
 
 msgid "更新間隔(ms)"
-msgstr "Update interval (ms)"
+msgstr "刷新间隔(ms)"
 
 msgid "3分計測(秒)"
-msgstr "3-min timer (s)"
+msgstr "3分钟计时(秒)"
 
 msgid "3分計測を自動で開く"
-msgstr "Auto-open 3-min result"
+msgstr "自动打开3分钟结算"
 
 msgid "履歴・グラフ"
-msgstr "History & Graph"
+msgstr "历史·图表"
 
 msgid "履歴保持数"
-msgstr "History limit"
+msgstr "历史保留数"
 
 msgid "グラフ標本数"
-msgstr "Graph samples"
+msgstr "图表采样数"
 
 msgid "グラフ間隔(ms)"
-msgstr "Graph interval (ms)"
+msgstr "图表间隔(ms)"
 
 msgid "グラフ表示人数"
-msgstr "Graph player count"
+msgstr "图表显示人数"
 
 msgid "ウィンドウ"
-msgstr "Window"
+msgstr "窗口"
 
 msgid "外観"
-msgstr "Appearance"
+msgstr "外观"
 
 msgid "完全透明中はクリック透過になり、オーバーレイの移動・最小化・閉じるができません。設定パネルで不透明度を上げると操作に戻れます。"
-msgstr "While fully transparent the overlay is click-through: you can't move, minimize, or close it. Raise the opacity in the settings panel to interact again."
+msgstr "完全透明时窗口会变为点击穿透，无法移动、最小化或关闭悬浮窗。在设置面板提高不透明度即可恢复操作。"
 
 msgid "太字"
-msgstr "Bold"
+msgstr "加粗"
 
 msgid "フォント"
-msgstr "Font"
+msgstr "字体"
 
 msgid "文字"
-msgstr "Text"
+msgstr "文字"
 
 msgid "文字色"
-msgstr "Text color"
+msgstr "文字颜色"
 
 msgid "ゴシック"
-msgstr "Gothic"
+msgstr "黑体"
 
 msgid "メイリオ"
 msgstr "Meiryo"
 
 msgid "明朝"
-msgstr "Mincho"
+msgstr "明朝"
 
 msgid "等幅"
-msgstr "Mono"
+msgstr "等宽"
 
 msgid "テンプレート"
-msgstr "Template"
+msgstr "模板"
 
 msgid "名前列テンプレ"
-msgstr "Name template"
+msgstr "名称模板"
 
 msgid "コピーテンプレ"
-msgstr "Copy template"
+msgstr "复制模板"
 
 msgid "リセット"
-msgstr "Reset"
+msgstr "重置"
 
 msgid "軽量分割表示"
-msgstr "Compact split"
+msgstr "紧凑分栏"
 
 msgid "タスクバーに常駐"
-msgstr "Show in taskbar"
+msgstr "显示在任务栏"
 
 msgid "フォントサイズ"
-msgstr "Font size"
+msgstr "字号"
 
 msgid "起動時のタブ"
-msgstr "Startup tab"
+msgstr "启动标签页"
 
 msgid "自分のグラフを表示"
-msgstr "Graph for self"
+msgstr "显示自己的图表"
 
 msgid "コピー"
-msgstr "Copy"
+msgstr "复制"
 
 msgid "済"
-msgstr "OK"
+msgstr "已复制"
 
 msgid "履歴クリア"
-msgstr "Clear history"
+msgstr "清空历史"
 
 msgid "履歴なし"
-msgstr "No history"
+msgstr "无历史"
 
 msgid "人"
-msgstr " players"
+msgstr "人"
 
 msgid "推移"
-msgstr "Trend"
+msgstr "趋势"
 
 msgid "計測"
-msgstr "3-min"
+msgstr "计时"
 
 msgid "待機"
-msgstr "Armed"
+msgstr "待机"
 
 msgid "停止"
-msgstr "Pause"
+msgstr "暂停"
 
 msgid "再開"
-msgstr "Resume"
+msgstr "继续"
 
 msgid "初期化"
-msgstr "Reset"
+msgstr "重置"
 
 msgid "3分計測 結果"
-msgstr "3-min Result"
+msgstr "3分钟结算"
 
 msgid "総ダメ"
-msgstr "Total dmg"
+msgstr "总伤害"
 
 msgid "計測時間"
-msgstr "Duration"
+msgstr "计时时长"
 
 msgid "ダメージなし"
-msgstr "No damage"
+msgstr "无伤害"
 
 msgid "スキルなし"
-msgstr "No skills"
+msgstr "无技能"
 
 msgid "スキルを選択"
-msgstr "Select a skill"
+msgstr "选择技能"
 
 msgid "DPS推移"
-msgstr "DPS trend"
+msgstr "DPS趋势"
 
 msgid "スキルDPS推移"
-msgstr "Skill DPS trend"
+msgstr "技能DPS趋势"
 
 msgid "再計測"
-msgstr "Restart"
+msgstr "重新计时"
 
 msgid "閉じる"
-msgstr "Close"
+msgstr "关闭"
 
 msgid "残り {}"
-msgstr "Left {}"
+msgstr "剩余 {}"
 
 msgid "アクセントカラー"
-msgstr "Accent color"
+msgstr "强调色"
 
 msgid "画像コピー"
-msgstr "Copy image"
+msgstr "复制图片"
 
 msgid "パケット観測の開始に失敗しました"
-msgstr "Failed to start packet capture"
+msgstr "数据包捕获启动失败"
 
 msgid "ゲーム通信を検出中"
-msgstr "Game traffic detected"
+msgstr "已检测到游戏通信"
 
 msgid "ゲーム通信を待機中"
-msgstr "Waiting for game traffic"
+msgstr "等待游戏通信中"
 
 msgid "戦闘を開始すると自動的に表示されます"
-msgstr "Data appears automatically once combat starts"
+msgstr "开始战斗后会自动显示"
 
 msgid "検出されない場合はゾーン移動か再ログインで検出が始まります"
-msgstr "If nothing shows up, change zones or relog to start detection"
+msgstr "若未检测到，切换区域或重新登录即可开始检测"
 
 msgid "VPN / ExitLag / NoPing 等の使用中は検出できないことがあります"
-msgstr "Detection may fail while VPN / ExitLag / NoPing is active"
+msgstr "使用 VPN / ExitLag / NoPing 等时可能无法检测"
 
 msgid "管理者権限で起動しているか確認してください"
-msgstr "Make sure the app is running as administrator"
+msgstr "请确认以管理员权限运行"
 
 msgid "WinDivert.dll / WinDivert64.sys が exe と同じフォルダにあるか確認してください"
-msgstr "Make sure WinDivert.dll / WinDivert64.sys are next to the exe"
+msgstr "请确认 WinDivert.dll / WinDivert64.sys 与 exe 位于同一文件夹"
 
 msgid "表示する項目"
-msgstr "Items to show"
+msgstr "显示项目"
 
 msgid "自キャラ ステータス"
-msgstr "Self Stats"
+msgstr "自身属性"
 
 msgid "表示項目なし"
-msgstr "No items shown"
+msgstr "无显示项目"
+
+msgid "Heal"
+msgstr "治疗"
+
+msgid "Taken"
+msgstr "承伤"
+
+msgid "Log"
+msgstr "日志"

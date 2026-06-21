@@ -1,55 +1,84 @@
 //! 設定の永続化（src/stores/settings.ts を移植）。
 //! %APPDATA%\bpsr-checker\settings.json に JSON で保存する。
 
+use bpsr_core::engine::runtime_settings::{self, Lang};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 pub const DEFAULT_NAME_TEMPLATE: &str = "{name} {spec}({score} - {seasonLv} - {seasonStr})";
 pub const DEFAULT_COPY_TEMPLATE: &str = "{rank}. {name} ({class}) {dmg} / {dps} DPS ({pct})";
 
-/// 自キャラ ステータス窓の項目カタログ: (key, 日本語ラベル, グループ, 既定で表示するか)。
-/// ラベル・グループはゲーム内ステータス画面の表記に準拠（docs/images の参考スクショ）。
+/// 自キャラ ステータス窓の項目定義。ラベル・グループはゲーム内ステータス画面の表記に準拠
+/// （docs/images の参考スクショ）。日本語・英語の両ラベルを持ち、表示は `display_lang()` に追従。
 /// ※ key は設定 `stats_enabled` と Slint の "stat.<key>" トグルキーに対応。
 /// ※ 「会心/幸運」はステータス値（attr由来の%）、「会心率/幸運率(実測)」は命中データ由来の別項目。
 /// ※ attr_id 未確定の項目（魔攻/魔防/敏捷/会心/万能/レジスト/詠唱速度/会心ダメージ/幸運倍率/器用さ）は
 ///   実機 probe 確定までは値が「—」表示になる（デモモードではデモ値を表示）。
-pub const STAT_CATALOG: &[(&str, &str, &str, bool)] = &[
-    // 基本
-    ("hp", "HP", "基本", true),
-    ("atk-phys", "物理攻撃力", "基本", true),
-    ("atk-magic", "魔法攻撃力", "基本", false),
-    ("strength", "筋力", "基本", true),
-    ("intelligence", "知力", "基本", false),
-    ("agility", "敏捷", "基本", false),
-    ("endurance", "耐久力", "基本", true),
-    ("ability-score", "能力スコア", "基本", false),
-    ("season-strength", "幻夢強度", "基本", false),
-    // 会心・幸運（実測率＋ステータス値）
-    ("crit-rate", "会心率(実測)", "会心・幸運", true),
-    ("crit", "会心", "会心・幸運", true),
-    ("lucky-rate", "幸運率(実測)", "会心・幸運", true),
-    ("lucky", "幸運", "会心・幸運", true),
-    // 副次（％）
-    ("haste", "ファスト", "副次", true),
-    ("dexterity", "器用さ", "副次", false),
-    ("versatility", "万能", "副次", false),
-    ("resist", "レジスト", "副次", false),
-    // 攻撃詳細
-    ("attack-speed", "攻撃速度", "攻撃", false),
-    ("cast-speed", "詠唱速度", "攻撃", false),
-    ("crit-dmg", "会心ダメージ", "攻撃", false),
-    ("lucky-dmg", "幸運の一撃倍率", "攻撃", false),
-    // 生存
-    ("def-phys", "物理防御力", "生存", false),
-    ("def-magic", "魔法防御力", "生存", false),
+pub struct StatDef {
+    pub key: &'static str,
+    pub label_ja: &'static str,
+    pub label_en: &'static str,
+    pub group_ja: &'static str,
+    pub group_en: &'static str,
+    pub default_on: bool,
+}
+
+impl StatDef {
+    /// 表示言語に応じたラベル（ja 以外は en。zh/ko は保留中のため en にフォールバック）。
+    pub fn label(&self) -> &'static str {
+        match runtime_settings::display_lang() {
+            Lang::Ja => self.label_ja,
+            _ => self.label_en,
+        }
+    }
+
+    /// 表示言語に応じたグループ見出し（ja 以外は en）。
+    pub fn group(&self) -> &'static str {
+        match runtime_settings::display_lang() {
+            Lang::Ja => self.group_ja,
+            _ => self.group_en,
+        }
+    }
+}
+
+/// 自キャラ ステータス窓の項目カタログ（表示順）。
+pub const STAT_CATALOG: &[StatDef] = &[
+    // 基本 / Basic
+    StatDef { key: "hp", label_ja: "HP", label_en: "HP", group_ja: "基本", group_en: "Basic", default_on: true },
+    StatDef { key: "atk-phys", label_ja: "物理攻撃力", label_en: "Phys ATK", group_ja: "基本", group_en: "Basic", default_on: true },
+    StatDef { key: "atk-magic", label_ja: "魔法攻撃力", label_en: "Magic ATK", group_ja: "基本", group_en: "Basic", default_on: false },
+    StatDef { key: "strength", label_ja: "筋力", label_en: "Strength", group_ja: "基本", group_en: "Basic", default_on: true },
+    StatDef { key: "intelligence", label_ja: "知力", label_en: "Intelligence", group_ja: "基本", group_en: "Basic", default_on: false },
+    StatDef { key: "agility", label_ja: "敏捷", label_en: "Agility", group_ja: "基本", group_en: "Basic", default_on: false },
+    StatDef { key: "endurance", label_ja: "耐久力", label_en: "Endurance", group_ja: "基本", group_en: "Basic", default_on: true },
+    StatDef { key: "ability-score", label_ja: "能力スコア", label_en: "Ability Score", group_ja: "基本", group_en: "Basic", default_on: false },
+    StatDef { key: "season-strength", label_ja: "幻夢強度", label_en: "Season Power", group_ja: "基本", group_en: "Basic", default_on: false },
+    // 会心・幸運 / Crit & Luck（実測率＋ステータス値）
+    StatDef { key: "crit-rate", label_ja: "会心率(実測)", label_en: "Crit Rate (Measured)", group_ja: "会心・幸運", group_en: "Crit & Luck", default_on: true },
+    StatDef { key: "crit", label_ja: "会心", label_en: "Crit", group_ja: "会心・幸運", group_en: "Crit & Luck", default_on: true },
+    StatDef { key: "lucky-rate", label_ja: "幸運率(実測)", label_en: "Luck Rate (Measured)", group_ja: "会心・幸運", group_en: "Crit & Luck", default_on: true },
+    StatDef { key: "lucky", label_ja: "幸運", label_en: "Luck", group_ja: "会心・幸運", group_en: "Crit & Luck", default_on: true },
+    // 副次 / Secondary（％）
+    StatDef { key: "haste", label_ja: "ファスト", label_en: "Haste", group_ja: "副次", group_en: "Secondary", default_on: true },
+    StatDef { key: "dexterity", label_ja: "器用さ", label_en: "Dexterity", group_ja: "副次", group_en: "Secondary", default_on: false },
+    StatDef { key: "versatility", label_ja: "万能", label_en: "Versatility", group_ja: "副次", group_en: "Secondary", default_on: false },
+    StatDef { key: "resist", label_ja: "レジスト", label_en: "Resist", group_ja: "副次", group_en: "Secondary", default_on: false },
+    // 攻撃 / Offense
+    StatDef { key: "attack-speed", label_ja: "攻撃速度", label_en: "Attack Speed", group_ja: "攻撃", group_en: "Offense", default_on: false },
+    StatDef { key: "cast-speed", label_ja: "詠唱速度", label_en: "Cast Speed", group_ja: "攻撃", group_en: "Offense", default_on: false },
+    StatDef { key: "crit-dmg", label_ja: "会心ダメージ", label_en: "Crit DMG", group_ja: "攻撃", group_en: "Offense", default_on: false },
+    StatDef { key: "lucky-dmg", label_ja: "幸運の一撃倍率", label_en: "Lucky Strike Mult.", group_ja: "攻撃", group_en: "Offense", default_on: false },
+    // 生存 / Survival
+    StatDef { key: "def-phys", label_ja: "物理防御力", label_en: "Phys DEF", group_ja: "生存", group_en: "Survival", default_on: false },
+    StatDef { key: "def-magic", label_ja: "魔法防御力", label_en: "Magic DEF", group_ja: "生存", group_en: "Survival", default_on: false },
 ];
 
 /// カタログの既定表示項目（キー一覧）。
 pub fn default_stats_enabled() -> Vec<String> {
     STAT_CATALOG
         .iter()
-        .filter(|(_, _, _, on)| *on)
-        .map(|(k, _, _, _)| k.to_string())
+        .filter(|d| d.default_on)
+        .map(|d| d.key.to_string())
         .collect()
 }
 
@@ -77,6 +106,8 @@ pub struct Settings {
     pub highlight_local_player: bool,
     pub privacy_mask_names: bool,
     pub startup_tab: String,
+    /// UI 表示言語（"ja"=日本語 / "en"=English）。bundled translations のロケール名。
+    pub language: String,
     pub remember_window_pos: bool,
     pub graph_player_count: f64,
     pub graph_for_local_player: bool,
@@ -152,6 +183,7 @@ impl Default for Settings {
             highlight_local_player: true,
             privacy_mask_names: false,
             startup_tab: "dps".to_string(),
+            language: "ja".to_string(),
             remember_window_pos: true,
             graph_player_count: 3.0,
             graph_for_local_player: true,

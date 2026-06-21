@@ -62,6 +62,7 @@ struct SettingsUi {
     compact-split: bool,
     graph-for-local: bool,
     startup-tab: string,
+    language: string,            // UI 表示言語（"ja" / "en"）
     accent-theme: string,
     auto-add: bool,
     show-imagine-tina: bool,
@@ -96,7 +97,7 @@ struct SettingsNumUi {
 struct SkillRowUi {
     uid-str: string,   // 被ダメ攻撃元のドリルダウンに使う（スキル行では未使用）
     name: string,
-    elem-text: string,
+    elem-id: int,      // 属性 0..8（>8=無し）。ElementIcon で描画
     elem-color: color,
     total-text: string,
     dps-text: string,
@@ -175,7 +176,7 @@ struct SkillLegendUi {
 struct ResultSkillRowUi {
     uid-str: string,
     name: string,
-    elem-text: string,
+    elem-id: int,      // 属性 0..8（>8=無し）。ElementIcon で描画
     elem-color: color,
     dmg-text: string,
     pct-text: string,
@@ -293,6 +294,58 @@ global HeaderIcons {
     out property <string> settings: "M 2 5 H 14 M 10 2.8 V 7.2 M 2 11 H 14 M 6 8.8 V 13.2";
     // 最前面ピン（画鋲・塗り。頭バー＋胴＋台座＋針のシルエット）
     out property <string> pin: "M 4.5 1.8 H 11.5 V 3.2 H 4.5 Z M 6 3.2 H 10 L 10.7 7 H 5.3 Z M 3.8 7 H 12.2 V 8.6 H 3.8 Z M 7.45 8.6 H 8.55 V 13.6 H 7.45 Z";
+}
+
+// 属性アイコン（viewbox 24 の SVG パス）。漢字 1 字に依存せず全言語共通の絵で属性を示す。
+// 絵文字/フォント依存を避けるため Path で自前描画（HeaderIcons と同方針）。
+global ElementIcons {
+    out property <string> phys: "M12 1.5 L13.4 3.2 L13.4 13 L10.6 13 L10.6 3.2 Z M8 13 L16 13 L16 15.2 L8 15.2 Z M10.8 15.2 L13.2 15.2 L13.2 19.5 L10.8 19.5 Z M10 19.5 L14 19.5 L14 21.5 L10 21.5 Z";       // 物理: 剣
+    out property <string> fire: "M12 2 C 14 6.5 17 8.5 16 13 A 4 4 0 1 1 8 13 C 7.8 10.5 9.5 9.5 10 11.5 C 10.2 7.5 10.5 4.8 12 2 Z";                                                              // 炎: 炎
+    out property <string> ice: "M12 2.5 V21.5 M4 7.25 L20 16.75 M20 7.25 L4 16.75 M9.8 4.7 L12 2.5 L14.2 4.7 M9.8 19.3 L12 21.5 L14.2 19.3";                                                     // 氷: 雪片
+    out property <string> thunder: "M13.5 2 L6 13 L10.5 13 L9 22 L18 9 L13 9 Z";                                                                                                                 // 雷: 稲妻
+    out property <string> wood: "M12 3 C 6 8 6 16 12 21 C 18 16 18 8 12 3 Z M12 5 V19.5";                                                                                                        // 森: 葉（輪郭＋葉脈・stroke）
+    out property <string> wind: "M3 8 H13.5 A 2.6 2.6 0 1 0 11 5.4 M3 12.5 H17 A 2.6 2.6 0 1 1 14.5 15.1 M3 17 H10";                                                                             // 風: 風紋
+    out property <string> rock: "M2 20.5 L8 9 L12 15.5 L15 10 L22 20.5 Z";                                                                                                                       // 岩: 山
+    out property <string> light: "M8.4 12 A 3.6 3.6 0 1 1 15.6 12 A 3.6 3.6 0 1 1 8.4 12 M12 1.8 V4.4 M12 19.6 V22.2 M1.8 12 H4.4 M19.6 12 H22.2 M4.9 4.9 L6.7 6.7 M17.3 17.3 L19.1 19.1 M19.1 4.9 L17.3 6.7 M6.7 17.3 L4.9 19.1"; // 光: 太陽
+    out property <string> dark: "M16.8 3.5 A 8.7 8.7 0 1 0 16.8 20.5 A 6.6 6.6 0 1 1 16.8 3.5 Z";                                                                                                // 闇: 三日月
+}
+
+component ElementGlyphFill inherits Path {
+    in property <color> tint;
+    width: 100%;
+    height: 100%;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    fill: root.tint;
+}
+
+component ElementGlyphStroke inherits Path {
+    in property <color> tint;
+    width: 100%;
+    height: 100%;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    stroke: root.tint;
+    stroke-width: 1.8px;
+    fill: transparent;
+}
+
+// 属性 0..8 を Path アイコンで描画（>8 は空＝従来の "-" 相当）。tint は属性色。
+component ElementIcon inherits Rectangle {
+    in property <int> id;
+    in property <color> tint;
+    in property <length> box: 14px;
+    width: root.box;
+    height: root.box;
+    if root.id == 0: ElementGlyphFill { commands: ElementIcons.phys; tint: root.tint; }
+    if root.id == 1: ElementGlyphFill { commands: ElementIcons.fire; tint: root.tint; }
+    if root.id == 2: ElementGlyphStroke { commands: ElementIcons.ice; tint: root.tint; }
+    if root.id == 3: ElementGlyphFill { commands: ElementIcons.thunder; tint: root.tint; }
+    if root.id == 4: ElementGlyphStroke { commands: ElementIcons.wood; tint: root.tint; }
+    if root.id == 5: ElementGlyphStroke { commands: ElementIcons.wind; tint: root.tint; }
+    if root.id == 6: ElementGlyphFill { commands: ElementIcons.rock; tint: root.tint; }
+    if root.id == 7: ElementGlyphStroke { commands: ElementIcons.light; tint: root.tint; }
+    if root.id == 8: ElementGlyphFill { commands: ElementIcons.dark; tint: root.tint; }
 }
 
 // ヘッダの機能ボタン。狭幅時（show-icon）はテキストの代わりに Path アイコンを表示する。
@@ -625,7 +678,7 @@ component SkillRowItem inherits Rectangle {
         HorizontalLayout {
             horizontal-stretch: 1;
             spacing: 4px;
-            Text { text: root.entry.elem-text; color: root.entry.elem-color; font-size: 11px * root.font-scale; width: 14px; horizontal-alignment: center; vertical-alignment: center; }
+            VerticalLayout { alignment: center; ElementIcon { id: root.entry.elem-id; tint: root.entry.elem-color; box: 14px * root.font-scale; } }
             Text { text: root.entry.name; color: white; font-size: 12px * root.font-scale; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; }
         }
         Text { text: root.entry.total-text; color: #e6e6f0; font-size: 12px * root.font-scale; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
@@ -721,7 +774,7 @@ component ResultSkillRow inherits Rectangle {
         padding-left: 6px;
         padding-right: 6px;
         spacing: 6px;
-        Text { text: root.e.elem-text; color: root.e.elem-color; font-size: 10px; width: 14px; horizontal-alignment: center; vertical-alignment: center; }
+        VerticalLayout { alignment: center; width: 14px; ElementIcon { id: root.e.elem-id; tint: root.e.elem-color; box: 13px; } }
         Text { text: root.e.name; color: white; font-size: 11px; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
         Text { text: root.e.dmg-text; color: #e6e6f0; font-size: 10px; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
         Text { text: root.e.pct-text; color: #777; font-size: 10px; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
@@ -1258,6 +1311,28 @@ component DisplaySection inherits SectionCard {
             // 余白を吸収し、固定幅セグボタンによる行の max-width(150px) 制限を解除する。
             // これがないと DisplaySection→中央列が ~150px で頭打ちになり伸縮しない。
             Rectangle { horizontal-stretch: 1; }
+        }
+    }
+    // 言語: 選択は保存され、反映は次回起動時（Slint 1.16 は @tr リテラルを定数畳み込みするため
+    // ランタイムでは既存 UI を再翻訳できない）。ボタン名は各言語の自称表記なので翻訳しない。
+    VerticalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 3px;
+        Text { text: @tr("言語"); color: SettingsStyle.row-label; font-size: SettingsStyle.row-label-size; }
+        HorizontalLayout {
+            spacing: 6px;
+            SegButton { label: "日本語"; active: root.cfg.language == "ja"; clicked => { root.set-str("language", "ja"); } }
+            SegButton { label: "English"; active: root.cfg.language == "en"; clicked => { root.set-str("language", "en"); } }
+            // 中文（簡体字）は翻訳・名前辞書が未完成のため一旦非表示（zh.po 等は温存）。
+            // 完成したら下行を復帰: SegButton { label: "中文"; active: root.cfg.language == "zh"; clicked => { root.set-str("language", "zh"); } }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        Text {
+            text: @tr("再起動後に反映されます");
+            color: SettingsStyle.hint;
+            font-size: SettingsStyle.hint-size;
+            wrap: word-wrap;
         }
     }
     // アクセントカラー: HSV ピッカーで任意色を選択（クリックで即適用・全ウィンドウ再起動不要）

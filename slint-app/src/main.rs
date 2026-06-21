@@ -297,11 +297,11 @@ fn build_skill_rows(sw: &bpsr_core::models::SkillsWindow) -> Vec<SkillRowUi> {
     sw.skill_rows
         .iter()
         .map(|s| {
-            let (en, ec) = format::element_label(s.element);
+            let (_, ec) = format::element_label(s.element);
             SkillRowUi {
                 uid_str: format!("{}", s.uid as i64).into(),
                 name: s.name.clone().into(),
-                elem_text: en.into(),
+                elem_id: s.element as i32,
                 elem_color: ec,
                 total_text: format::format_number(s.total_value).into(),
                 dps_text: format::format_dps(s.value_per_sec).into(),
@@ -500,6 +500,12 @@ fn pie_slices(entries: &[(slint::Color, f64)]) -> Vec<PieSlice> {
     out
 }
 
+/// 表示言語が日本語か。Rust 側で組み立てる動的文字列の ja/en 切替に使う
+/// （ja 以外は en。zh/ko は保留中のため en にフォールバック）。
+fn is_ja() -> bool {
+    engine::runtime_settings::display_lang() == engine::runtime_settings::Lang::Ja
+}
+
 /// スキル内訳を TOP10（詳細名）＋「その他」(残り集約) の (表示名, 色, 値) へ集約。
 /// 円グラフ・凡例で共用。skills は降順ソート済を前提。
 fn top10_with_other(skills: &[bpsr_core::models::SkillRow]) -> Vec<(String, slint::Color, f64)> {
@@ -511,7 +517,8 @@ fn top10_with_other(skills: &[bpsr_core::models::SkillRow]) -> Vec<(String, slin
         .collect();
     let other: f64 = skills.iter().skip(10).map(|s| s.total_value).sum();
     if other > 0.0 {
-        out.push(("その他".to_string(), rgb(OTHER_SLICE_COLOR), other));
+        let other_label = if is_ja() { "その他" } else { "Other" };
+        out.push((other_label.to_string(), rgb(OTHER_SLICE_COLOR), other));
     }
     out
 }
@@ -568,12 +575,12 @@ fn build_result_skill_rows(
     skills
         .iter()
         .map(|s| {
-            let (en, ec) = format::element_label(s.element);
+            let (_, ec) = format::element_label(s.element);
             let uid = s.uid as i64;
             ResultSkillRowUi {
                 uid_str: format!("{uid}").into(),
                 name: s.name.clone().into(),
-                elem_text: en.into(),
+                elem_id: s.element as i32,
                 elem_color: ec,
                 dmg_text: format::format_number(s.total_value).into(),
                 pct_text: format::format_pct(s.value_pct).into(),
@@ -741,7 +748,12 @@ fn apply_result_selection(
             }
         })
         .unwrap_or_default();
-    m.set_result_pie_title(format!("{pname} のスキル内訳").into());
+    let pie_title = if is_ja() {
+        format!("{pname} のスキル内訳")
+    } else {
+        format!("{pname} — Skill Breakdown")
+    };
+    m.set_result_pie_title(pie_title.into());
     m.set_result_char_name(pname.clone().into()); // エリア1 折れ線ラベル
     // エリア2/3: スキル内訳。既定選択=先頭(最大)。
     let empty = Vec::new();
@@ -843,8 +855,8 @@ fn refresh_selected_uid(
     let name = sel.and_then(compute::lookup_name_cache).map(|d| d.name);
     m.set_selected_uid_name(match (name, sel_i64) {
         (Some(n), _) => n.into(),
-        (None, Some(_)) => "（名前未解決）".into(),
-        (None, None) => "（未設定）".into(),
+        (None, Some(_)) => if is_ja() { "（名前未解決）" } else { "(name unresolved)" }.into(),
+        (None, None) => if is_ja() { "（未設定）" } else { "(none)" }.into(),
     });
     refresh_uid_candidates(enc, candidates);
 }
@@ -957,6 +969,7 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         compact_split: c.compact_split_mode,
         graph_for_local: c.graph_for_local_player,
         startup_tab: c.startup_tab.clone().into(),
+        language: c.language.clone().into(),
         accent_theme: c.accent_theme.clone().into(),
         auto_add: c.auto_add_players,
         show_imagine_tina: c.show_imagine_tina,
@@ -1115,10 +1128,16 @@ fn apply_overlay_appearance(
 
 /// テンプレートのプレビュー（固定サンプル行で name/copy 両テンプレを展開）。
 fn template_previews(c: &settings::Settings) -> (slint::SharedString, slint::SharedString) {
+    // プレビューのサンプル職業/特化名も表示言語に揃える。
+    let (sample_class, sample_spec) = if is_ja() {
+        ("ストームブレイド", "雷刃型")
+    } else {
+        ("Stormblade", "Iaido")
+    };
     let name = format::format_row_name(
         "Sample",
-        "ストームブレイド",
-        "雷刃型",
+        sample_class,
+        sample_spec,
         12345.0,
         38.0,
         8200.0,
@@ -1130,8 +1149,8 @@ fn template_previews(c: &settings::Settings) -> (slint::SharedString, slint::Sha
         &format::CopyRowData {
             rank: 1,
             name: "Sample",
-            class_name: "ストームブレイド",
-            class_spec_name: "雷刃型",
+            class_name: sample_class,
+            class_spec_name: sample_spec,
             total_value: 1_234_567.0,
             value_per_sec: 45678.0,
             value_pct: 35.5,
@@ -1203,18 +1222,19 @@ fn build_status_entries(entries: &[bpsr_core::models::SelfStatusEntry]) -> Vec<S
 fn build_stat_catalog(enabled: &[String]) -> Vec<StatCatalogItem> {
     let mut last_group = "";
     let mut out = Vec::with_capacity(settings::STAT_CATALOG.len());
-    for (key, label, group, _) in settings::STAT_CATALOG {
-        let head = if *group != last_group {
+    for d in settings::STAT_CATALOG {
+        let group = d.group();
+        let head = if group != last_group {
             last_group = group;
-            *group
+            group
         } else {
             ""
         };
         out.push(StatCatalogItem {
-            key: (*key).into(),
-            label: (*label).into(),
+            key: d.key.into(),
+            label: d.label().into(),
             group_head: head.into(),
-            enabled: enabled.iter().any(|e| e == key),
+            enabled: enabled.iter().any(|e| e == d.key),
         });
     }
     out
@@ -1314,8 +1334,8 @@ fn build_stat_entries(s: &bpsr_core::models::SelfStatsData, enabled: &[String]) 
             };
             let label = settings::STAT_CATALOG
                 .iter()
-                .find(|(k, _, _, _)| *k == key)
-                .map(|(_, l, _, _)| *l)
+                .find(|d| d.key == key)
+                .map(|d| d.label())
                 .unwrap_or(key.as_str());
             StatEntryUi {
                 label: label.into(),
@@ -1801,13 +1821,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 設定（%APPDATA%\bpsr-checker\settings.json）。UIスレッドで共有・編集する。
     let cfg = Rc::new(RefCell::new(settings::load()));
+    // 中文UIは日本語フォント(Yu Gothic UI)に簡体字グリフが無く豆腐(□)になるため、
+    // 既定フォントのままなら簡体字対応フォントへ差し替える（ユーザーが明示変更していれば尊重）。
+    {
+        let mut c = cfg.borrow_mut();
+        if c.language == "zh" && c.main_font == settings::Settings::default().main_font {
+            c.main_font = "Microsoft YaHei".to_string();
+        }
+    }
     // ウォッチリスト（バフタイマー追跡対象）。
     let wl = Rc::new(RefCell::new(watchlist::Watchlist::load()));
 
     // メイン窓
     let main = MainWindow::new()?;
-    // 言語選択（既定は日本語。将来は設定から）。最初のコンポーネント生成後に呼ぶ。
-    let _ = slint::select_bundled_translation("ja");
+    // 言語選択（設定 language。既定は日本語）。最初のコンポーネント生成後に呼ぶ。
+    match slint::select_bundled_translation(&cfg.borrow().language) {
+        Ok(()) => log::info!("translation: selected '{}'", cfg.borrow().language),
+        Err(e) => log::warn!("translation: select '{}' failed: {e}", cfg.borrow().language),
+    }
+    // 名前辞書（スキル/モンスター/バフ）の表示言語も起動時に揃える（UI @tr と同じく再起動反映）。
+    engine::runtime_settings::set_display_lang(engine::runtime_settings::Lang::from_code(
+        &cfg.borrow().language,
+    ));
     // バージョン表示（設定パネル最下部＋結果モーダルの透かし。画像コピーに写り込むクレジット）
     main.set_app_version(format!("bpsr-checker v{}", env!("CARGO_PKG_VERSION")).into());
     let rows = Rc::new(VecModel::<Row>::default());
@@ -2198,7 +2233,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         c.stats_enabled = settings::STAT_CATALOG
                             .iter()
-                            .map(|(k, _, _, _)| k.to_string())
+                            .map(|d| d.key.to_string())
                             .filter(|k| set.contains(k))
                             .collect();
                     }
@@ -2206,7 +2241,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "stats-all-on" => {
                         c.stats_enabled = settings::STAT_CATALOG
                             .iter()
-                            .map(|(k, _, _, _)| k.to_string())
+                            .map(|d| d.key.to_string())
                             .collect();
                     }
                     "stats-all-off" => c.stats_enabled.clear(),
@@ -2478,6 +2513,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "name-template" => c.name_template = val.to_string(),
                     "copy-template" => c.copy_template = val.to_string(),
                     "startup-tab" => c.startup_tab = val.to_string(),
+                    // Slint 1.16 は @tr リテラルを定数畳み込みするため select_bundled_translation を
+                    // ランタイムで呼んでも既存 UI は再翻訳されない。永続化のみ行い、反映は次回起動時
+                    // （main.rs 起動時の select_bundled_translation(&cfg.language)）。UI 側で再起動要を明示。
+                    "language" => c.language = val.to_string(),
                     "accent-theme" => c.accent_theme = val.to_string(),
                     "main-font" => c.main_font = val.to_string(),
                     "stats-overlay-font" => c.stats_overlay_font = val.to_string(),

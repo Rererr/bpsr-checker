@@ -1,0 +1,647 @@
+{
+  "4501": {
+    "name": "Burn"
+  },
+  "21404": {
+    "name": "HP Recovery"
+  },
+  "21412": {
+    "name": "Fast Growth (Growth Arcane)"
+  },
+  "21416": {
+    "name": "Slow"
+  },
+  "21421": {
+    "name": "Vital Surge"
+  },
+  "21422": {
+    "name": "Nature Ward"
+  },
+  "21423": {
+    "name": "Symbiotic Mark"
+  },
+  "25201": {
+    "name": "Frost"
+  },
+  "25202": {
+    "name": "Slow"
+  },
+  "25205": {
+    "name": "Frozen"
+  },
+  "25206": {
+    "name": "Frozen"
+  },
+  "27002": {
+    "name": "Frost Crystal"
+  },
+  "27007": {
+    "name": "Permafrost"
+  },
+  "27012": {
+    "name": "Quick Chant"
+  },
+  "30003": {
+    "name": "Sharp reset countdown"
+  },
+  "30501": {
+    "name": "Inspire"
+  },
+  "31201": {
+    "name": "Galeform"
+  },
+  "31301": {
+    "name": "Aegis Gale"
+  },
+  "31602": {
+    "name": "Inspire"
+  },
+  "32201": {
+    "name": "Wound"
+  },
+  "43101": {
+    "name": "Infinite Thunder"
+  },
+  "43201": {
+    "name": "Stormflash"
+  },
+  "44501": {
+    "name": "Wound"
+  },
+  "45108": {
+    "name": "Energy Abundance"
+  },
+  "50024": {
+    "name": "Shield"
+  },
+  "50029": {
+    "name": "Stone Rock Sand Entanglement"
+  },
+  "50040": {
+    "name": "Taunt and Invincible"
+  },
+  "50042": {
+    "name": "Super Armor"
+  },
+  "50046": {
+    "name": "Rock's Fury"
+  },
+  "50050": {
+    "name": "Countercrush"
+  },
+  "50052": {
+    "name": "Magic Shield"
+  },
+  "50057": {
+    "name": "Stoneform"
+  },
+  "50058": {
+    "name": "Brave Bastion"
+  },
+  "50062": {
+    "name": "Granite Fury"
+  },
+  "55221": {
+    "name": "Photon Reforge"
+  },
+  "55223": {
+    "name": "Focus"
+  },
+  "55239": {
+    "name": "Light Energy Stasis"
+  },
+  "55313": {
+    "name": "Amplified Harmonic Anthem"
+  },
+  "55327": {
+    "name": "Passion Surge"
+  },
+  "55330": {
+    "name": "Fierce Strike"
+  },
+  "55333": {
+    "name": "Encore"
+  },
+  "55402": {
+    "name": "Armor Bonus"
+  },
+  "55403": {
+    "name": "Holy Touch"
+  },
+  "55405": {
+    "name": "Aegis Ward"
+  },
+  "55412": {
+    "name": "Zeal Crusade"
+  },
+  "55413": {
+    "name": "Radiance"
+  },
+  "55414": {
+    "name": "Radiance"
+  },
+  "55416": {
+    "name": "Lightforged Barrier"
+  },
+  "55417": {
+    "name": "Zeal Crusade"
+  },
+  "55422": {
+    "name": "Block Amp"
+  },
+  "55425": {
+    "name": "Dazzle"
+  },
+  "55426": {
+    "name": "Silence"
+  },
+  "500113": {
+    "name": "Revive Invincibility"
+  },
+  "501706": {
+    "name": "Power Seal"
+  },
+  "501707": {
+    "name": "Power release"
+  },
+  "501710": {
+    "name": "Power Seal"
+  },
+  "501712": {
+    "name": "Power Sealed"
+  },
+  "510011": {
+    "name": "Crit Bonus"
+  },
+  "510012": {
+    "name": "Crit Bonus"
+  },
+  "510021": {
+    "name": "Luck Bonus"
+  },
+  "510022": {
+    "name": "Luck Bonus"
+  },
+  "510031": {
+    "name": "Haste Bonus"
+  },
+  "510032": {
+    "name": "Haste Bonus"
+  },
+  "510041": {
+    "name": "Mastery Bonus"
+  },
+  "510042": {
+    "name": "Mastery Bonus"
+  },
+  "510045": {
+    "name": "Resolve"
+  },
+  "510099": {
+    "name": "Master's Protection"
+  },
+  "510501": {
+    "name": "Stun"
+  },
+  "510511": {
+    "name": "Frozen"
+  },
+  "510521": {
+    "name": "Dazzle"
+  },
+  "510541": {
+    "name": "Silence"
+  },
+  "510542": {
+    "name": "Slow"
+  },
+  "510543": {
+    "name": "Rooted"
+  },
+  "510571": {
+    "name": "Wound"
+  },
+  "683115": {
+    "name": "Power of Unity"
+  },
+  "683311": {
+    "name": "Armor Break"
+  },
+  "683624": {
+    "name": "HP Regen"
+  },
+  "800010": {
+    "name": "Twin's Fire Seed"
+  },
+  "800026": {
+    "name": "Nuke"
+  },
+  "802911": {
+    "name": "Vulnerability"
+  },
+  "803057": {
+    "name": "Wind vulnerability"
+  },
+  "803063": {
+    "name": "Bee Venom"
+  },
+  "821051": {
+    "name": "Magnetized wound"
+  },
+  "881076": {
+    "name": "<Soul> About to Split"
+  },
+  "881080": {
+    "name": "Soul Wound"
+  },
+  "881547": {
+    "name": "Electric brand"
+  },
+  "997020": {
+    "name": "Main attribute"
+  },
+  "997021": {
+    "name": "Armor"
+  },
+  "997022": {
+    "name": "Crit"
+  },
+  "997023": {
+    "name": "Haste"
+  },
+  "997024": {
+    "name": "Mastery"
+  },
+  "997025": {
+    "name": "Luck"
+  },
+  "2100002": {
+    "name": "Falling Star"
+  },
+  "2100008": {
+    "name": "Stasis"
+  },
+  "2100106": {
+    "name": "Battle Aura"
+  },
+  "2100151": {
+    "name": "True Sight"
+  },
+  "2100152": {
+    "name": "Exhilaration"
+  },
+  "2100154": {
+    "name": "Blessing"
+  },
+  "2100201": {
+    "name": "Stun"
+  },
+  "2100203": {
+    "name": "Battle Roar"
+  },
+  "2100211": {
+    "name": "Exaltation"
+  },
+  "2110024": {
+    "name": "Super Critical"
+  },
+  "2110026": {
+    "name": "Wound"
+  },
+  "2110034": {
+    "name": "Lower CD"
+  },
+  "2110042": {
+    "name": "Haste"
+  },
+  "2110050": {
+    "name": "Element Stasis"
+  },
+  "2110053": {
+    "name": "Mastery Increase"
+  },
+  "2110055": {
+    "name": "Exhausted: Flame Devour"
+  },
+  "2110056": {
+    "name": "Time Stasis"
+  },
+  "2110057": {
+    "name": "Weakened: Wish Sealed"
+  },
+  "2110060": {
+    "name": "Swift Vortex"
+  },
+  "2110061": {
+    "name": "Heart of Flames"
+  },
+  "2110062": {
+    "name": "Roar Command"
+  },
+  "2110065": {
+    "name": "Fiery Battle Will"
+  },
+  "2110066": {
+    "name": "Earth Shield"
+  },
+  "2110068": {
+    "name": "Protective Field"
+  },
+  "2110069": {
+    "name": "Tetanus"
+  },
+  "2110070": {
+    "name": "Demoralizing Roar"
+  },
+  "2110075": {
+    "name": "Breaking Out of the Cocoon"
+  },
+  "2110077": {
+    "name": "Intimidation"
+  },
+  "2110078": {
+    "name": "Shock Defense Break"
+  },
+  "2110084": {
+    "name": "Shield of Flowing Fire"
+  },
+  "2110095": {
+    "name": "Crit Enhancement"
+  },
+  "2110096": {
+    "name": "Electro Shield"
+  },
+  "2110100": {
+    "name": "Healing Prohibition"
+  },
+  "2110101": {
+    "name": "Void Bzzar"
+  },
+  "2110102": {
+    "name": "Lucky enhancement"
+  },
+  "2110103": {
+    "name": "Azure Gale"
+  },
+  "2110107": {
+    "name": "Enhanced Special Attack"
+  },
+  "2110108": {
+    "name": "Enhanced Block"
+  },
+  "2110109": {
+    "name": "Lucky Goblin"
+  },
+  "2110110": {
+    "name": "Murloc's Luck"
+  },
+  "2110111": {
+    "name": "Enchantment"
+  },
+  "2200051": {
+    "name": "Overdrive"
+  },
+  "2200111": {
+    "name": "Thunder Reversal Mark"
+  },
+  "2200112": {
+    "name": "Thunder Reversal"
+  },
+  "2200151": {
+    "name": "Bladewind Domain"
+  },
+  "2200221": {
+    "name": "Thunder Power"
+  },
+  "2200241": {
+    "name": "Lightning Flash"
+  },
+  "2200342": {
+    "name": "Sharp Strike"
+  },
+  "2200401": {
+    "name": "Thunder Charm Blade Intent DMG Reduction"
+  },
+  "2200602": {
+    "name": "Divine Sickle"
+  },
+  "2201021": {
+    "name": "Stone Fragment Tide"
+  },
+  "2201191": {
+    "name": "Sandy Shelter"
+  },
+  "2201201": {
+    "name": "Shield Combo"
+  },
+  "2201241": {
+    "name": "Shield Echo"
+  },
+  "2201252": {
+    "name": "Shattering Rageblow"
+  },
+  "2201271": {
+    "name": "Survival Instinct"
+  },
+  "2201311": {
+    "name": "Enraged"
+  },
+  "2201361": {
+    "name": "Block Awareness"
+  },
+  "2201461": {
+    "name": "Amplified Earthfort"
+  },
+  "2201491": {
+    "name": "Recovery"
+  },
+  "2201511": {
+    "name": "Rock Master"
+  },
+  "2201611": {
+    "name": "Rock Heart"
+  },
+  "2201651": {
+    "name": "Rampart Fortitude"
+  },
+  "2202081": {
+    "name": "Arcane of Green"
+  },
+  "2202131": {
+    "name": "Double Infusion"
+  },
+  "2202142": {
+    "name": "Healing"
+  },
+  "2202241": {
+    "name": "Spirit of Nature"
+  },
+  "2202321": {
+    "name": "Magnificence (Applier)"
+  },
+  "2202322": {
+    "name": "Magnificence (Holder)"
+  },
+  "2202331": {
+    "name": "Flowers Ascension"
+  },
+  "2202441": {
+    "name": "Shelter"
+  },
+  "2202561": {
+    "name": "Pulse Echo"
+  },
+  "2202621": {
+    "name": "Life Bloom"
+  },
+  "2202651": {
+    "name": "Blooming Reincarnation"
+  },
+  "2202671": {
+    "name": "Transcendence"
+  },
+  "2202751": {
+    "name": "Instant Bloom"
+  },
+  "2203031": {
+    "name": "Wounding Curse"
+  },
+  "2203051": {
+    "name": "Psychic Surge"
+  },
+  "2203061": {
+    "name": "Demon Wolf Roar"
+  },
+  "2203161": {
+    "name": "Swift"
+  },
+  "2203231": {
+    "name": "Focused Shot"
+  },
+  "2203292": {
+    "name": "Photon Reforge"
+  },
+  "2203371": {
+    "name": "Beast Tidal Power"
+  },
+  "2203591": {
+    "name": "Eagle Eye"
+  },
+  "2204151": {
+    "name": "Rapid fire"
+  },
+  "2204171": {
+    "name": "Stormy Encounter"
+  },
+  "2204191": {
+    "name": "Glacier fury"
+  },
+  "2204261": {
+    "name": "Icy Calm"
+  },
+  "2204371": {
+    "name": "Endless Cold"
+  },
+  "2204551": {
+    "name": "Law of Energy Surge"
+  },
+  "2205031": {
+    "name": "Wounding Curse"
+  },
+  "2205081": {
+    "name": "Rupture"
+  },
+  "2205121": {
+    "name": "Wind Chaser"
+  },
+  "2205131": {
+    "name": "Wind Spiral"
+  },
+  "2205161": {
+    "name": "Wind Fury"
+  },
+  "2205211": {
+    "name": "Chasing Step"
+  },
+  "2205221": {
+    "name": "Combat Expertise"
+  },
+  "2205241": {
+    "name": "Catcher"
+  },
+  "2205261": {
+    "name": "Tempestrike"
+  },
+  "2205371": {
+    "name": "Break Pursuit Advancement"
+  },
+  "2205391": {
+    "name": "Vigor Spike"
+  },
+  "2205481": {
+    "name": "Wind Rise"
+  },
+  "2205501": {
+    "name": "Spiral Flame"
+  },
+  "2205591": {
+    "name": "Pursuit Power"
+  },
+  "2206011": {
+    "name": "Radiant Shield"
+  },
+  "2206031": {
+    "name": "Blessing of Holy Sigil"
+  },
+  "2206111": {
+    "name": "Judgment Revelation"
+  },
+  "2206381": {
+    "name": "Reckon Shield"
+  },
+  "2206421": {
+    "name": "Scorching Heat"
+  },
+  "2206451": {
+    "name": "Ultimate Guard"
+  },
+  "2206481": {
+    "name": "Ultimate Strike"
+  },
+  "2206540": {
+    "name": "Bold Fearless (Talent)"
+  },
+  "2206542": {
+    "name": "Bold Fearless"
+  },
+  "2206551": {
+    "name": "Radiant Core"
+  },
+  "2207461": {
+    "name": "Amplified Beat DMG Boost"
+  },
+  "2207462": {
+    "name": "Harmonic Anthem DMG Boost"
+  },
+  "2207521": {
+    "name": "Resonant Soundwave"
+  },
+  "3200010": {
+    "name": "Swordsman Specialization"
+  },
+  "3200018": {
+    "name": "Mind Arcane"
+  },
+  "3200023": {
+    "name": "Light Blessing"
+  },
+  "3200024": {
+    "name": "Storm Blessing"
+  },
+  "3210071": {
+    "name": "Master Specialist"
+  },
+  "3210111": {
+    "name": "Dark Mist Swordsman Mastery"
+  }
+}

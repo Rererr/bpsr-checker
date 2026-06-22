@@ -24,3 +24,6 @@ tools/*.ps1
 docs/i18n-game-extraction.md
 docs/buff-investigation.md
 docs/global-metadata-investigation.md
+
+# 内部・非公開の作業資料（宣伝下書き・戦略メモ等。ローカル管理・非コミット）
+docs-private/

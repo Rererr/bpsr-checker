@@ -714,6 +714,15 @@ pub fn set_time_series_config(samples: f64, interval_ms: f64) {
     crate::engine::runtime_settings::TS_INTERVAL_MS.store(i, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// バフ追跡中の player_uid を first-seen 順（各 player が最初にバフ検出された順）で返す。
+/// イマジン専用モード（DPS等の集計を回さずバフ追跡だけ動く軽量モード）では、メインDPS一覧が
+/// 空でタイマー名簿の導出元にできないため、これを名簿源として使う。
+pub fn get_buff_tracked_uids(enc: &EncounterMutex) -> Vec<i64> {
+    with_lock_or(enc, "get_buff_tracked_uids", Vec::new(), |e| {
+        e.buff_tracker.tracked_player_uids_by_first_seen()
+    })
+}
+
 pub fn set_imagine_only_mode(enc: &EncounterMutex, enabled: bool) {
     let was_enabled = crate::engine::runtime_settings::IMAGINE_ONLY_MODE
         .swap(enabled, std::sync::atomic::Ordering::Relaxed);

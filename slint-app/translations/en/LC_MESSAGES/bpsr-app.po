@@ -168,11 +168,38 @@ msgstr "Tarta"
 msgid "バジリスク"
 msgstr "Basilisk"
 
-msgid "全プレイヤー自動追加"
-msgstr "Auto-add all players"
+msgid "メインDPSと同期"
+msgstr "Sync with main DPS list"
+
+msgid "専用モードでは集計を省くため同期不可。バフ検知した全員を自動表示します"
+msgstr "Sync is unavailable in dedicated mode since aggregation is skipped. Everyone with detected buffs is shown automatically"
+
+msgid "メインの顔ぶれ・並びに自動追従。ピンで個別に隠す/表示"
+msgstr "Follows the main list's members and order. Pin to hide/show each player"
+
+msgid "手動でピンしたプレイヤーのみ表示"
+msgstr "Shows only the players you pin manually"
+
+msgid "並び順の追従"
+msgstr "Follow sort order"
+
+msgid "ウォッチをクリア"
+msgstr "Clear watchlist"
+
+msgid "タイマーから隠す/表示"
+msgstr "Hide/show on timer"
+
+msgid "ウォッチに追加/削除"
+msgstr "Add/remove from watch"
 
 msgid "タイマー表示イマジン"
 msgstr "Timer imagines"
+
+msgid "レイアウト"
+msgstr "Layout"
+
+msgid "密表示（行を詰める）"
+msgstr "Compact rows"
 
 msgid "食事/シロップ"
 msgstr "Food / Syrup"

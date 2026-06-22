@@ -64,7 +64,8 @@ struct SettingsUi {
     startup-tab: string,
     language: string,            // UI 表示言語（"ja" / "en"）
     accent-theme: string,
-    auto-add: bool,
+    sync-timer: bool,   // イマジンタイマーをメインDPS画面と同期（顔ぶれ・並びを追従）。imagine-only と排他
+    sync-order-follow: bool, // 同期ONのときだけ意味を持つ子設定: 並び順までメイン一覧へ追従するか
     show-imagine-tina: bool,
     show-imagine-aluna: bool,
     show-imagine-tarta: bool,
@@ -78,6 +79,7 @@ struct SettingsUi {
     stats-overlay-font-bold: bool,     // ステータス窓 専用フォントの太字
     imagine-overlay-font: string,      // イマジンタイマー 専用フォントファミリ
     imagine-overlay-font-bold: bool,   // イマジンタイマー 専用フォントの太字
+    imagine-compact-rows: bool,        // イマジンタイマー 密表示（行を詰める）
 }
 
 // 数値設定の表示用（Rust が cfg から整形して set）。ステッパーで増減する。
@@ -485,6 +487,7 @@ component PlayerRowItem inherits Rectangle {
     in property <float> font-scale: 1.0;
     in property <bool> show-graph-col;
     in property <bool> show-consumable: true;
+    in property <bool> sync-timer; // イマジンタイマー同期ON/OFF（ウォッチボタンのツールチップ文言切替に使う）
     callback activate(string);
     callback toggle-watch(string);
     height: 20px * root.font-scale;
@@ -578,6 +581,13 @@ component PlayerRowItem inherits Rectangle {
         watch := TouchArea {
             width: 14px;
             clicked => { root.toggle-watch(root.entry.uid-str); }
+            changed has-hover => {
+                if (self.has-hover) {
+                    watch-tip.show();
+                } else {
+                    watch-tip.close();
+                }
+            }
             Rectangle {
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
@@ -587,6 +597,28 @@ component PlayerRowItem inherits Rectangle {
                 border-width: 1px;
                 border-color: root.entry.watched ? Theme.accent : (watch.has-hover ? #888888 : #ffffff00);
                 background: root.entry.watched ? Theme.accent : transparent;
+            }
+            // ホバーで操作内容を説明（同期ON/OFFで意味が変わるため文言を切替）。
+            watch-tip := PopupWindow {
+                x: 0;
+                y: watch.height + 3px;
+                Rectangle {
+                    width: watch-tip-text.preferred-width + 14px;
+                    height: watch-tip-text.preferred-height + 8px;
+                    background: #11131af2;
+                    border-radius: 4px;
+                    border-width: 1px;
+                    border-color: #ffffff26;
+                    watch-tip-text := Text {
+                        x: 7px;
+                        y: 4px;
+                        text: root.sync-timer
+                            ? @tr("タイマーから隠す/表示")
+                            : @tr("ウォッチに追加/削除");
+                        color: #e6e6f0;
+                        font-size: 11px * root.font-scale;
+                    }
+                }
             }
         }
     }
@@ -979,6 +1011,14 @@ component ToggleRow inherits TouchArea {
     in property <length> pad-x: 10px;
     callback toggled();
     height: SettingsStyle.row-height;
+    // enabled:false（依存設定で無効化されている等）のとき視覚的にグレーアウト。
+    opacity: root.enabled ? 1.0 : 0.4;
+    // 支援技術向け: チェックボックスとしてラベル・状態を伝える。
+    accessible-role: checkbox;
+    accessible-label: root.label;
+    accessible-checkable: true;
+    accessible-checked: root.checked;
+    accessible-action-default => { root.toggled(); }
     clicked => { root.toggled(); }
     Rectangle {
         background: root.has-hover ? SettingsStyle.row-hover : transparent;
@@ -1414,10 +1454,59 @@ component ImagineTimerSection inherits SectionCard {
     callback set-bool(string, bool);
     callback bump-num(string, int);
     callback set-str(string, string);
+    callback clear-watchlist();
     title: @tr("イマジンタイマー");
     ToggleRow { label: @tr("イマジンデバフタイマー"); checked: root.cfg.buff-overlay; toggled => { root.set-bool("buff-overlay", !root.cfg.buff-overlay); } }
     ToggleRow { label: @tr("イマジン専用モード"); checked: root.cfg.imagine-only; toggled => { root.set-bool("imagine-only", !root.cfg.imagine-only); } }
-    ToggleRow { label: @tr("全プレイヤー自動追加"); checked: root.cfg.auto-add; toggled => { root.set-bool("auto-add-players", !root.cfg.auto-add); } }
+    // メインDPS画面とタイマーの名簿を同期。ON=顔ぶれ・並びを自動追従しピンは隠す/表示、OFF=手動ピン運用。
+    // 専用モードは集計を省く軽量モードで導出元(メインDPS一覧)が空になるため、互いに排他（片方ON時は他方を無効化）。
+    ToggleRow {
+        label: @tr("メインDPSと同期");
+        checked: root.cfg.sync-timer;
+        enabled: !root.cfg.imagine-only;
+        toggled => { root.set-bool("sync-timer-with-main", !root.cfg.sync-timer); }
+    }
+    Text {
+        text: root.cfg.imagine-only
+            ? @tr("専用モードでは集計を省くため同期不可。バフ検知した全員を自動表示します")
+            : (root.cfg.sync-timer
+                ? @tr("メインの顔ぶれ・並びに自動追従。ピンで個別に隠す/表示")
+                : @tr("手動でピンしたプレイヤーのみ表示"));
+        color: SettingsStyle.sub-label;
+        font-size: SettingsStyle.sub-label-size;
+        wrap: word-wrap;
+    }
+    // 同期の子設定（ツリー表示）: 並び順までメイン一覧へ追従するか。
+    // 同期OFFまたは専用モードONのときは意味を持たないため無効化。
+    ToggleRow {
+        pad-x: 24px;
+        label: @tr("並び順の追従");
+        checked: root.cfg.sync-order-follow;
+        enabled: root.cfg.sync-timer && !root.cfg.imagine-only;
+        toggled => { root.set-bool("sync-order-follow", !root.cfg.sync-order-follow); }
+    }
+    // ウォッチクリアは手動運用(同期OFF・専用OFF)のときだけ意味を持つ導線。
+    // 過去の幽霊エントリ（離脱済プレイヤー等）を一括で掃除する。
+    if !root.cfg.sync-timer && !root.cfg.imagine-only: clear-wl-btn := TouchArea {
+        height: 22px;
+        accessible-role: button;
+        accessible-label: @tr("ウォッチをクリア");
+        accessible-action-default => { root.clear-watchlist(); }
+        clicked => { root.clear-watchlist(); }
+        Rectangle {
+            background: clear-wl-btn.has-hover ? #ffffff20 : #ffffff10;
+            border-radius: 3px;
+            Text { text: @tr("ウォッチをクリア"); color: #cdd; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; }
+        }
+    }
+    // 名簿の表示レイアウト（密表示）。同期/手動どちらの運用でも見た目に影響するため、
+    // 同期セクションの直後に置き「名簿の出し方」がひとまとまりに見えるようグルーピング。
+    // タイマー本体(buff-overlay)が OFF のときは無関係なので畳んで初見の圧を下げる。
+    if root.cfg.buff-overlay: VerticalLayout {
+        spacing: 1px;
+        Text { text: @tr("レイアウト"); color: SettingsStyle.sub-label; font-size: SettingsStyle.sub-label-size; }
+        ToggleRow { pad-x: 4px; label: @tr("密表示（行を詰める）"); checked: root.cfg.imagine-compact-rows; toggled => { root.set-bool("imagine-compact-rows", !root.cfg.imagine-compact-rows); } }
+    }
     // タイマーに表示するイマジン列＋専用フォント（パーティ構成に合わせて不要列を消す）。
     // タイマー本体(buff-overlay)が OFF のときは無関係なので畳んで初見の圧を下げる。
     if root.cfg.buff-overlay: VerticalLayout {
@@ -1681,6 +1770,7 @@ export component MainWindow inherits Window {
     callback copy-list();
     callback toggle-history(string);
     callback clear-history();
+    callback clear-watchlist(); // 手動運用(同期OFF)のウォッチ一括クリア（watched・excluded 両方）
     callback toggle-measure();
     callback toggle-pause();
     callback reset-encounter();
@@ -1908,6 +1998,7 @@ export component MainWindow inherits Window {
                         font-scale: root.font-scale;
                         show-graph-col: root.show-graph-col;
                         show-consumable: root.show-consumable;
+                        sync-timer: root.cfg-ui.sync-timer;
                         activate(u) => { root.open-drill(u); }
                         toggle-watch(u) => { root.toggle-watch(u); }
                     }
@@ -2168,7 +2259,7 @@ export component MainWindow inherits Window {
                             if root.scol(3) == 0: OverlaySection { cfg: root.cfg-ui; nums: root.nums; overlay-opacity: root.overlay-opacity; text-h: root.overlay-text-h; text-s: root.overlay-text-s; text-v: root.overlay-text-v; set-bool(k, v) => { root.set-bool(k, v); } set-overlay-opacity(v) => { root.set-overlay-opacity(v); } pick-text(h, s, v) => { root.pick-overlay-text(h, s, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } picker-dragging-changed(d) => { root.picker-dragging = d; } }
                             if root.scol(4) == 0: CombatSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
                             if root.scol(5) == 0: HistorySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
-                            if root.scol(7) == 0: ImagineTimerSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } }
+                            if root.scol(7) == 0: ImagineTimerSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } clear-watchlist => { root.clear-watchlist(); } }
                             if root.scol(6) == 0: StatsSection { cfg: root.cfg-ui; nums: root.nums; catalog-left: root.stat-catalog-left; catalog-right: root.stat-catalog-right; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } }
                         }
                         // ── 列1（2列以上のとき）──
@@ -2184,7 +2275,7 @@ export component MainWindow inherits Window {
                             if root.scol(3) == 1: OverlaySection { cfg: root.cfg-ui; nums: root.nums; overlay-opacity: root.overlay-opacity; text-h: root.overlay-text-h; text-s: root.overlay-text-s; text-v: root.overlay-text-v; set-bool(k, v) => { root.set-bool(k, v); } set-overlay-opacity(v) => { root.set-overlay-opacity(v); } pick-text(h, s, v) => { root.pick-overlay-text(h, s, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } picker-dragging-changed(d) => { root.picker-dragging = d; } }
                             if root.scol(4) == 1: CombatSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
                             if root.scol(5) == 1: HistorySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
-                            if root.scol(7) == 1: ImagineTimerSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } }
+                            if root.scol(7) == 1: ImagineTimerSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } clear-watchlist => { root.clear-watchlist(); } }
                             if root.scol(6) == 1: StatsSection { cfg: root.cfg-ui; nums: root.nums; catalog-left: root.stat-catalog-left; catalog-right: root.stat-catalog-right; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } }
                         }
                         // ── 列2（3列のとき）──
@@ -2200,7 +2291,7 @@ export component MainWindow inherits Window {
                             if root.scol(3) == 2: OverlaySection { cfg: root.cfg-ui; nums: root.nums; overlay-opacity: root.overlay-opacity; text-h: root.overlay-text-h; text-s: root.overlay-text-s; text-v: root.overlay-text-v; set-bool(k, v) => { root.set-bool(k, v); } set-overlay-opacity(v) => { root.set-overlay-opacity(v); } pick-text(h, s, v) => { root.pick-overlay-text(h, s, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } picker-dragging-changed(d) => { root.picker-dragging = d; } }
                             if root.scol(4) == 2: CombatSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
                             if root.scol(5) == 2: HistorySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
-                            if root.scol(7) == 2: ImagineTimerSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } }
+                            if root.scol(7) == 2: ImagineTimerSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } clear-watchlist => { root.clear-watchlist(); } }
                             if root.scol(6) == 2: StatsSection { cfg: root.cfg-ui; nums: root.nums; catalog-left: root.stat-catalog-left; catalog-right: root.stat-catalog-right; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } }
                         }
                     }
@@ -2681,9 +2772,10 @@ struct BuffPlayerRow {
 component CircularCell inherits Rectangle {
     in property <BuffCell> cell;
     in property <float> font-scale: 1.0;
+    in property <float> size-mul: 1.0; // 密表示で円を縮める係数（行高に合わせる）
     // 円とストロークも font-scale に追従（大きいフォントで数字が円からはみ出さないように）。
-    width: 28px * root.font-scale;
-    height: 28px * root.font-scale;
+    width: 28px * root.font-scale * root.size-mul;
+    height: 28px * root.font-scale * root.size-mul;
     opacity: root.cell.active ? 1.0 : 0.25;
     Path {
         width: 100%;
@@ -2695,7 +2787,7 @@ component CircularCell inherits Rectangle {
         commands: "M 14 1.5 A 12.5 12.5 0 1 1 13.99 1.5";
         // 完全透明(HUD)時も溝リングは残す（タイマーの目盛りとして見せる）。白12%は背景漏れ無関係。
         stroke: #ffffff1f;
-        stroke-width: 3px * root.font-scale;
+        stroke-width: 3px * root.font-scale * root.size-mul;
         fill: transparent;
     }
     Path {
@@ -2707,13 +2799,13 @@ component CircularCell inherits Rectangle {
         viewbox-height: 28;
         commands: root.cell.arc-commands;
         stroke: root.cell.color;
-        stroke-width: 3px * root.font-scale;
+        stroke-width: 3px * root.font-scale * root.size-mul;
         fill: transparent;
     }
     Text {
         text: root.cell.text;
         color: root.cell.text-color;
-        font-size: 9px * root.font-scale;
+        font-size: 9px * root.font-scale * root.size-mul;
         horizontal-alignment: center;
         vertical-alignment: center;
         width: 100%;
@@ -2729,16 +2821,19 @@ component BuffPlayerRowItem inherits Rectangle {
     in property <bool> show-aluna: true;
     in property <bool> show-tarta: true;
     in property <bool> show-basilisk: true;
-    height: 30px * root.font-scale;
+    in property <bool> compact;          // 密表示（行高・円を縮める）
+    // 円は 28px*scale*cell-mul。compact 時は行高を円に合わせて詰める。
+    property <float> cell-mul: root.compact ? 0.78 : 1.0;
+    height: (root.compact ? 24px : 30px) * root.font-scale;
     HorizontalLayout {
         spacing: 4px;
         // 名前列は伸縮（min-width は font-scale 追従）。窓を広げると余白でなく名前列が広がり、
         // 大きいフォントでも名前が見切れにくい。ヘッダの名前スペーサーと同設定で列を揃える。
         Text { text: root.p.name; color: root.text-base.with-alpha(0.87); font-size: 10px * root.font-scale; min-width: 46px * root.font-scale; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
-        if root.show-tina: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.tina; font-scale: root.font-scale; } } }
-        if root.show-aluna: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.aluna; font-scale: root.font-scale; } } }
-        if root.show-tarta: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.tarta; font-scale: root.font-scale; } } }
-        if root.show-basilisk: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.basilisk; font-scale: root.font-scale; } } }
+        if root.show-tina: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.tina; font-scale: root.font-scale; size-mul: root.cell-mul; } } }
+        if root.show-aluna: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.aluna; font-scale: root.font-scale; size-mul: root.cell-mul; } } }
+        if root.show-tarta: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.tarta; font-scale: root.font-scale; size-mul: root.cell-mul; } } }
+        if root.show-basilisk: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.basilisk; font-scale: root.font-scale; size-mul: root.cell-mul; } } }
         // ×ボタン用の右余白（固定。横拡大は名前列が吸収する）
         Rectangle { width: 20px * root.font-scale; }
     }
@@ -2752,6 +2847,7 @@ export component BuffOverlay inherits Window {
     in property <bool> show-aluna: true;
     in property <bool> show-tarta: true;
     in property <bool> show-basilisk: true;
+    in property <bool> compact;          // 密表示（行高・行間を詰める）
     in property <bool> show-minimize; // タスクバー常駐モード時のみ最小化ボタンを出す
     in property <float> overlay-opacity: 0.82;        // 背景不透明度（メインとは独立）
     in property <string> overlay-font: "Yu Gothic UI"; // フォントファミリ
@@ -2787,7 +2883,7 @@ export component BuffOverlay inherits Window {
         padding-bottom: 8px;
         // 上部はヘッダー帯ぶんの余白を確保（完全透明時はヘッダーごと消すので詰める）
         padding-top: root.overlay-opacity > 0.001 ? 20px : 0px;
-        spacing: 2px;
+        spacing: root.compact ? 0px : 2px;
         alignment: start; // 上詰め
         if root.empty: Text { text: @tr("DPS一覧でピンアイコンをクリック"); color: root.text-base.with-alpha(0.35); font-size: 10px * root.font-scale; horizontal-alignment: center; }
         if !root.empty: HorizontalLayout {
@@ -2809,6 +2905,7 @@ export component BuffOverlay inherits Window {
             show-aluna: root.show-aluna;
             show-tarta: root.show-tarta;
             show-basilisk: root.show-basilisk;
+            compact: root.compact;
         }
     }
     // 縁ドラッグでリサイズ

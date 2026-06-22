@@ -125,8 +125,16 @@ pub struct Settings {
     pub show_damage_mode: bool,
     pub compact_split_mode: bool,
     pub accent_theme: String,
-    /// イマジンデバフタイマーへ全プレイヤーを自動追加するか（旧Tauri版の挙動）。
-    pub auto_add_players: bool,
+    /// イマジンデバフタイマーをメインDPS画面と同期するか（既定 true）。
+    /// imagine_only_mode と相互排他（片方ONはもう片方を自動OFF）。
+    /// true: 表示する顔ぶれ・並び順をメイン一覧へ自動追従し、ピンは「タイマーから隠す/表示」
+    ///       （excluded の出し入れ）として機能する。並びは sync_order_follow を参照。
+    /// false: 従来の手動ウォッチ（ピンで追加した watched のみ表示）。
+    pub sync_timer_with_main: bool,
+    /// 同期ON時、並び順までメインDPS一覧へ追従するか（既定 true）。sync_timer_with_main の子設定。
+    /// true: メインDPS順そのまま。false: 自分(local uid)を先頭固定＋以降は安定順（uid昇順）。
+    /// sync_timer_with_main=false または imagine_only_mode=true のときは参照されない。
+    pub sync_order_follow: bool,
     /// イマジンデバフタイマーで表示するイマジン列（4種を個別にON/OFF）。
     pub show_imagine_tina: bool,
     pub show_imagine_aluna: bool,
@@ -157,6 +165,8 @@ pub struct Settings {
     pub imagine_overlay_font_size: f64,
     pub imagine_overlay_font: String,
     pub imagine_overlay_font_bold: bool,
+    /// イマジンタイマーの行を詰めて高さを下げるか（密表示）。
+    pub imagine_compact_rows: bool,
 }
 
 impl Default for Settings {
@@ -199,7 +209,8 @@ impl Default for Settings {
             show_damage_mode: true,
             compact_split_mode: false,
             accent_theme: "sky".to_string(),
-            auto_add_players: true,
+            sync_timer_with_main: true,
+            sync_order_follow: true,
             show_imagine_tina: true,
             show_imagine_aluna: true,
             show_imagine_tarta: true,
@@ -216,6 +227,7 @@ impl Default for Settings {
             imagine_overlay_font_size: 12.0,
             imagine_overlay_font: "Yu Gothic UI".to_string(),
             imagine_overlay_font_bold: false,
+            imagine_compact_rows: false,
         }
     }
 }

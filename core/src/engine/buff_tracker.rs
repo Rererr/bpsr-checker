@@ -241,6 +241,25 @@ impl BuffTracker {
     pub fn clear(&mut self) {
         self.buffs.clear();
     }
+
+    /// バフを追跡中の player_uid を first-seen 順（各 player の `received_at_local_ms` 最小値の
+    /// 昇順）で返す。バフが空の player（gc 等で消えた直後の幽霊エントリ）は除外する。
+    /// イマジン専用モード（メイン集計を回さない軽量モード）でタイマー名簿を自動供給するために使う。
+    pub fn tracked_player_uids_by_first_seen(&self) -> Vec<i64> {
+        let mut entries: Vec<(i64, u128)> = self
+            .buffs
+            .iter()
+            .filter_map(|(uid, player_buffs)| {
+                player_buffs
+                    .values()
+                    .map(|state| state.received_at_local_ms)
+                    .min()
+                    .map(|first_seen| (*uid, first_seen))
+            })
+            .collect();
+        entries.sort_by_key(|(_, first_seen)| *first_seen);
+        entries.into_iter().map(|(uid, _)| uid).collect()
+    }
 }
 
 fn make_snapshots(player_buffs: &HashMap<i32, BuffState>, now_ms: u128) -> Vec<BuffStateSnapshot> {
@@ -485,5 +504,31 @@ mod tests {
         let snaps = tracker.snapshot_for(uid, u128::MAX / 2);
         assert_eq!(snaps.len(), 1);
         assert_eq!(snaps[0].duration_ms, 0);
+    }
+
+    // first-seen 順: 各 player の最小 received_at_local_ms 昇順で並ぶ。
+    // 後から検出された player でも先に最初のバフを受けていれば先頭に来る。
+    #[test]
+    fn test_tracked_player_uids_by_first_seen_orders_by_min_received_at() {
+        let mut tracker = BuffTracker::new();
+        // uid=200 は t=500 で初検出
+        tracker.apply_buff_add(1, &make_buff_info(1, player_uuid(200), 5000), 500, 200);
+        // uid=100 は t=100 で初検出（後で挿入するが先に検出されている）
+        tracker.apply_buff_add(2, &make_buff_info(2, player_uuid(100), 5000), 100, 100);
+        // uid=100 に2つ目のバフが t=900 で付与されても、最小値である100は変わらない
+        tracker.apply_buff_add(3, &make_buff_info(3, player_uuid(100), 5000), 900, 100);
+
+        let order = tracker.tracked_player_uids_by_first_seen();
+        assert_eq!(order, vec![100, 200]);
+    }
+
+    // バフが空の player（gc 等で全消失）は列挙から除外される。
+    #[test]
+    fn test_tracked_player_uids_by_first_seen_excludes_empty() {
+        let mut tracker = BuffTracker::new();
+        let uid = 5000;
+        tracker.apply_buff_add(1, &make_buff_info(1, player_uuid(1), 1000), 0, uid);
+        tracker.gc(2000); // duration_ms=1000 のバフは期限切れ→空エントリは除去される
+        assert!(tracker.tracked_player_uids_by_first_seen().is_empty());
     }
 }

@@ -1,5 +1,7 @@
 # bpsr-checker
 
+**[日本語](./README.md) | [English](./README.en.md)**
+
 **Blue Protocol: Star Resonance 向けの軽量 DPS チェッカー (Windows 専用)**
 
 [![Latest release](https://img.shields.io/github/v/release/Rererr/bpsr-checker?display_name=tag&sort=semver)](https://github.com/Rererr/bpsr-checker/releases)
@@ -8,7 +10,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-blue)
 [![Discord](https://img.shields.io/badge/Discord-参加する-5865F2?logo=discord&logoColor=white)](https://discord.gg/exU3gPBx3)
 
-**Slint（Rust ネイティブ GUI）** で実装。低 CPU・低メモリで、ゲーム画面の上に半透明オーバーレイ表示できる軽量設計です。**外部サーバへのデータ送信は一切ありません。**
+**Slint（Rust ネイティブ GUI）** で実装。戦闘中・計測で本当に必要な機能に絞っているため、低 CPU・低メモリで動作が軽く、長時間でも安定します。ゲーム画面の上に半透明オーバーレイ表示も可能。**外部サーバへのデータ送信は一切ありません。**
 
 <p align="center">
   <img src="docs/images/main.png" alt="メイン画面 — DPS 一覧（半透明オーバーレイ表示）" width="820">
@@ -65,9 +67,12 @@
 
 **誤検知です。** カーネルレベルでパケットをキャプチャする [WinDivert](https://github.com/basil00/WinDivert) ドライバを同梱しているため、一部のウイルス対策ソフトが「ネットワーク監視ツール」として警告を出すことがあります。
 
+例えば VirusTotal では Kaspersky が `Not-a-virus:HEUR:RiskTool.Multi.WinDivert.gen` と表示することがありますが、これは同梱の WinDivert ドライバを「リスクツール（ネットワークツール）」として分類しているもので、**マルウェアではありません**（検出名の先頭が `Not-a-virus` であることに注目してください）。
+
 対処:
 - WinDivert ドライバ (`WinDivert.dll`, `WinDivert64.sys`) およびインストールフォルダをウイルス対策ソフトの除外設定に追加してください。
 - 不安な場合は[ソースコード](https://github.com/Rererr/bpsr-checker)を確認し、自分で[ビルド](#ソースからのビルド)することも可能です (GPL-3.0)。
+- すべてのリリースは VirusTotal でスキャンしています（最新リリースの結果: [インストーラ](https://www.virustotal.com/gui/file/8f241809726596bab0128354b820bc93b9769b6a41361482ce73af420f46f053/detection) ・ [ポータブル](https://www.virustotal.com/gui/file/48aa10c526b36f5b17b0bd976d11c9316bee6293c43dbdc13a78c248333877ba/detection)）。
 
 ### Windows SmartScreen で「WindowsによってPCが保護されました」と表示されます
 

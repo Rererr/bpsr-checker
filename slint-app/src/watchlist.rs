@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-const MAX: usize = 30;
+pub const MAX: usize = 30;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Watchlist {
@@ -54,38 +54,25 @@ impl Watchlist {
         }
     }
 
-    /// 自キャラを先頭へ自動追加（旧 seedLocalPlayer）。
-    /// uid=0・excluded・既追加なら何もしない。変更があれば true。
-    pub fn seed_local(&mut self, uid: i64) -> bool {
-        if uid == 0 || self.excluded.contains(&uid) || self.watched.contains(&uid) {
-            return false;
+    /// メイン同期モードのピン操作: excluded（タイマーから隠す）の出し入れ。
+    /// excluded に在れば外して再表示、無ければ追加して隠す。watched は触らない。
+    pub fn toggle_excluded(&mut self, uid: i64) {
+        if let Some(pos) = self.excluded.iter().position(|&u| u == uid) {
+            self.excluded.remove(pos);
+        } else {
+            self.excluded.push(uid);
         }
-        if self.watched.len() >= MAX {
-            return false;
-        }
-        self.watched.insert(0, uid);
-        true
-    }
-
-    /// プレイヤー群を末尾へ一括自動追加（旧 bulkAddPlayers）。
-    /// excluded・既追加・上限超過分はスキップ。変更があれば true。
-    pub fn bulk_add(&mut self, uids: &[i64]) -> bool {
-        let mut changed = false;
-        for &uid in uids {
-            if self.watched.len() >= MAX {
-                break;
-            }
-            if uid == 0 || self.excluded.contains(&uid) || self.watched.contains(&uid) {
-                continue;
-            }
-            self.watched.push(uid);
-            changed = true;
-        }
-        changed
     }
 
     /// ウォッチ対象をクリア（エンカウンターリセット時。excluded は手動削除の意思として維持）。
     pub fn clear_watched(&mut self) {
         self.watched.clear();
+    }
+
+    /// 手動運用(同期OFF)向けの全消去: watched・excluded を両方クリアする。
+    /// 過去の幽霊エントリ（離脱済プレイヤー等）を一括で掃除するための導線。
+    pub fn clear_all(&mut self) {
+        self.watched.clear();
+        self.excluded.clear();
     }
 }

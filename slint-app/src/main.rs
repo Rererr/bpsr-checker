@@ -971,7 +971,8 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         startup_tab: c.startup_tab.clone().into(),
         language: c.language.clone().into(),
         accent_theme: c.accent_theme.clone().into(),
-        auto_add: c.auto_add_players,
+        sync_timer: c.sync_timer_with_main,
+        sync_order_follow: c.sync_order_follow,
         show_imagine_tina: c.show_imagine_tina,
         show_imagine_aluna: c.show_imagine_aluna,
         show_imagine_tarta: c.show_imagine_tarta,
@@ -985,6 +986,7 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         stats_overlay_font_bold: c.stats_overlay_font_bold,
         imagine_overlay_font: c.imagine_overlay_font.clone().into(),
         imagine_overlay_font_bold: c.imagine_overlay_font_bold,
+        imagine_compact_rows: c.imagine_compact_rows,
     });
     // 文字色HSVピッカーの初期/同期位置（現在の文字色を HSV へ変換して反映）。
     {
@@ -1275,18 +1277,23 @@ fn group_int(n: i64) -> String {
 fn build_stat_entries(s: &bpsr_core::models::SelfStatsData, enabled: &[String]) -> Vec<StatEntryUi> {
     let dash = "—".to_string();
     let int_v = |o: Option<i32>| o.map(|v| group_int(v as i64)).unwrap_or_else(|| dash.clone());
-    let pct_v =
-        |o: Option<i32>| o.map(|v| format::format_pct(v as f64 / 100.0)).unwrap_or_else(|| dash.clone());
+    // 割合系の生値は「整数 ×100 の %」（例: 2485 = 24.85%）。/100 は厳密に 2 桁なので
+    // 全精度（小数 2 桁）で表示する。format_pct（1 桁）は丸めで実在桁を捨てるため使わない。
+    let pct_v = |o: Option<i32>| {
+        o.map(|v| format!("{:.2}%", v as f64 / 100.0))
+            .unwrap_or_else(|| dash.clone())
+    };
     enabled
         .iter()
         .map(|key| {
             let (value, accent) = match key.as_str() {
                 "hp" => {
+                    // HP は全桁（3 桁区切り）で表示する。略記（K/M）は実数を丸めて精度を捨てるため使わない。
                     let v = match (s.curr_hp, s.max_hp) {
                         (Some(c), Some(m)) => {
-                            format!("{} / {}", format::format_number(c), format::format_number(m))
+                            format!("{} / {}", group_int(c as i64), group_int(m as i64))
                         }
-                        (Some(c), None) => format::format_number(c),
+                        (Some(c), None) => group_int(c as i64),
                         _ => dash.clone(),
                     };
                     (v, false)
@@ -1405,19 +1412,105 @@ fn buff_cell(snap: Option<&bpsr_core::models::SelfBuffSnapshot>, kind_hex: u32) 
     }
 }
 
+/// `uids` を自分(local_uid)を先頭固定＋以降 uid 昇順（チラつかせない安定順）に並べ替える。
+/// 同期OFF時の並びの土台（項目3「並び順の追従」OFF時）・専用モードの名簿順の土台に使う。
+fn order_local_first_stable(uids: &[i64], local_uid: i64) -> Vec<i64> {
+    let mut rest: Vec<i64> = uids.iter().copied().filter(|&u| u != local_uid).collect();
+    rest.sort_unstable();
+    if local_uid != 0 && uids.contains(&local_uid) {
+        let mut out = Vec::with_capacity(uids.len());
+        out.push(local_uid);
+        out.extend(rest);
+        out
+    } else {
+        rest
+    }
+}
+
+/// イマジンタイマーの行順をメインDPS画面の並び(`main_ordered`)へ追従させる。
+/// `roster` のうち main_ordered に在る uid をその順で先頭に、main に居ない roster
+/// (戦闘から外れた等)は従来順で末尾へ。main_ordered が空なら roster を素通し。
+fn order_by_main(roster: &[i64], main_ordered: &[i64]) -> Vec<i64> {
+    if main_ordered.is_empty() {
+        return roster.to_vec();
+    }
+    let roster_set: std::collections::HashSet<i64> = roster.iter().copied().collect();
+    let in_main: std::collections::HashSet<i64> = main_ordered.iter().copied().collect();
+    let mut out: Vec<i64> = main_ordered
+        .iter()
+        .copied()
+        .filter(|u| roster_set.contains(u))
+        .collect();
+    // main に居ない roster は従来順で末尾に温存（漏れ防止）。
+    out.extend(roster.iter().copied().filter(|u| !in_main.contains(u)));
+    out
+}
+
+/// イマジンタイマーに実際に表示するプレイヤーの uid 列（＝メイン一覧のピン点灯集合と同一）。
+///
+/// 名簿源は3分岐:
+/// - 専用モードON: `buff_tracked_uids`（バフ追跡から自動・first-seen順）から excluded を除き、
+///   自分を先頭固定＋以降 first-seen 順（=元の並びをそのまま使う。安定ソート不要）で上限内に。
+/// - 専用OFF・同期ON: メイン名簿順(`main_ordered`)から excluded を除いたもの。
+///   並びは `order_follow` 次第（ON=メイン順そのまま／OFF=自分先頭＋uid昇順の安定順）。
+/// - 専用OFF・同期OFF: 手動ウォッチ(`wl.watched`)のみ。メイン順があれば追従させる。
+#[allow(clippy::too_many_arguments)]
+fn timer_roster(
+    wl: &watchlist::Watchlist,
+    imagine_only: bool,
+    sync: bool,
+    order_follow: bool,
+    main_ordered: &[i64],
+    buff_tracked_uids: &[i64],
+    local_uid: i64,
+) -> Vec<i64> {
+    if imagine_only {
+        let filtered: Vec<i64> = buff_tracked_uids
+            .iter()
+            .copied()
+            .filter(|u| !wl.excluded.contains(u))
+            .collect();
+        return order_local_first_stable(&filtered, local_uid)
+            .into_iter()
+            .take(watchlist::MAX)
+            .collect();
+    }
+    if sync {
+        let filtered: Vec<i64> = main_ordered
+            .iter()
+            .copied()
+            .filter(|u| !wl.excluded.contains(u))
+            .collect();
+        let ordered = if order_follow {
+            filtered
+        } else {
+            order_local_first_stable(&filtered, local_uid)
+        };
+        return ordered.into_iter().take(watchlist::MAX).collect();
+    }
+    order_by_main(&wl.watched, main_ordered)
+}
+
+/// `roster` の表示順で行を組む。`privacy_mask`=true のとき名前は `format::mask_player_name` で
+/// マスクする（メイン行 `build_rows` と同じ規約）。見つからない uid は uid 下16bit の数値表示。
 fn build_buff_rows(
     tracked: &bpsr_core::models::TrackedBuffsData,
-    watched: &[i64],
+    roster: &[i64],
+    privacy_mask: bool,
 ) -> Vec<BuffPlayerRow> {
-    watched
+    roster
         .iter()
         .map(|&uid| {
             let snap = tracked.players.iter().find(|p| p.uid as i64 == uid);
-            let name = snap.map(|s| s.name.clone()).unwrap_or_default();
-            let display = if name.is_empty() {
-                format!("{}", uid & 0xffff)
+            let display = if privacy_mask {
+                format::mask_player_name(uid)
             } else {
-                name
+                let name = snap.map(|s| s.name.clone()).unwrap_or_default();
+                if name.is_empty() {
+                    format!("{}", uid & 0xffff)
+                } else {
+                    name
+                }
             };
             let find = |kind: &str| snap.and_then(|s| s.buffs.iter().find(|b| b.kind == kind));
             BuffPlayerRow {
@@ -2049,16 +2142,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else {
                     let c = cfg_sel.borrow();
                     m.set_show_graph_col(graph_col_active(&c, n));
+                    let pw = fetch_players(&enc_sel, n);
+                    let main_uids: Vec<i64> =
+                        pw.player_rows.iter().map(|p| p.uid as i64).collect();
+                    // 専用モード時はメイン一覧自体が空のため、ここでは常に非専用扱いでよい
+                    // （main_uids が空なら結果も空集合になるだけ）。
+                    let pin_uids = timer_roster(
+                        &wl_sel.borrow(),
+                        false,
+                        c.sync_timer_with_main,
+                        c.sync_order_follow,
+                        &main_uids,
+                        &[],
+                        pw.local_player_uid as i64,
+                    );
                     apply_player_rows(
                         &rows_sel,
                         &cl_sel,
                         &cr_sel,
                         build_rows(
-                            &fetch_players(&enc_sel, n),
+                            &pw,
                             &c.name_template,
                             c.abbreviate_scores,
                             c.privacy_mask_names,
-                            &wl_sel.borrow().watched,
+                            &pin_uids,
                             c.graph_player_count as i32,
                             c.graph_for_local_player,
                         ),
@@ -2162,14 +2269,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if uid == 0 {
                 return;
             }
+            let sync = cfg_t.borrow().sync_timer_with_main;
             {
                 let mut wl = wl_t.borrow_mut();
-                wl.toggle(uid);
+                // 同期ON: ピンは「タイマーから隠す/表示」(excluded の出し入れ)。
+                // 同期OFF: 従来の手動ウォッチ(watched の出し入れ)。
+                if sync {
+                    wl.toggle_excluded(uid);
+                } else {
+                    wl.toggle(uid);
+                }
                 wl.save();
             }
             if w.upgrade().is_some() {
                 let c = cfg_t.borrow();
                 let pw = fetch_players(&enc_t, tab_t.get());
+                let main_uids: Vec<i64> =
+                    pw.player_rows.iter().map(|p| p.uid as i64).collect();
+                let pin_uids = timer_roster(
+                    &wl_t.borrow(),
+                    false,
+                    c.sync_timer_with_main,
+                    c.sync_order_follow,
+                    &main_uids,
+                    &[],
+                    pw.local_player_uid as i64,
+                );
                 apply_player_rows(
                     &rows_t,
                     &cl_t,
@@ -2179,7 +2304,51 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         &c.name_template,
                         c.abbreviate_scores,
                         c.privacy_mask_names,
-                        &wl_t.borrow().watched,
+                        &pin_uids,
+                        c.graph_player_count as i32,
+                        c.graph_for_local_player,
+                    ),
+                );
+            }
+        });
+    }
+    // ウォッチ一括クリア（手動運用＝同期OFF時のみ設定UIに導線あり）。
+    // watched・excluded を両方消し、過去の幽霊エントリ（離脱済プレイヤー等）を掃除する。
+    {
+        let w = main.as_weak();
+        let wl_cw = wl.clone();
+        let enc_cw = enc.clone();
+        let rows_cw = rows.clone();
+        let cfg_cw = cfg.clone();
+        let tab_cw = tab_cell.clone();
+        let cl_cw = compact_left.clone();
+        let cr_cw = compact_right.clone();
+        main.on_clear_watchlist(move || {
+            wl_cw.borrow_mut().clear_all();
+            wl_cw.borrow().save();
+            if w.upgrade().is_some() {
+                let c = cfg_cw.borrow();
+                let pw = fetch_players(&enc_cw, tab_cw.get());
+                let main_uids: Vec<i64> = pw.player_rows.iter().map(|p| p.uid as i64).collect();
+                let pin_uids = timer_roster(
+                    &wl_cw.borrow(),
+                    false,
+                    c.sync_timer_with_main,
+                    c.sync_order_follow,
+                    &main_uids,
+                    &[],
+                    pw.local_player_uid as i64,
+                );
+                apply_player_rows(
+                    &rows_cw,
+                    &cl_cw,
+                    &cr_cw,
+                    build_rows(
+                        &pw,
+                        &c.name_template,
+                        c.abbreviate_scores,
+                        c.privacy_mask_names,
+                        &pin_uids,
                         c.graph_player_count as i32,
                         c.graph_for_local_player,
                     ),
@@ -2246,11 +2415,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     "stats-all-off" => c.stats_enabled.clear(),
                     "buff-overlay" => c.show_buff_overlay = val,
-                    // 専用モードON時はイマジンタイマーを強制表示（旧UIと同挙動）
+                    // 専用モードON時はイマジンタイマーを強制表示（旧UIと同挙動）。
+                    // 専用モードは集計を早期returnし軽量化する仕組みのため、導出元(メインDPS一覧)
+                    // が空になる「メインDPSと同期」とは相互排他（ONにしたら他方を自動OFF）。
                     "imagine-only" => {
                         c.imagine_only_mode = val;
                         if val {
                             c.show_buff_overlay = true;
+                            c.sync_timer_with_main = false;
                         }
                     }
                     "show-crit" => c.show_crit = val,
@@ -2267,11 +2439,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "three-min-auto-open" => c.three_min_auto_open = val,
                     "compact-split" => c.compact_split_mode = val,
                     "graph-for-local" => c.graph_for_local_player = val,
-                    "auto-add-players" => c.auto_add_players = val,
+                    // imagine_only_mode と相互排他（ONにしたら専用モードを自動OFF）。
+                    "sync-timer-with-main" => {
+                        c.sync_timer_with_main = val;
+                        if val {
+                            c.imagine_only_mode = false;
+                        }
+                    }
+                    "sync-order-follow" => c.sync_order_follow = val,
                     "imagine-col-tina" => c.show_imagine_tina = val,
                     "imagine-col-aluna" => c.show_imagine_aluna = val,
                     "imagine-col-tarta" => c.show_imagine_tarta = val,
                     "imagine-col-basilisk" => c.show_imagine_basilisk = val,
+                    "imagine-compact-rows" => c.imagine_compact_rows = val,
                     "show-consumable" => c.show_consumable = val,
                     "show-in-taskbar" => c.show_in_taskbar = val,
                     "main-font-bold" => c.main_font_bold = val,
@@ -2359,10 +2539,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
-            if key.as_str() == "imagine-only" {
+            // sync-timer-with-main 側からの排他連動でも imagine_only_mode が変わるため、
+            // どちらのキー経由でも compute 側の状態を実際の値へ整合させる。
+            if matches!(key.as_str(), "imagine-only" | "sync-timer-with-main") {
                 compute::set_imagine_only_mode(&enc_sb, c.imagine_only_mode);
                 // 専用モードON時は強制表示にした buff overlay を実際に出す
-                if c.show_buff_overlay {
+                if c.imagine_only_mode && c.show_buff_overlay {
                     if let Some(o) = buff_ov.upgrade() {
                         let _ = o.show();
                     }
@@ -3061,6 +3243,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
+        // メイン表示中タブの並び順(uid列)。イマジンタイマーの行順をこれに追従させる。
+        // 履歴タブ等で算出できない場合は空＝従来の watched 順へフォールバック。
+        let mut main_ordered_uids: Vec<i64> = Vec::new();
+        let mut main_local_uid: i64 = 0;
         let cur_tab = tab_cell_poll.get();
         if cur_tab == 3 {
             // 履歴タブ: 確定済みエンカウンタ一覧を反映（展開状態は維持）。
@@ -3073,20 +3259,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ));
         } else {
             let pw = fetch_players(&enc_poll, cur_tab);
+            main_ordered_uids = pw.player_rows.iter().map(|p| p.uid as i64).collect();
+            main_local_uid = pw.local_player_uid as i64;
             let c = cfg_poll.borrow();
-            // 旧Tauri版の自動追加を復元: 自キャラを先頭・全プレイヤーをイマジンタイマーへ。
-            // excluded(手動削除)は維持。変更時のみ保存し毎tickのI/Oを避ける。
-            if c.auto_add_players {
-                let local = pw.local_player_uid as i64;
-                let uids: Vec<i64> = pw.player_rows.iter().map(|p| p.uid as i64).collect();
-                let mut wl = wl_poll.borrow_mut();
-                let mut changed = wl.seed_local(local);
-                changed |= wl.bulk_add(&uids);
-                if changed {
-                    wl.save();
-                }
-            }
             m.set_show_graph_col(graph_col_active(&c, cur_tab));
+            // メイン行のピン点灯集合（専用モードは導出元が異なるため常に非専用扱い）。
+            let pin_uids = timer_roster(
+                &wl_poll.borrow(),
+                false,
+                c.sync_timer_with_main,
+                c.sync_order_follow,
+                &main_ordered_uids,
+                &[],
+                main_local_uid,
+            );
             apply_player_rows(
                 &rows,
                 &compact_left_poll,
@@ -3096,7 +3282,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     &c.name_template,
                     c.abbreviate_scores,
                     c.privacy_mask_names,
-                    &wl_poll.borrow().watched,
+                    &pin_uids,
                     c.graph_player_count as i32,
                     c.graph_for_local_player,
                 ),
@@ -3164,22 +3350,54 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if refresh_overlays && cfg_poll.borrow().show_buff_overlay {
             if let Some(o) = buff_overlay_w.upgrade() {
                 o.set_font_scale(imagine_scale);
+                let imagine_only = cfg_poll.borrow().imagine_only_mode;
                 {
-                    // 表示するイマジン列を設定から反映（極小コスト・即時反映）
+                    // 表示するイマジン列・レイアウトを設定から反映（極小コスト・即時反映）
                     let c = cfg_poll.borrow();
                     o.set_show_tina(c.show_imagine_tina);
                     o.set_show_aluna(c.show_imagine_aluna);
                     o.set_show_tarta(c.show_imagine_tarta);
                     o.set_show_basilisk(c.show_imagine_basilisk);
+                    o.set_compact(c.imagine_compact_rows);
                 }
-                let watched_i: Vec<i64> = wl_poll.borrow().watched.clone();
-                o.set_empty(watched_i.is_empty());
-                // ウォッチが空なら空行で更新（古い行が残って名前が消えない不具合を防ぐ）。
+                // 名簿源は3分岐（timer_roster 参照）。専用モードはバフ追跡から自動（メイン一覧が
+                // 空集計のため使えない）。専用OFFはメイン順(main_ordered_uids)、無い(履歴タブ等)
+                // 場合は live DPS 順を代用。
+                let (order_src, local_uid): (Vec<i64>, i64) = if imagine_only {
+                    (Vec::new(), main_local_uid)
+                } else if main_ordered_uids.is_empty() {
+                    let pw = compute::get_dps_players(&enc_poll);
+                    let uids = pw.player_rows.iter().map(|p| p.uid as i64).collect();
+                    (uids, pw.local_player_uid as i64)
+                } else {
+                    (main_ordered_uids.clone(), main_local_uid)
+                };
+                let buff_tracked_uids = if imagine_only {
+                    compute::get_buff_tracked_uids(&enc_poll)
+                } else {
+                    Vec::new()
+                };
+                let (sync, order_follow) = {
+                    let c = cfg_poll.borrow();
+                    (c.sync_timer_with_main, c.sync_order_follow)
+                };
+                let display_uids = timer_roster(
+                    &wl_poll.borrow(),
+                    imagine_only,
+                    sync,
+                    order_follow,
+                    &order_src,
+                    &buff_tracked_uids,
+                    local_uid,
+                );
+                o.set_empty(display_uids.is_empty());
+                // 表示集合が空なら空行で更新（古い行が残って名前が消えない不具合を防ぐ）。
                 // いずれも set_vec_if_changed で内容不変時は再描画を省く。
-                let next_buff_rows = if !watched_i.is_empty() {
-                    let uids: Vec<f64> = watched_i.iter().map(|&u| u as f64).collect();
+                let privacy_mask = cfg_poll.borrow().privacy_mask_names;
+                let next_buff_rows = if !display_uids.is_empty() {
+                    let uids: Vec<f64> = display_uids.iter().map(|&u| u as f64).collect();
                     let t = compute::get_tracked_buffs(&enc_poll, uids);
-                    build_buff_rows(&t, &watched_i)
+                    build_buff_rows(&t, &display_uids, privacy_mask)
                 } else {
                     Vec::new()
                 };
@@ -3211,4 +3429,65 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     engine::selected_uid::flush();
     compute::save_consumables(&enc); // 終了時に最終状態を永続化
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn wl_with(watched: &[i64], excluded: &[i64]) -> watchlist::Watchlist {
+        watchlist::Watchlist {
+            watched: watched.to_vec(),
+            excluded: excluded.to_vec(),
+        }
+    }
+
+    // 専用モードON: 名簿源は buff_tracked_uids（first-seen順）。excluded を除き、
+    // 自分(local_uid)を先頭固定＋以降は元の順（first-seen）をそのまま使う。
+    #[test]
+    fn test_timer_roster_imagine_only_orders_local_first_then_first_seen() {
+        let wl = wl_with(&[], &[300]); // 300 は手動で隠している
+        let buff_tracked = vec![200, 100, 300]; // first-seen 順（200が最初に検出）
+        let roster = timer_roster(&wl, true, false, true, &[], &buff_tracked, 100);
+        // 100(自分)が先頭、300はexcludedで除外、残りはfirst-seen順(200)
+        assert_eq!(roster, vec![100, 200]);
+    }
+
+    // 専用OFF・同期ON・追従ON: メイン順そのまま（excluded のみ除外）。
+    #[test]
+    fn test_timer_roster_sync_on_follow_on_uses_main_order() {
+        let wl = wl_with(&[], &[20]);
+        let main_ordered = vec![30, 20, 10];
+        let roster = timer_roster(&wl, false, true, true, &main_ordered, &[], 10);
+        assert_eq!(roster, vec![30, 10]);
+    }
+
+    // 専用OFF・同期ON・追従OFF: 顔ぶれはメイン−excludedと同じだが、並びは自分が先頭固定＋
+    // 残りは uid 昇順の安定順（live DPS 順を無視）。
+    #[test]
+    fn test_timer_roster_sync_on_follow_off_uses_stable_local_first_order() {
+        let wl = wl_with(&[], &[]);
+        let main_ordered = vec![30, 10, 20]; // 仮にDPS順でシャッフルされていても無視される
+        let roster = timer_roster(&wl, false, true, false, &main_ordered, &[], 10);
+        // 自分(10)が先頭、残り(20,30)はuid昇順
+        assert_eq!(roster, vec![10, 20, 30]);
+    }
+
+    // 専用OFF・同期OFF: 手動ウォッチ(watched)のみ。メイン順があれば追従させる。
+    #[test]
+    fn test_timer_roster_manual_uses_watched_ordered_by_main() {
+        let wl = wl_with(&[10, 20], &[]);
+        let main_ordered = vec![20, 10, 99];
+        let roster = timer_roster(&wl, false, false, true, &main_ordered, &[], 10);
+        assert_eq!(roster, vec![20, 10]);
+    }
+
+    // 専用モードは上限(watchlist::MAX)を超えない。
+    #[test]
+    fn test_timer_roster_imagine_only_respects_max_limit() {
+        let wl = wl_with(&[], &[]);
+        let buff_tracked: Vec<i64> = (1..=(watchlist::MAX as i64 + 10)).collect();
+        let roster = timer_roster(&wl, true, false, true, &[], &buff_tracked, 0);
+        assert_eq!(roster.len(), watchlist::MAX);
+    }
 }

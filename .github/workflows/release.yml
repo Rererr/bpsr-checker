@@ -89,3 +89,59 @@ jobs:
           files: signed/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── リリース後: 配布物を VirusTotal へ自動アップロードし、README のスキャンリンクを更新 ──
+      # スキャンページはハッシュ単位で永続化されるため、配布する正本(signed/*)を VT に上げて
+      # 実在を保証し、その SHA256 で README(ja/en)の gui/file/<hash> リンクを書き換えて master へ戻す。
+      # 要 Secret: VT_API_KEY（VirusTotal 無料アカウントの API キー）。未設定なら下記は失敗→
+      # README 更新はスキップされ、リリース自体は成功する（continue-on-error + outcome ガード）。
+      - name: Upload artifacts to VirusTotal
+        id: vt
+        continue-on-error: true   # VT 障害でリリースを止めない
+        uses: crazy-max/ghaction-virustotal@v4
+        with:
+          vt_api_key: ${{ secrets.VT_API_KEY }}
+          files: |
+            signed/*setup*.exe
+            signed/*portable*.zip
+
+      - name: Update VirusTotal links in README
+        if: steps.vt.outcome == 'success'   # アップロード成功時のみ（リンク先ページの実在を保証）
+        shell: pwsh
+        run: |
+          $instFile = Get-ChildItem signed -Recurse -File | Where-Object { $_.Name -like '*setup*.exe' } | Select-Object -First 1
+          $portFile = Get-ChildItem signed -Recurse -File | Where-Object { $_.Name -like '*portable*.zip' } | Select-Object -First 1
+          if (-not $instFile -or -not $portFile) { Write-Error "release artifacts not found in signed/"; exit 1 }
+          $inst = (Get-FileHash $instFile.FullName -Algorithm SHA256).Hash.ToLower()
+          $port = (Get-FileHash $portFile.FullName -Algorithm SHA256).Hash.ToLower()
+          Write-Host "installer sha256=$inst ($($instFile.Name))"
+          Write-Host "portable  sha256=$port ($($portFile.Name))"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin master
+          git checkout -B master origin/master
+
+          # ラベル(インストーラ/installer・ポータブル/portable)直後の URL ハッシュだけを置換。
+          # プレフィックスをキャプチャ($1)して再出力する形にし、可変長 lookbehind を避ける（日英共通）。
+          $instRe = '((?:インストーラ|installer)\]\(https://www\.virustotal\.com/gui/file/)[0-9a-fA-F]{64}'
+          $portRe = '((?:ポータブル|portable)\]\(https://www\.virustotal\.com/gui/file/)[0-9a-fA-F]{64}'
+          foreach ($f in 'README.md','README.en.md') {
+            $c = Get-Content $f -Raw -Encoding UTF8
+            $c = [regex]::Replace($c, $instRe, ('${1}' + $inst))
+            $c = [regex]::Replace($c, $portRe, ('${1}' + $port))
+            [System.IO.File]::WriteAllText((Resolve-Path $f).Path, $c)  # UTF-8 (BOM なし) を維持
+          }
+
+          git add README.md README.en.md
+          $pending = git status --porcelain README.md README.en.md
+          if ($pending) {
+            git commit -m "docs: VirusTotal リンクを ${{ github.ref_name }} のスキャン結果へ更新"
+            if ($LASTEXITCODE -ne 0) { Write-Error "git commit failed"; exit 1 }
+            git push origin master
+            if ($LASTEXITCODE -ne 0) { Write-Error "git push failed"; exit 1 }
+            Write-Host "README updated and pushed to master."
+          } else {
+            Write-Host "README VirusTotal links already up to date."
+          }
+          exit 0

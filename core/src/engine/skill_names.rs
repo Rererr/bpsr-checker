@@ -10,9 +10,10 @@ static SKILL_NAMES_EN: LazyLock<HashMap<i32, String>> = LazyLock::new(|| {
     serde_json::from_str(data).expect("invalid SkillName.json")
 });
 
-/// スキル名（日本語・公式）。所有 JA ビルドのゲーム loc から EN→JA が一意に定まる
-/// 確実分のみを抽出した 1084 件（曖昧な近接推定は除外）。JA 表示時のみ優先し、
-/// 未収録 id は EN へフォールバックする。
+/// スキル名（日本語）。包括的な日本語スキル辞書（旧 SkillName.json 由来を復元、約 1.5 万件）。
+/// JA 表示時のみ優先し、未収録 id は EN（全言語共通の基準辞書）へフォールバックする。
+/// 出自はゲーム内日本語名称（CN→JA 変換/upstream 同期由来）で公式 loc からの抽出ではない。
+/// 別 pkg 探索による公式名抽出は後続タスク（docs/i18n-game-extraction.md）。
 static SKILL_NAMES_JA: LazyLock<HashMap<i32, String>> = LazyLock::new(|| {
     let data = include_str!("../../data/json/SkillName.ja.json");
     serde_json::from_str(data).expect("invalid SkillName.ja.json")

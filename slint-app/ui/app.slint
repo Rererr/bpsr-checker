@@ -80,6 +80,8 @@ struct SettingsUi {
     imagine-overlay-font: string,      // イマジンタイマー 専用フォントファミリ
     imagine-overlay-font-bold: bool,   // イマジンタイマー 専用フォントの太字
     imagine-compact-rows: bool,        // イマジンタイマー 密表示（行を詰める）
+    overlay-outline: bool,             // オーバーレイ文字の縁取り（stroke）
+    overlay-shadow: bool,              // オーバーレイ文字の影（ドロップシャドウ）
 }
 
 // 数値設定の表示用（Rust が cfg から整形して set）。ステッパーで増減する。
@@ -1429,6 +1431,9 @@ component OverlaySection inherits SectionCard {
             }
         }
     }
+    // 文字装飾（縁取り／影）。低不透明度・透明 HUD で文字を背景から浮かせる。個別に ON/OFF 可。
+    ToggleRow { label: @tr("縁取り"); checked: root.cfg.overlay-outline; toggled => { root.set-bool("overlay-outline", !root.cfg.overlay-outline); } }
+    ToggleRow { label: @tr("影"); checked: root.cfg.overlay-shadow; toggled => { root.set-bool("overlay-shadow", !root.cfg.overlay-shadow); } }
     // ※ フォントサイズ・フォント・太字はバフ/デバフ＝メイン窓設定に追随（「表示」セクション）。
     //    ステータス／イマジンタイマーは各セクションで個別に設定する。
     // 文字色（白系ラベル/値のみ再着色・意味色は維持）。HSV ピッカーで任意色を選択。
@@ -2591,11 +2596,68 @@ component OverlayMinButton inherits TouchArea {
     }
 }
 
+// HUD テキストの装飾フラグ（縁取り/影を個別に切替）。設定の「縁取り」「影」チェックに対応。
+struct HudFx {
+    outline: bool,  // 縁取り（stroke）を描くか
+    shadow: bool,   // ドロップシャドウを描くか
+}
+
+// オーバーレイ用テキスト: 縁取り(stroke)＋ドロップシャドウで背景非依存の視認性を確保する。
+// 透明/半透明オーバーレイの文字はゲーム画面（明→暗→極彩色と変動）に直接乗るため、単色では必ず
+// どこかのシーンで埋もれる。fx 有効時は暗い輪郭＋影で「色に依らず」浮かせる。Text を 2 枚重ねる
+// （影＝下にずらした暗いコピー / 本体＝stroke 付き）。レイアウト挙動は素の Text と等価になるよう
+// preferred/min を本体テキストへ委譲する。font-family/weight は Window の default を継承。
+component HudText inherits Rectangle {
+    in property <string> text;
+    in property <brush> text-color: white;             // 文字色（Rectangle.color 非推奨と衝突するため別名）
+    in property <length> font-size;
+    in property <TextHorizontalAlignment> horizontal-alignment: left;
+    in property <TextVerticalAlignment> vertical-alignment: center;
+    in property <TextOverflow> overflow: clip;
+    in property <HudFx> fx: { outline: true, shadow: true }; // 縁取り/影を個別に切替（既定とも ON）
+    in property <brush> outline-color: #000000b3;      // 縁取り色（暗・やや薄め。濃すぎると重く見えるため）
+    in property <brush> shadow-color: #00000099;       // 影色（暗・半透明）
+    // 縁取り幅は font-size 追従（大きい文字でも比率一定）。影は 1px 固定で十分。
+    property <length> sw: root.font-size * 0.10;
+
+    preferred-width: main.preferred-width;
+    preferred-height: main.preferred-height;
+    min-height: main.min-height;
+
+    // 影（右下 1px の暗いコピー・本体の下に描画）
+    Text {
+        x: root.fx.shadow ? 1px : 0px;
+        y: root.fx.shadow ? 1px : 0px;
+        width: root.width;
+        height: root.height;
+        text: root.text;
+        color: root.fx.shadow ? root.shadow-color : transparent;
+        font-size: root.font-size;
+        horizontal-alignment: root.horizontal-alignment;
+        vertical-alignment: root.vertical-alignment;
+        overflow: root.overflow;
+    }
+    main := Text {
+        width: root.width;
+        height: root.height;
+        text: root.text;
+        color: root.text-color;
+        font-size: root.font-size;
+        horizontal-alignment: root.horizontal-alignment;
+        vertical-alignment: root.vertical-alignment;
+        overflow: root.overflow;
+        stroke: root.fx.outline ? root.outline-color : transparent;
+        stroke-width: root.fx.outline ? root.sw : 0px;
+        stroke-style: outside;
+    }
+}
+
 component StatusRow inherits Rectangle {
     in property <StatusEntryUi> e;
     in property <float> font-scale: 1.0;
     in property <color> text-base: #ffffff;
     in property <bool> hud-mode; // 完全透明(HUD)時は枠/背景チップ/バー溝を消し、文字と色付きバーのみ残す
+    in property <HudFx> fx;       // 縁取り＋影（低不透明度時に視認性確保）
     // 行高・各列幅は font-scale に追従（大きいフォントで行内テキストの行高が固定行高を超え、
     // elide 指定のラベルが縦に収まらず丸ごと消えるのを防ぐ）。
     height: 16px * root.font-scale;
@@ -2607,7 +2669,7 @@ component StatusRow inherits Rectangle {
         padding-left: 5px;
         padding-right: 5px;
         spacing: 5px;
-        Text { text: root.e.name; color: root.text-base.with-alpha(0.85); font-size: 9px * root.font-scale; overflow: elide; horizontal-stretch: 1; min-width: 56px * root.font-scale; vertical-alignment: center; }
+        HudText { text: root.e.name; text-color: root.text-base.with-alpha(0.85); font-size: 9px * root.font-scale; overflow: elide; horizontal-stretch: 1; min-width: 56px * root.font-scale; vertical-alignment: center; fx: root.fx; }
         VerticalLayout {
             alignment: center;
             width: 64px * root.font-scale;
@@ -2618,8 +2680,8 @@ component StatusRow inherits Rectangle {
                 Rectangle { x: 0; width: parent.width * root.e.bar-ratio; height: 100%; background: root.e.bar-color; border-radius: 2px; }
             }
         }
-        Text { text: root.e.layer-text; color: root.text-base.with-alpha(0.45); font-size: 8px * root.font-scale; width: 22px * root.font-scale; vertical-alignment: center; }
-        Text { text: root.e.remaining-text; color: root.e.is-low ? #ff7043 : root.text-base.with-alpha(0.90); font-size: 9px * root.font-scale; width: 36px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        HudText { text: root.e.layer-text; text-color: root.text-base.with-alpha(0.45); font-size: 8px * root.font-scale; width: 22px * root.font-scale; vertical-alignment: center; fx: root.fx; }
+        HudText { text: root.e.remaining-text; text-color: root.e.is-low ? #ff7043 : root.text-base.with-alpha(0.90); font-size: 9px * root.font-scale; width: 36px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; fx: root.fx; }
     }
 }
 
@@ -2627,6 +2689,10 @@ export component SelfStatusOverlay inherits Window {
     in property <[StatusEntryUi]> buffs;
     in property <[StatusEntryUi]> debuffs;
     in property <bool> waiting;
+    // 文字の縁取り/影（設定の「縁取り」「影」チェックから Rust が設定。低不透明度・透明 HUD で文字を浮かせる）。
+    in property <bool> overlay-outline: true;
+    in property <bool> overlay-shadow: false;
+    property <HudFx> fx: { outline: root.overlay-outline, shadow: root.overlay-shadow };
     in property <float> font-scale: 1.0; // メインの font_size に連動
     in property <bool> show-minimize; // タスクバー常駐モード時のみ最小化ボタンを出す
     in property <float> overlay-opacity: 0.82;        // 背景不透明度（メインとは独立）
@@ -2666,12 +2732,12 @@ export component SelfStatusOverlay inherits Window {
         padding-top: root.overlay-opacity > 0.001 ? 20px : 0px;
         spacing: 3px;
         alignment: start; // 上詰め（既定stretchだと余白分配で下寄り/間延びする）
-        if root.waiting: Text { text: @tr("自キャラ判定中..."); color: root.text-base.with-alpha(0.30); font-size: 10px * root.font-scale; horizontal-alignment: center; }
-        if !root.waiting && root.buffs.length == 0 && root.debuffs.length == 0: Text { text: @tr("バフ/デバフなし"); color: root.text-base.with-alpha(0.30); font-size: 10px * root.font-scale; horizontal-alignment: center; }
-        if !root.waiting && root.buffs.length > 0: Text { text: @tr("バフ"); color: root.text-base.with-alpha(0.40); font-size: 9px * root.font-scale; }
-        for b in root.buffs: StatusRow { e: b; font-scale: root.font-scale; text-base: root.text-base; hud-mode: root.overlay-opacity <= 0.001; }
-        if !root.waiting && root.debuffs.length > 0: Text { text: @tr("デバフ"); color: root.text-base.with-alpha(0.40); font-size: 9px * root.font-scale; }
-        for d in root.debuffs: StatusRow { e: d; font-scale: root.font-scale; text-base: root.text-base; hud-mode: root.overlay-opacity <= 0.001; }
+        if root.waiting: HudText { text: @tr("自キャラ判定中..."); text-color: root.text-base.with-alpha(0.30); font-size: 10px * root.font-scale; horizontal-alignment: center; fx: root.fx; }
+        if !root.waiting && root.buffs.length == 0 && root.debuffs.length == 0: HudText { text: @tr("バフ/デバフなし"); text-color: root.text-base.with-alpha(0.30); font-size: 10px * root.font-scale; horizontal-alignment: center; fx: root.fx; }
+        if !root.waiting && root.buffs.length > 0: HudText { text: @tr("バフ"); text-color: root.text-base.with-alpha(0.40); font-size: 9px * root.font-scale; fx: root.fx; }
+        for b in root.buffs: StatusRow { e: b; font-scale: root.font-scale; text-base: root.text-base; hud-mode: root.overlay-opacity <= 0.001; fx: root.fx; }
+        if !root.waiting && root.debuffs.length > 0: HudText { text: @tr("デバフ"); text-color: root.text-base.with-alpha(0.40); font-size: 9px * root.font-scale; fx: root.fx; }
+        for d in root.debuffs: StatusRow { e: d; font-scale: root.font-scale; text-base: root.text-base; hud-mode: root.overlay-opacity <= 0.001; fx: root.fx; }
     }
     // 縁ドラッグでリサイズ（最前面・最後の子＝最上層で縁イベントを捕捉）
     ResizeEdges { width: 100%; height: 100%; resize(d) => { root.start-resize(d); } }
@@ -2686,6 +2752,7 @@ component StatValueRow inherits Rectangle {
     in property <StatEntryUi> e;
     in property <float> font-scale: 1.0;
     in property <color> text-base: #ffffff;
+    in property <HudFx> fx;       // 縁取り＋影（低不透明度時に視認性確保）
     // 行高は font-scale に追従（固定 17px だと大きいフォントで行が縦に収まらず、
     // elide 指定のラベルが丸ごと消える）。
     height: 17px * root.font-scale;
@@ -2693,14 +2760,18 @@ component StatValueRow inherits Rectangle {
         padding-left: 6px;
         padding-right: 6px;
         spacing: 8px;
-        Text { text: root.e.label; color: root.text-base.with-alpha(0.70); font-size: 10px * root.font-scale; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-        Text { text: root.e.value; color: root.e.accent ? Theme.accent : root.text-base.with-alpha(0.90); font-size: 10px * root.font-scale; vertical-alignment: center; horizontal-alignment: right; }
+        HudText { text: root.e.label; text-color: root.text-base.with-alpha(0.90); font-size: 10px * root.font-scale; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; fx: root.fx; }
+        HudText { text: root.e.value; text-color: root.e.accent ? Theme.accent : root.text-base.with-alpha(0.90); font-size: 10px * root.font-scale; vertical-alignment: center; horizontal-alignment: right; fx: root.fx; }
     }
 }
 
 export component StatsOverlay inherits Window {
     in property <[StatEntryUi]> stats;
     in property <bool> waiting;
+    // 文字の縁取り/影（設定の「縁取り」「影」チェックから Rust が設定。低不透明度・透明 HUD で文字を浮かせる）。
+    in property <bool> overlay-outline: true;
+    in property <bool> overlay-shadow: false;
+    property <HudFx> fx: { outline: root.overlay-outline, shadow: root.overlay-shadow };
     in property <float> font-scale: 1.0; // メインの font_size に連動
     in property <bool> show-minimize;    // タスクバー常駐モード時のみ最小化ボタンを出す
     in property <float> overlay-opacity: 0.82;        // 背景不透明度（メインとは独立）
@@ -2740,9 +2811,9 @@ export component StatsOverlay inherits Window {
         padding-top: root.overlay-opacity > 0.001 ? 20px : 0px;
         spacing: 2px;
         alignment: start; // 上詰め
-        if root.waiting: Text { text: @tr("自キャラ判定中..."); color: root.text-base.with-alpha(0.30); font-size: 10px * root.font-scale; horizontal-alignment: center; }
-        if !root.waiting && root.stats.length == 0: Text { text: @tr("表示項目なし"); color: root.text-base.with-alpha(0.30); font-size: 10px * root.font-scale; horizontal-alignment: center; }
-        for s in root.stats: StatValueRow { e: s; font-scale: root.font-scale; text-base: root.text-base; }
+        if root.waiting: HudText { text: @tr("自キャラ判定中..."); text-color: root.text-base.with-alpha(0.30); font-size: 10px * root.font-scale; horizontal-alignment: center; fx: root.fx; }
+        if !root.waiting && root.stats.length == 0: HudText { text: @tr("表示項目なし"); text-color: root.text-base.with-alpha(0.30); font-size: 10px * root.font-scale; horizontal-alignment: center; fx: root.fx; }
+        for s in root.stats: StatValueRow { e: s; font-scale: root.font-scale; text-base: root.text-base; fx: root.fx; }
     }
     // 縁ドラッグでリサイズ（最前面・最後の子＝最上層で縁イベントを捕捉）
     ResizeEdges { width: 100%; height: 100%; resize(d) => { root.start-resize(d); } }
@@ -2772,6 +2843,7 @@ struct BuffPlayerRow {
 component CircularCell inherits Rectangle {
     in property <BuffCell> cell;
     in property <float> font-scale: 1.0;
+    in property <HudFx> fx;             // 縁取り＋影（低不透明度時に視認性確保）
     in property <float> size-mul: 1.0; // 密表示で円を縮める係数（行高に合わせる）
     // 円とストロークも font-scale に追従（大きいフォントで数字が円からはみ出さないように）。
     width: 28px * root.font-scale * root.size-mul;
@@ -2802,14 +2874,15 @@ component CircularCell inherits Rectangle {
         stroke-width: 3px * root.font-scale * root.size-mul;
         fill: transparent;
     }
-    Text {
+    HudText {
         text: root.cell.text;
-        color: root.cell.text-color;
+        text-color: root.cell.text-color;
         font-size: 9px * root.font-scale * root.size-mul;
         horizontal-alignment: center;
         vertical-alignment: center;
         width: 100%;
         height: 100%;
+        fx: root.fx;
     }
 }
 
@@ -2817,6 +2890,7 @@ component BuffPlayerRowItem inherits Rectangle {
     in property <BuffPlayerRow> p;
     in property <float> font-scale: 1.0;
     in property <color> text-base: #ffffff;
+    in property <HudFx> fx;             // 縁取り＋影（低不透明度時に視認性確保）
     in property <bool> show-tina: true;
     in property <bool> show-aluna: true;
     in property <bool> show-tarta: true;
@@ -2829,11 +2903,11 @@ component BuffPlayerRowItem inherits Rectangle {
         spacing: 4px;
         // 名前列は伸縮（min-width は font-scale 追従）。窓を広げると余白でなく名前列が広がり、
         // 大きいフォントでも名前が見切れにくい。ヘッダの名前スペーサーと同設定で列を揃える。
-        Text { text: root.p.name; color: root.text-base.with-alpha(0.87); font-size: 10px * root.font-scale; min-width: 46px * root.font-scale; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
-        if root.show-tina: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.tina; font-scale: root.font-scale; size-mul: root.cell-mul; } } }
-        if root.show-aluna: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.aluna; font-scale: root.font-scale; size-mul: root.cell-mul; } } }
-        if root.show-tarta: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.tarta; font-scale: root.font-scale; size-mul: root.cell-mul; } } }
-        if root.show-basilisk: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.basilisk; font-scale: root.font-scale; size-mul: root.cell-mul; } } }
+        HudText { text: root.p.name; text-color: root.text-base.with-alpha(0.87); font-size: 10px * root.font-scale; min-width: 46px * root.font-scale; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; fx: root.fx; }
+        if root.show-tina: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.tina; font-scale: root.font-scale; size-mul: root.cell-mul; fx: root.fx; } } }
+        if root.show-aluna: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.aluna; font-scale: root.font-scale; size-mul: root.cell-mul; fx: root.fx; } } }
+        if root.show-tarta: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.tarta; font-scale: root.font-scale; size-mul: root.cell-mul; fx: root.fx; } } }
+        if root.show-basilisk: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.basilisk; font-scale: root.font-scale; size-mul: root.cell-mul; fx: root.fx; } } }
         // ×ボタン用の右余白（固定。横拡大は名前列が吸収する）
         Rectangle { width: 20px * root.font-scale; }
     }
@@ -2842,6 +2916,10 @@ component BuffPlayerRowItem inherits Rectangle {
 export component BuffOverlay inherits Window {
     in property <[BuffPlayerRow]> players;
     in property <bool> empty;
+    // 文字の縁取り/影（設定の「縁取り」「影」チェックから Rust が設定。低不透明度・透明 HUD で文字を浮かせる）。
+    in property <bool> overlay-outline: true;
+    in property <bool> overlay-shadow: false;
+    property <HudFx> fx: { outline: root.overlay-outline, shadow: root.overlay-shadow };
     in property <float> font-scale: 1.0; // メインの font_size に連動
     in property <bool> show-tina: true;
     in property <bool> show-aluna: true;
@@ -2885,15 +2963,15 @@ export component BuffOverlay inherits Window {
         padding-top: root.overlay-opacity > 0.001 ? 20px : 0px;
         spacing: root.compact ? 0px : 2px;
         alignment: start; // 上詰め
-        if root.empty: Text { text: @tr("DPS一覧でピンアイコンをクリック"); color: root.text-base.with-alpha(0.35); font-size: 10px * root.font-scale; horizontal-alignment: center; }
+        if root.empty: HudText { text: @tr("DPS一覧でピンアイコンをクリック"); text-color: root.text-base.with-alpha(0.35); font-size: 10px * root.font-scale; horizontal-alignment: center; fx: root.fx; }
         if !root.empty: HorizontalLayout {
             spacing: 4px;
             // 名前列スペーサー: 行の名前列(伸縮・min 46px*scale)と同設定で列を揃える。
             Rectangle { min-width: 46px * root.font-scale; horizontal-stretch: 1; }
-            if root.show-tina: Text { text: @tr("ティナ"); color: #ff4d6d; font-size: 9px * root.font-scale; width: 48px * root.font-scale; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
-            if root.show-aluna: Text { text: @tr("アルーナ"); color: #5fd35f; font-size: 9px * root.font-scale; width: 48px * root.font-scale; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
-            if root.show-tarta: Text { text: @tr("タータ"); color: #b98bff; font-size: 9px * root.font-scale; width: 48px * root.font-scale; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
-            if root.show-basilisk: Text { text: @tr("バジリスク"); color: #d9a05b; font-size: 9px * root.font-scale; width: 48px * root.font-scale; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+            if root.show-tina: HudText { text: @tr("ティナ"); text-color: #ff4d6d; font-size: 9px * root.font-scale; width: 48px * root.font-scale; horizontal-alignment: center; vertical-alignment: center; overflow: elide; fx: root.fx; }
+            if root.show-aluna: HudText { text: @tr("アルーナ"); text-color: #5fd35f; font-size: 9px * root.font-scale; width: 48px * root.font-scale; horizontal-alignment: center; vertical-alignment: center; overflow: elide; fx: root.fx; }
+            if root.show-tarta: HudText { text: @tr("タータ"); text-color: #b98bff; font-size: 9px * root.font-scale; width: 48px * root.font-scale; horizontal-alignment: center; vertical-alignment: center; overflow: elide; fx: root.fx; }
+            if root.show-basilisk: HudText { text: @tr("バジリスク"); text-color: #d9a05b; font-size: 9px * root.font-scale; width: 48px * root.font-scale; horizontal-alignment: center; vertical-alignment: center; overflow: elide; fx: root.fx; }
             // ×ボタン用の右余白（固定。横拡大は名前列が吸収する）
             Rectangle { width: 20px * root.font-scale; }
         }
@@ -2901,6 +2979,7 @@ export component BuffOverlay inherits Window {
             p: p;
             font-scale: root.font-scale;
             text-base: root.text-base;
+            fx: root.fx;
             show-tina: root.show-tina;
             show-aluna: root.show-aluna;
             show-tarta: root.show-tarta;

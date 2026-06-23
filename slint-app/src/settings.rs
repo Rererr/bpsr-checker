@@ -167,6 +167,13 @@ pub struct Settings {
     pub imagine_overlay_font_bold: bool,
     /// イマジンタイマーの行を詰めて高さを下げるか（密表示）。
     pub imagine_compact_rows: bool,
+    /// オーバーレイ文字の縁取り（stroke）を描くか。低不透明度・透明 HUD で文字を背景から浮かせる。
+    /// 影（overlay_shadow）とは独立に ON/OFF できる（既定 true）。
+    pub overlay_outline: bool,
+    /// オーバーレイ文字の影（ドロップシャドウ）を描くか。縁取りとは独立。
+    /// 小さい文字（ステータス行 10px 等）では 1px の影が文字を二重化し黒く汚れて見えるため既定 false。
+    /// 透明 HUD で更に視認性を上げたい場合のみ任意で ON。
+    pub overlay_shadow: bool,
 }
 
 impl Default for Settings {
@@ -228,6 +235,8 @@ impl Default for Settings {
             imagine_overlay_font: "Yu Gothic UI".to_string(),
             imagine_overlay_font_bold: false,
             imagine_compact_rows: false,
+            overlay_outline: true,
+            overlay_shadow: false,
         }
     }
 }

@@ -987,6 +987,8 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         imagine_overlay_font: c.imagine_overlay_font.clone().into(),
         imagine_overlay_font_bold: c.imagine_overlay_font_bold,
         imagine_compact_rows: c.imagine_compact_rows,
+        overlay_outline: c.overlay_outline,
+        overlay_shadow: c.overlay_shadow,
     });
     // 文字色HSVピッカーの初期/同期位置（現在の文字色を HSV へ変換して反映）。
     {
@@ -1102,6 +1104,8 @@ fn apply_overlay_appearance(
     // バフ/デバフ窓: メイン窓のフォントサイズ・フォント・太字に追随。
     if let Some(o) = self_o.upgrade() {
         o.set_overlay_opacity(op);
+        o.set_overlay_outline(c.overlay_outline);
+        o.set_overlay_shadow(c.overlay_shadow);
         o.set_overlay_font(c.main_font.clone().into());
         o.set_overlay_font_bold(c.main_font_bold);
         o.set_text_base(text_col);
@@ -1111,6 +1115,8 @@ fn apply_overlay_appearance(
     // イマジンタイマー窓: 専用フォント設定。
     if let Some(o) = buff_o.upgrade() {
         o.set_overlay_opacity(op);
+        o.set_overlay_outline(c.overlay_outline);
+        o.set_overlay_shadow(c.overlay_shadow);
         o.set_overlay_font(c.imagine_overlay_font.clone().into());
         o.set_overlay_font_bold(c.imagine_overlay_font_bold);
         o.set_text_base(text_col);
@@ -1120,6 +1126,8 @@ fn apply_overlay_appearance(
     // ステータス窓: 専用フォント設定。
     if let Some(o) = stats_o.upgrade() {
         o.set_overlay_opacity(op);
+        o.set_overlay_outline(c.overlay_outline);
+        o.set_overlay_shadow(c.overlay_shadow);
         o.set_overlay_font(c.stats_overlay_font.clone().into());
         o.set_overlay_font_bold(c.stats_overlay_font_bold);
         o.set_text_base(text_col);
@@ -2457,6 +2465,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "main-font-bold" => c.main_font_bold = val,
                     "stats-overlay-font-bold" => c.stats_overlay_font_bold = val,
                     "imagine-overlay-font-bold" => c.imagine_overlay_font_bold = val,
+                    "overlay-outline" => c.overlay_outline = val,
+                    "overlay-shadow" => c.overlay_shadow = val,
                     other => log::warn!("unknown setting key: {other}"),
                 }
             }
@@ -2507,7 +2517,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // フォント太字はオーバーレイ外観へ即反映（メイン太字はバフ/デバフ窓へ波及）。
             if matches!(
                 key.as_str(),
-                "main-font-bold" | "stats-overlay-font-bold" | "imagine-overlay-font-bold"
+                "main-font-bold"
+                    | "stats-overlay-font-bold"
+                    | "imagine-overlay-font-bold"
+                    | "overlay-outline"
+                    | "overlay-shadow"
             ) {
                 apply_overlay_appearance(&c, &self_ov, &buff_ov, &stats_ov);
             }

@@ -72,7 +72,7 @@
 対処:
 - WinDivert ドライバ (`WinDivert.dll`, `WinDivert64.sys`) およびインストールフォルダをウイルス対策ソフトの除外設定に追加してください。
 - 不安な場合は[ソースコード](https://github.com/Rererr/bpsr-checker)を確認し、自分で[ビルド](#ソースからのビルド)することも可能です (GPL-3.0)。
-- すべてのリリースは VirusTotal でスキャンしています（最新リリースの結果: [インストーラ](https://www.virustotal.com/gui/file/8f241809726596bab0128354b820bc93b9769b6a41361482ce73af420f46f053/detection) ・ [ポータブル](https://www.virustotal.com/gui/file/48aa10c526b36f5b17b0bd976d11c9316bee6293c43dbdc13a78c248333877ba/detection)）。
+- すべてのリリースは VirusTotal でスキャンしています（最新リリースの結果: [インストーラ](https://www.virustotal.com/gui/file/f2c34f4da7c12bfb65cd1d7218315cbcdc36cf37a29243af780f5fbdd762dfa1/detection) ・ [ポータブル](https://www.virustotal.com/gui/file/df2c1481c086eb1b3a21cea8b786db6e2527dd0e538f5edd704b41e4ae870f41/detection)）。
 
 ### Windows SmartScreen で「WindowsによってPCが保護されました」と表示されます
 

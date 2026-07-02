@@ -75,6 +75,18 @@
 - 不安な場合は[ソースコード](https://github.com/Rererr/bpsr-checker)を確認し、自分で[ビルド](#ソースからのビルド)することも可能です (GPL-3.0)。
 - すべてのリリースは VirusTotal でスキャンしています（最新リリースの結果: [インストーラ](https://www.virustotal.com/gui/file/f4e80e557dd95df0b00f565a29630bbf9b812adc6437fa43f249d031a5329b52/detection) ・ [ポータブル](https://www.virustotal.com/gui/file/954f967e19cd35910f30df5ba4cb8b4a8074734ec5cb6355784844038c822ce3/detection)）。
 
+### Chrome で「ウイルスを検出しました」と表示されダウンロードできません
+
+Chrome のこの警告は Google Safe Browsing による判定で、上記と同じく **未署名 exe ＋ WinDivert 同梱によるレピュテーション不足が原因の誤検知**です。ダウンロードしたファイルの SHA256 が上記 VirusTotal リンクのハッシュと一致していれば、改ざんされていない正規のリリースです。
+
+ダウンロード方法:
+1. Chrome のダウンロード一覧 (`Ctrl+J`) を開き、該当項目の「⋮」→「保持する」を選択してください。
+2. 「保持する」が表示されない場合は、PowerShell で直接ダウンロードできます (ブラウザのスキャンを経由しません):
+   ```powershell
+   irm https://github.com/Rererr/bpsr-checker/releases/download/<バージョン>/bpsr-checker-setup-<バージョン>.exe -OutFile bpsr-checker-setup.exe
+   ```
+3. または[リリースページ](https://github.com/Rererr/bpsr-checker/releases/latest)からポータブル版 zip を利用してください (zip 内の exe はダウンロード時のスキャンを回避できる場合があります)。
+
 ### Windows SmartScreen で「WindowsによってPCが保護されました」と表示されます
 
 アプリへの署名 (コードサイニング、[SignPath](https://signpath.org/) 経由) を進めていますが、新規署名はレピュテーション (実行実績) が蓄積されるまでの過渡期に SmartScreen 警告が表示されることがあります。

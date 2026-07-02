@@ -75,6 +75,18 @@ What to do:
 - If you are worried, you can review the [source code](https://github.com/Rererr/bpsr-checker) and [build it yourself](#building-from-source) (GPL-3.0).
 - Every release is scanned on VirusTotal: [installer](https://www.virustotal.com/gui/file/f4e80e557dd95df0b00f565a29630bbf9b812adc6437fa43f249d031a5329b52/detection) · [portable](https://www.virustotal.com/gui/file/954f967e19cd35910f30df5ba4cb8b4a8074734ec5cb6355784844038c822ce3/detection).
 
+### Chrome blocks the download with "Virus detected"
+
+This Chrome warning is a Google Safe Browsing verdict. Like the above, it is a **false positive caused by insufficient reputation for an unsigned exe bundling WinDivert**. If the SHA256 of the downloaded file matches the hash in the VirusTotal links above, it is a genuine, untampered release.
+
+How to download:
+1. Open Chrome's downloads list (`Ctrl+J`), then on the blocked item choose "⋮" → "Keep".
+2. If "Keep" is not offered, download it directly with PowerShell (bypasses the browser scan):
+   ```powershell
+   irm https://github.com/Rererr/bpsr-checker/releases/download/<version>/bpsr-checker-setup-<version>.exe -OutFile bpsr-checker-setup.exe
+   ```
+3. Or use the portable zip from the [releases page](https://github.com/Rererr/bpsr-checker/releases/latest) (an exe inside a zip can avoid the download-time scan).
+
 ### Windows SmartScreen shows "Windows protected your PC"
 
 Code signing (via [SignPath](https://signpath.org/)) is in progress, but newly signed apps can trigger a SmartScreen warning during the transition period until reputation (a track record of executions) accumulates.

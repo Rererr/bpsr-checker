@@ -24,6 +24,14 @@ message EntityAttrs {
   repeated RawAttr attrs = 2;
 }
 
+// RawAttr.raw_data の中身（ATTR_SKILL_LEVEL_ID_LIST）。装備中スキル1枠分。
+// raw_data はこのメッセージを (varint 長)(本体) で連結した並び（タグなし）。
+message SkillLevelInfo {
+  int32 skill_id = 1;
+  int32 current_level = 2;
+  int32 remodel_level = 3;
+}
+
 // SceneDelta.effects(field 3) の要素
 // duration_ms: 0/未設定=無期限、-1=永続、>0=ミリ秒の持続時間
 message TimedEffect {

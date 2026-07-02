@@ -254,6 +254,7 @@ fn build_rows(
                 p.ability_score,
                 p.season_level,
                 p.season_strength,
+                &p.imagine_suffix,
                 rank,
                 template,
                 abbreviate,
@@ -877,7 +878,14 @@ fn show_drill(
     sw: &bpsr_core::models::SkillsWindow,
     clickable: bool,
 ) {
-    m.set_inspected_name(sw.inspected_player.name.clone().into());
+    // 名前列テンプレートで {imagine} が消されていても、見出しは装備中イマジンを強制表示する。
+    m.set_inspected_name(
+        format!(
+            "{}{}",
+            sw.inspected_player.name, sw.inspected_player.imagine_suffix
+        )
+        .into(),
+    );
     sk_rows.set_vec(build_skill_rows(sw));
     m.set_skills_clickable(clickable);
     m.set_view(1);
@@ -1151,6 +1159,7 @@ fn template_previews(c: &settings::Settings) -> (slint::SharedString, slint::Sha
         12345.0,
         38.0,
         8200.0,
+        "-タータ/アルーナ",
         1,
         &c.name_template,
         c.abbreviate_scores,

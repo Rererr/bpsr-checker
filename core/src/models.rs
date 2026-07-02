@@ -57,6 +57,10 @@ pub struct PlayerRow {
     pub food_base_id: i32,
     #[serde(default)]
     pub syrup_base_id: i32,
+    /// 装備中のバトルイマジン名（"-フレイムハート/ライフブレス"形式。未装備なら空文字）。
+    /// 名前列テンプレートの {imagine} トークンで展開する。
+    #[serde(default)]
+    pub imagine_suffix: String,
     pub time_series: Vec<TimeSeriesPoint>,
 }
 

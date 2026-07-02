@@ -100,6 +100,25 @@ fn decode_stat_i32(data: &[u8]) -> i32 {
     decode_protobuf_int32(data).unwrap_or(0)
 }
 
+/// (varint 長)(本体) を連結した並び（タグなし）から SkillLevelInfo 群を読む。
+/// ATTR_SKILL_LEVEL_ID_LIST の raw_data 形式。
+fn decode_skill_level_info_list(data: &[u8]) -> Vec<pb::SkillLevelInfo> {
+    let mut cursor = Cursor::new(data);
+    let mut out = Vec::new();
+    while (cursor.position() as usize) < data.len() {
+        let Ok(len) = prost::encoding::decode_varint(&mut cursor) else {
+            break;
+        };
+        let start = cursor.position() as usize;
+        let end = start.saturating_add(len as usize).min(data.len());
+        if let Ok(info) = pb::SkillLevelInfo::decode(&data[start..end]) {
+            out.push(info);
+        }
+        cursor.set_position(end as u64);
+    }
+    out
+}
+
 pub(crate) fn now_ms() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -924,6 +943,12 @@ fn process_player_attrs(uid: i64, player_entity: &mut Entity, attrs: &[pb::RawAt
             }
             attr_type::ATTR_LUCKY_DMG => {
                 player_entity.lucky_dmg = Some(decode_stat_i32(&attr.raw_data));
+            }
+            attr_type::ATTR_SKILL_LEVEL_ID_LIST => {
+                player_entity.imagine_names = decode_skill_level_info_list(&attr.raw_data)
+                    .into_iter()
+                    .filter_map(|info| crate::engine::imagine_skills::imagine_name(info.skill_id))
+                    .collect();
             }
             _ => {}
         }

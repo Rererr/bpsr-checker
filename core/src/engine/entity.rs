@@ -65,6 +65,9 @@ pub struct Entity {
     pub crit_dmg: Option<i32>,
     pub lucky_dmg: Option<i32>,
 
+    /// 装備中のバトルイマジン名（ATTR_SKILL_LEVEL_ID_LIST から解決。装備順）。
+    pub imagine_names: Vec<String>,
+
     // Monsters（curr_hp / max_hp は自キャラの HP にも流用する）
     pub monster_id: Option<u32>,
     pub curr_hp: Option<u64>,

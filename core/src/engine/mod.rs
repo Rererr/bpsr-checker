@@ -10,6 +10,7 @@ pub mod encounter;
 pub mod entity;
 pub mod event;
 pub mod history;
+pub mod imagine_skills;
 pub mod monster_names;
 pub mod name_cache;
 pub mod processor;

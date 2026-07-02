@@ -266,6 +266,19 @@ const IMAGINE_DEBUFFS: &[(i64, i32, i64)] = &[
     (90008, 2110050, 48_000),    // ユズリハ: バジリスク
 ];
 
+/// 装備中バトルイマジン（名前列 {imagine} 展開・見出し強制表示の確認用）。
+/// (対象uid, 装備イマジン名の配列) — ImagineSkillNames.json の表示名を直接投入。
+const IMAGINE_EQUIP: &[(i64, &[&str])] = &[
+    (SELF_UID, &["ティナ", "アルーナ"]),
+    (90002, &["バジリスク", "ティナ"]),
+    (90003, &["ティナ", "タータ"]),
+    (90004, &["タータ", "アルーナ"]),
+    (90005, &["ティナ", "アルーナ"]),
+    (90006, &["タータ", "ティナ"]),
+    (90007, &["バジリスク", "タータ"]),
+    (90008, &["アルーナ", "ティナ"]),
+];
+
 /// 食事/シロップ（ConsumableBuffIds.json 収録 ID）。
 /// (対象uid, base_id, 総持続ms, 消費済み割合)
 const CONSUMABLES: &[(i64, i32, i64, f64)] = &[
@@ -399,6 +412,12 @@ fn prime_entities(enc: &EncounterMutex) {
             ent.dexterity = Some(4_172); // 器用さ 41.72%
             ent.crit_dmg = Some(5_000); // 会心ダメージ 50%
             ent.lucky_dmg = Some(4_158); // 幸運の一撃倍率 41.58%
+        }
+        // 装備中バトルイマジンを投入（名前列 {imagine} 展開の確認用）。
+        for &(uid, names) in IMAGINE_EQUIP {
+            if let Some(ent) = e.entities.get_mut(&uid) {
+                ent.imagine_names = names.iter().map(|s| s.to_string()).collect();
+            }
         }
     }
 }

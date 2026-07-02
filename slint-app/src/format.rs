@@ -124,6 +124,7 @@ pub fn format_row_name(
     ability_score: f64,
     season_level: f64,
     season_strength: f64,
+    imagine_suffix: &str,
     rank: i32,
     template: &str,
     abbreviate: bool,
@@ -173,6 +174,7 @@ pub fn format_row_name(
             "score" => out.push_str(&score),
             "seasonLv" => out.push_str(&season_lv),
             "seasonStr" => out.push_str(&season_str),
+            "imagine" => out.push_str(imagine_suffix),
             other => {
                 out.push('{');
                 out.push_str(other);

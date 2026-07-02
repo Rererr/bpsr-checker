@@ -13,6 +13,17 @@ pub struct EntityAttrs {
     #[prost(message, repeated, tag = "2")]
     pub attrs: ::prost::alloc::vec::Vec<RawAttr>,
 }
+/// RawAttr.raw_data の中身（ATTR_SKILL_LEVEL_ID_LIST）。装備中スキル1枠分。
+/// raw_data はこのメッセージを (varint 長)(本体) で連結した並び（タグなし）。
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SkillLevelInfo {
+    #[prost(int32, tag = "1")]
+    pub skill_id: i32,
+    #[prost(int32, tag = "2")]
+    pub current_level: i32,
+    #[prost(int32, tag = "3")]
+    pub remodel_level: i32,
+}
 /// SceneDelta.effects(field 3) の要素
 /// duration_ms: 0/未設定=無期限、-1=永続、>0=ミリ秒の持続時間
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]

@@ -5,7 +5,7 @@ use bpsr_core::engine::runtime_settings::{self, Lang};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-pub const DEFAULT_NAME_TEMPLATE: &str = "{name} {spec}({score} - {seasonLv} - {seasonStr})";
+pub const DEFAULT_NAME_TEMPLATE: &str = "{name} {spec}({score} - {seasonLv} - {seasonStr}){imagine}";
 pub const DEFAULT_COPY_TEMPLATE: &str = "{rank}. {name} ({class}) {dmg} / {dps} DPS ({pct})";
 
 /// 自キャラ ステータス窓の項目定義。ラベル・グループはゲーム内ステータス画面の表記に準拠

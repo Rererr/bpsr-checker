@@ -421,11 +421,15 @@ fn prime_entities(enc: &EncounterMutex) {
         }
     }
     // SELF は実検知経路（召喚エンティティの AttrSkillId → 親イマジン名）で付与する。
-    // ヴェノミーンの巣(1007740=召喚攻撃) と アルーナ(2900240=蘇生・無ダメージ) の召喚 spawn を模す。
-    // 特にアルーナはダメージを出さないため、この spawn 経路でしか検知できないことの確認になる。
+    // ヴェノミーンの巣(1007740=召喚攻撃)・アルーナ(2900240=蘇生・無ダメージ)・ロローラ(2900840=神霊依凭)
+    // の召喚 spawn を模す。特にアルーナはダメージを出さないため、この spawn 経路でしか検知できないこと、
+    // ロローラ(2900840)が実ゲーム版の召喚IDで解決できることの確認になる。
+    // また 3体（枠は2つ）検知させることで、上限 MAX_IMAGINE_NAMES で古い順に落ちて最新2件
+    // (アルーナ/ロローラ)だけが表示される＝「3つ以上表示しない」丸めの確認も兼ねる。
     if let Ok(mut e) = enc.lock() {
         processor::process_scene_delta(&mut e, summon_attr_delta(player_uuid(SELF_UID), 1_007_740));
         processor::process_scene_delta(&mut e, summon_attr_delta(player_uuid(SELF_UID), 2_900_240));
+        processor::process_scene_delta(&mut e, summon_attr_delta(player_uuid(SELF_UID), 2_900_840));
     }
 }
 

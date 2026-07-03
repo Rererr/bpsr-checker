@@ -266,12 +266,12 @@ const IMAGINE_DEBUFFS: &[(i64, i32, i64)] = &[
     (90008, 2110050, 48_000),    // ユズリハ: バジリスク
 ];
 
-/// 装備中バトルイマジン（名前列 {imagine} 展開・見出し強制表示の確認用）。
-/// (対象uid, 装備イマジン名の配列) — ImagineSkillNames.json の表示名を直接投入。
-const IMAGINE_EQUIP: &[(i64, &[&str])] = &[
-    (SELF_UID, &["ティナ", "アルーナ"]),
+/// 名前列 {imagine} 展開・見出し強制表示の確認用に、他プレイヤーへ表示名を直接注入する。
+/// (対象uid, イマジン名の配列) — ImagineSkillNames.json の表示名。SELF は実検知経路で付与するため
+/// ここには含めない（下の summon_attr_delta 参照）。
+const IMAGINE_ROSTER: &[(i64, &[&str])] = &[
     (90002, &["バジリスク", "ティナ"]),
-    (90003, &["ティナ", "タータ"]),
+    // 90003(ハヤテ) は敢えて未登録＝イマジン未使用のプレイヤー表示（名前列に何も付かない）。
     (90004, &["タータ", "アルーナ"]),
     (90005, &["ティナ", "アルーナ"]),
     (90006, &["タータ", "ティナ"]),
@@ -413,13 +413,60 @@ fn prime_entities(enc: &EncounterMutex) {
             ent.crit_dmg = Some(5_000); // 会心ダメージ 50%
             ent.lucky_dmg = Some(4_158); // 幸運の一撃倍率 41.58%
         }
-        // 装備中バトルイマジンを投入（名前列 {imagine} 展開の確認用）。
-        for &(uid, names) in IMAGINE_EQUIP {
+        // 他プレイヤーには表示名を直接注入（名前列 {imagine} 展開・見出し確認用）。
+        for &(uid, names) in IMAGINE_ROSTER {
             if let Some(ent) = e.entities.get_mut(&uid) {
                 ent.imagine_names = names.iter().map(|s| s.to_string()).collect();
             }
         }
     }
+    // SELF は実検知経路（召喚エンティティの AttrSkillId → 親イマジン名）で付与する。
+    // ヴェノミーンの巣(1007740=召喚攻撃) と アルーナ(2900240=蘇生・無ダメージ) の召喚 spawn を模す。
+    // 特にアルーナはダメージを出さないため、この spawn 経路でしか検知できないことの確認になる。
+    if let Ok(mut e) = enc.lock() {
+        processor::process_scene_delta(&mut e, summon_attr_delta(player_uuid(SELF_UID), 1_007_740));
+        processor::process_scene_delta(&mut e, summon_attr_delta(player_uuid(SELF_UID), 2_900_240));
+    }
+}
+
+/// 召喚エンティティの spawn を模した合成 SceneDelta。オーナー(AttrTopSummonerId=91)と
+/// 召喚元スキル(AttrSkillId=100)だけを載せる。uuid はサマナ以外の型コードで Unknown 判定にする。
+fn summon_attr_delta(owner_uuid: i64, skill_id: i32) -> pb::SceneDelta {
+    use crate::protocol::constants::attr_type;
+    let summon_uuid = (skill_id as i64) << 16 | 0x0100; // &0xFFFF=0x100 → EntityKind::Unknown
+    pb::SceneDelta {
+        uuid: summon_uuid,
+        attrs: Some(pb::EntityAttrs {
+            uuid: summon_uuid,
+            attrs: vec![
+                pb::RawAttr {
+                    id: attr_type::ATTR_TOP_SUMMONER_ID,
+                    raw_data: encode_varint(owner_uuid as u64),
+                },
+                pb::RawAttr {
+                    id: attr_type::ATTR_SKILL_ID,
+                    raw_data: encode_varint(skill_id as u64),
+                },
+            ],
+        }),
+        buff_list: None,
+        skill_effects: None,
+    }
+}
+
+/// 値を LEB128（bare varint）で符号化する。attr の raw_data 形式（decode_protobuf_int* が読む形）。
+fn encode_varint(mut v: u64) -> Vec<u8> {
+    let mut out = Vec::new();
+    loop {
+        let byte = (v & 0x7f) as u8;
+        v >>= 7;
+        if v == 0 {
+            out.push(byte);
+            break;
+        }
+        out.push(byte | 0x80);
+    }
+    out
 }
 
 fn ensure_all_buffs(enc: &EncounterMutex, rng: &mut Rng, first: bool) {

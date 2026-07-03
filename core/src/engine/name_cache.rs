@@ -19,6 +19,9 @@ pub struct CachedPlayer {
     pub season_level: Option<i32>,
     #[serde(default)]
     pub season_strength: Option<i32>,
+    /// 表示中のバトルイマジン名（装備ベース or 発動で確定した値）。名前と同様に永続化する。
+    #[serde(default)]
+    pub imagine_names: Vec<String>,
     #[serde(default)]
     pub last_seen_ms: u64,
 }
@@ -126,6 +129,23 @@ pub fn update(
     entry.last_seen_ms = now_ms();
 
     save_locked(&guard);
+}
+
+/// Record the displayed Battle Imagine names for a player. Persists on change
+/// only (same discipline as `update`). Empty `imagine_names` clears the entry.
+pub fn update_imagine(uid: i64, imagine_names: &[String]) {
+    if uid == 0 {
+        return;
+    }
+    let Ok(mut guard) = cache().lock() else {
+        return;
+    };
+    let entry = guard.entries.entry(uid).or_default();
+    if entry.imagine_names != imagine_names {
+        entry.imagine_names = imagine_names.to_vec();
+        entry.last_seen_ms = now_ms();
+        save_locked(&guard);
+    }
 }
 
 /// Force write the cache to disk. Called on app exit so any pending

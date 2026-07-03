@@ -55,9 +55,73 @@ fn get_or_create_entity(
                     entity.season_strength = Some(st);
                 }
             }
+            if !cached.imagine_names.is_empty() {
+                // 直前セッションで学習したイマジン名を復元（召喚検知が来るまでの間の即表示用）。
+                entity.imagine_names = cached.imagine_names;
+            }
         }
     }
     entity
+}
+
+/// 召喚エンティティ（非 Player/非 Monster）の attr から、オーナー（`AttrTopSummonerId`、無ければ
+/// `AttrSummonerId`）と召喚元スキル（`AttrSkillId`）を読む。スキルがバトルイマジン名に解決できたら
+/// オーナー（プレイヤー）の `imagine_names` へ発見順で追記（重複なし）し、name_cache に永続する。
+///
+/// バトルイマジンは装備枠の「奥義」発動スキルだが、戦闘中は召喚エンティティとして現れ、その
+/// `AttrSkillId` が召喚元スキル（分身/召喚スキル。NameDesign が親イマジンと同名なので
+/// ImagineSkillNames.json で解決できる）を指す。ダメージを出さないイマジン（例: アルーナ＝蘇生）も
+/// 召喚は spawn するため、ダメージ列ではなくこの経路が唯一の確実な検知信号になる。
+/// 名前解決できないスキル（＝非イマジン召喚）は無視する（誤名回避の安全側デフォルト）。
+fn try_attribute_summon_imagine(encounter: &mut Encounter, attrs: &[pb::RawAttr]) {
+    let mut top_owner: Option<i64> = None;
+    let mut direct_owner: Option<i64> = None;
+    let mut skill_id: Option<i32> = None;
+    for attr in attrs {
+        match attr.id {
+            attr_type::ATTR_TOP_SUMMONER_ID => {
+                if let Ok(v) = decode_protobuf_int64(&attr.raw_data) {
+                    if v != 0 {
+                        top_owner = Some(v);
+                    }
+                }
+            }
+            attr_type::ATTR_SUMMONER_ID => {
+                if let Ok(v) = decode_protobuf_int64(&attr.raw_data) {
+                    if v != 0 {
+                        direct_owner = Some(v);
+                    }
+                }
+            }
+            attr_type::ATTR_SKILL_ID => {
+                if let Ok(v) = decode_protobuf_int32(&attr.raw_data) {
+                    if v != 0 {
+                        skill_id = Some(v);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // オーナーと召喚スキルが同一 attr バッチ（＝spawn）で揃ったときのみ確定させる。
+    let (Some(owner_uuid), Some(sk)) = (top_owner.or(direct_owner), skill_id) else {
+        return;
+    };
+    if EntityKind::from(owner_uuid) != EntityKind::Player {
+        return;
+    }
+    let Some(name) = crate::engine::imagine_skills::imagine_name(sk) else {
+        return;
+    };
+    let owner_uid = entity::get_player_uid(owner_uuid);
+    let owner = get_or_create_entity(encounter, owner_uid, EntityKind::Player);
+    if !owner.imagine_names.contains(&name) {
+        // 新規イマジン検知時のみ（＝低頻度）に記録。観測性のための恒久ログ。
+        info!("battle imagine detected: uid={owner_uid} name={name} (summon skill {sk})");
+        owner.imagine_names.push(name);
+        name_cache::update_imagine(owner_uid, &owner.imagine_names);
+    }
 }
 
 fn decode_packet<T: Message + Default>(data: Vec<u8>, packet_name: &str) -> Option<T> {
@@ -98,25 +162,6 @@ fn decode_stat_i32(data: &[u8]) -> i32 {
         return 0;
     }
     decode_protobuf_int32(data).unwrap_or(0)
-}
-
-/// (varint 長)(本体) を連結した並び（タグなし）から SkillLevelInfo 群を読む。
-/// ATTR_SKILL_LEVEL_ID_LIST の raw_data 形式。
-fn decode_skill_level_info_list(data: &[u8]) -> Vec<pb::SkillLevelInfo> {
-    let mut cursor = Cursor::new(data);
-    let mut out = Vec::new();
-    while (cursor.position() as usize) < data.len() {
-        let Ok(len) = prost::encoding::decode_varint(&mut cursor) else {
-            break;
-        };
-        let start = cursor.position() as usize;
-        let end = start.saturating_add(len as usize).min(data.len());
-        if let Ok(info) = pb::SkillLevelInfo::decode(&data[start..end]) {
-            out.push(info);
-        }
-        cursor.set_position(end as u64);
-    }
-    out
 }
 
 pub(crate) fn now_ms() -> u128 {
@@ -318,7 +363,11 @@ fn process_world_entity_batch(encounter: &mut Encounter, msg: pb::WorldEntityBat
                 EntityKind::Monster => {
                     process_monster_attrs(target_entity, &attrs.attrs);
                 }
-                _ => {}
+                _ => {
+                    // 召喚エンティティの spawn（AttrSkillId=召喚元スキルが載る本命経路）。
+                    // 親プレイヤーへイマジン名を帰属させる。
+                    try_attribute_summon_imagine(encounter, &attrs.attrs);
+                }
             }
         }
     }
@@ -437,7 +486,10 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
                 EntityKind::Monster => {
                     process_monster_attrs(target_entity, &attrs_collection.attrs);
                 }
-                _ => {}
+                _ => {
+                    // 召喚エンティティの更新経路（spawn 側で取り逃した場合の保険）。
+                    try_attribute_summon_imagine(encounter, &attrs_collection.attrs);
+                }
             }
         }
     }
@@ -944,12 +996,6 @@ fn process_player_attrs(uid: i64, player_entity: &mut Entity, attrs: &[pb::RawAt
             attr_type::ATTR_LUCKY_DMG => {
                 player_entity.lucky_dmg = Some(decode_stat_i32(&attr.raw_data));
             }
-            attr_type::ATTR_SKILL_LEVEL_ID_LIST => {
-                player_entity.imagine_names = decode_skill_level_info_list(&attr.raw_data)
-                    .into_iter()
-                    .filter_map(|info| crate::engine::imagine_skills::imagine_name(info.skill_id))
-                    .collect();
-            }
             _ => {}
         }
     }
@@ -1092,5 +1138,124 @@ mod tests {
             5300.0,
             "force sample didn't extend to last_combat"
         );
+    }
+
+    fn player_uuid_for(uid: i64) -> i64 {
+        (uid << 16) | 640
+    }
+
+    /// 値を bare varint(LEB128) で符号化する（attr raw_data の形式）。
+    fn enc_varint(mut v: u64) -> Vec<u8> {
+        let mut out = Vec::new();
+        loop {
+            let byte = (v & 0x7f) as u8;
+            v >>= 7;
+            if v == 0 {
+                out.push(byte);
+                break;
+            }
+            out.push(byte | 0x80);
+        }
+        out
+    }
+
+    /// 召喚エンティティの spawn を模した合成 SceneDelta。オーナー(AttrTopSummonerId)と
+    /// 召喚元スキル(AttrSkillId)を載せる。uuid は Player/Monster 以外の型コードで Unknown 判定。
+    fn summon_spawn_delta(owner_uid: i64, skill_id: i32) -> pb::SceneDelta {
+        let summon_uuid = (skill_id as i64) << 16 | 0x0100; // &0xFFFF=0x100 → Unknown
+        pb::SceneDelta {
+            uuid: summon_uuid,
+            attrs: Some(pb::EntityAttrs {
+                uuid: summon_uuid,
+                attrs: vec![
+                    pb::RawAttr {
+                        id: attr_type::ATTR_TOP_SUMMONER_ID,
+                        raw_data: enc_varint(player_uuid_for(owner_uid) as u64),
+                    },
+                    pb::RawAttr {
+                        id: attr_type::ATTR_SKILL_ID,
+                        raw_data: enc_varint(skill_id as u64),
+                    },
+                ],
+            }),
+            buff_list: None,
+            skill_effects: None,
+        }
+    }
+
+    // 召喚の AttrSkillId(分身/召喚スキル)がオーナー(プレイヤー)へイマジン名として帰属する。
+    #[test]
+    fn summon_attributes_imagine_to_owner() {
+        let mut enc = Encounter::default();
+        enc.entities.insert(1, player());
+
+        // 1007740 = 奥义!毒爆 → ヴェノミーンの巣（分身/召喚スキル）
+        process_scene_delta(&mut enc, summon_spawn_delta(1, 1_007_740));
+        assert_eq!(enc.entities[&1].imagine_names, vec!["ヴェノミーンの巣".to_string()]);
+    }
+
+    // 無ダメージのイマジン(アルーナ=蘇生)も召喚 spawn 経路で検知できる（本機能の主目的）。
+    #[test]
+    fn no_damage_imagine_detected_via_summon() {
+        let mut enc = Encounter::default();
+        enc.entities.insert(1, player());
+
+        // 2900240 = 奥义！生命祈愿 → アルーナ（蘇生・ダメージを出さない）
+        process_scene_delta(&mut enc, summon_spawn_delta(1, 2_900_240));
+        assert_eq!(enc.entities[&1].imagine_names, vec!["アルーナ".to_string()]);
+    }
+
+    // 複数の召喚は発見順に累積し、同一名は重複させない。
+    #[test]
+    fn summon_accumulates_and_dedups() {
+        let mut enc = Encounter::default();
+        enc.entities.insert(1, player());
+
+        process_scene_delta(&mut enc, summon_spawn_delta(1, 1_007_740)); // ヴェノミーンの巣
+        process_scene_delta(&mut enc, summon_spawn_delta(1, 2_900_240)); // アルーナ
+        assert_eq!(
+            enc.entities[&1].imagine_names,
+            vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()]
+        );
+
+        // 同じイマジン(別ID 1007741=虚拟体 も同名解決)を再度 → 重複しない
+        process_scene_delta(&mut enc, summon_spawn_delta(1, 1_007_741));
+        assert_eq!(
+            enc.entities[&1].imagine_names,
+            vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()]
+        );
+    }
+
+    // イマジン表に無い召喚スキル(=職業召喚など)はイマジンとして扱わない（誤名回避）。
+    #[test]
+    fn non_imagine_summon_ignored() {
+        let mut enc = Encounter::default();
+        enc.entities.insert(1, player());
+
+        // 55404 は ImagineSkillNames.json に無い（実機で観測した非イマジン召喚）
+        process_scene_delta(&mut enc, summon_spawn_delta(1, 55_404));
+        assert!(enc.entities[&1].imagine_names.is_empty());
+    }
+
+    // オーナー(AttrTopSummonerId)が欠けた召喚 attr は帰属できず無視される。
+    #[test]
+    fn summon_without_owner_ignored() {
+        let mut enc = Encounter::default();
+        enc.entities.insert(1, player());
+
+        let delta = pb::SceneDelta {
+            uuid: (1_007_740i64 << 16) | 0x0100,
+            attrs: Some(pb::EntityAttrs {
+                uuid: (1_007_740i64 << 16) | 0x0100,
+                attrs: vec![pb::RawAttr {
+                    id: attr_type::ATTR_SKILL_ID,
+                    raw_data: enc_varint(1_007_740),
+                }],
+            }),
+            buff_list: None,
+            skill_effects: None,
+        };
+        process_scene_delta(&mut enc, delta);
+        assert!(enc.entities[&1].imagine_names.is_empty());
     }
 }

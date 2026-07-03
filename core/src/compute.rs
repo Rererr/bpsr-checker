@@ -1,6 +1,7 @@
 use crate::engine::buff_source::BuffSourceKind;
 use crate::engine::class::{Class, ClassSpec};
 use crate::engine::combat_stats::CombatStats;
+use crate::engine::entity::MAX_IMAGINE_NAMES;
 use crate::engine::runtime_settings::{self, Lang};
 use crate::engine::encounter::{Encounter, EncounterMutex};
 use crate::engine::name_cache;
@@ -441,11 +442,14 @@ struct ConsumableTimes {
 
 /// 装備中バトルイマジン名から "-ティナ/アルーナ" 形式の表示用サフィックスを作る。
 /// 未装備なら空文字（テンプレート展開・見出し強制表示のいずれも自然に何も付かない）。
+/// 装備枠は2つ（[`MAX_IMAGINE_NAMES`]）なので、万一それ以上溜まっていても表示は先頭 MAX 件に丸める
+/// （検知/キャッシュ側で既に丸めているが、表示層でも保険をかけて「3つ以上」を出さない）。
 fn format_imagine_suffix(imagine_names: &[String]) -> String {
     if imagine_names.is_empty() {
         return String::new();
     }
-    format!("-{}", imagine_names.join("/"))
+    let shown = &imagine_names[..imagine_names.len().min(MAX_IMAGINE_NAMES)];
+    format!("-{}", shown.join("/"))
 }
 
 fn make_player_row(
@@ -1176,5 +1180,78 @@ mod tests {
         );
         assert_eq!(result.buffs.len(), 1);
         assert_eq!(result.buffs[0].remaining_ms, 50_000);
+    }
+
+    // bare varint(LEB128) 符号化（attr raw_data 形式）。
+    fn enc_varint(mut v: u64) -> Vec<u8> {
+        let mut out = Vec::new();
+        loop {
+            let byte = (v & 0x7f) as u8;
+            v >>= 7;
+            if v == 0 {
+                out.push(byte);
+                break;
+            }
+            out.push(byte | 0x80);
+        }
+        out
+    }
+
+    // オーナー(AttrTopSummonerId)＋召喚元スキル(AttrSkillId)を載せた召喚 spawn 相当の SceneDelta。
+    fn summon_spawn_delta(owner_uid: i64, skill_id: i32) -> crate::protocol::pb::SceneDelta {
+        use crate::protocol::constants::attr_type;
+        use crate::protocol::pb;
+        let owner_uuid = (owner_uid << 16) | 640; // Player 型コード
+        let summon_uuid = (skill_id as i64) << 16 | 0x0100; // Unknown 型コード
+        pb::SceneDelta {
+            uuid: summon_uuid,
+            attrs: Some(pb::EntityAttrs {
+                uuid: summon_uuid,
+                attrs: vec![
+                    pb::RawAttr {
+                        id: attr_type::ATTR_TOP_SUMMONER_ID,
+                        raw_data: enc_varint(owner_uuid as u64),
+                    },
+                    pb::RawAttr { id: attr_type::ATTR_SKILL_ID, raw_data: enc_varint(skill_id as u64) },
+                ],
+            }),
+            buff_list: None,
+            skill_effects: None,
+        }
+    }
+
+    // DPSランキング表示(get_dps_players)の imagine_suffix を実経路で検証する。
+    // 召喚を3体検知しても表示は最新2件（アルーナ/ロローラ）に丸められ、ロローラが実ゲーム版の
+    // 召喚ID(2900840)で解決される＝「3つ以上出さない」「ロローラが表示される」を同時に満たす。
+    #[test]
+    fn dps_ranking_imagine_suffix_capped_and_shows_rorora() {
+        use crate::engine::entity::Entity;
+        use crate::engine::processor::process_scene_delta;
+        use crate::protocol::pb::EntityKind;
+
+        const SELF_UID: i64 = 42;
+        let enc: EncounterMutex = std::sync::Mutex::new(Encounter::default());
+        {
+            let mut e = enc.lock().unwrap();
+            let mut p = Entity { entity_type: EntityKind::Player, ..Default::default() };
+            p.name = Some("ソラ".to_string());
+            p.dmg_stats.total = 1000; // ランキングに載せるためダメージ実績を持たせる
+            e.entities.insert(SELF_UID, p);
+
+            // ヴェノミーンの巣 → アルーナ → ロローラ の順に召喚検知（3体・枠は2つ）。
+            process_scene_delta(&mut e, summon_spawn_delta(SELF_UID, 1_007_740));
+            process_scene_delta(&mut e, summon_spawn_delta(SELF_UID, 2_900_240));
+            process_scene_delta(&mut e, summon_spawn_delta(SELF_UID, 2_900_840));
+        }
+
+        let window = get_dps_players(&enc);
+        let row = window
+            .player_rows
+            .iter()
+            .find(|r| r.uid as i64 == SELF_UID)
+            .expect("SELF row present in DPS ranking");
+
+        // 最も古い ヴェノミーンの巣 は落ち、最新2件だけ・ロローラを含む。
+        assert_eq!(row.imagine_suffix, "-アルーナ/ロローラ");
     }
 }

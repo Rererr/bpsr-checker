@@ -4,6 +4,10 @@ use crate::engine::combat_stats::CombatStats;
 use crate::protocol::pb::EntityKind;
 use std::collections::{HashMap, VecDeque};
 
+/// バトルイマジンの装備枠数（SlotPositionId 7/8）。プレイヤーが同時に装備・表示できる
+/// バトルイマジンは最大この数。`imagine_names` の上限として processor/compute が共有する。
+pub const MAX_IMAGINE_NAMES: usize = 2;
+
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SkillMeta {
     pub property: u8,

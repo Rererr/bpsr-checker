@@ -2,7 +2,7 @@ use crate::capture::server::Server;
 use crate::engine::class::{Class, ClassSpec, get_class_from_spec, get_class_spec_from_skill_id};
 use crate::engine::combat_stats::process_stats;
 use crate::engine::encounter::{Encounter, EncounterMutex};
-use crate::engine::entity::{Entity, SkillMeta};
+use crate::engine::entity::{Entity, MAX_IMAGINE_NAMES, SkillMeta};
 use crate::engine::monster_names::MONSTER_NAMES_BOSS;
 use crate::engine::name_cache;
 use crate::engine::selected_uid;
@@ -57,7 +57,10 @@ fn get_or_create_entity(
             }
             if !cached.imagine_names.is_empty() {
                 // 直前セッションで学習したイマジン名を復元（召喚検知が来るまでの間の即表示用）。
+                // 旧バージョンのキャッシュはセッションを跨いで累積し MAX_IMAGINE_NAMES を超え得るため、
+                // 復元時にも最新 MAX 件へ丸める（古い順に落とす）。
                 entity.imagine_names = cached.imagine_names;
+                cap_imagine_names(&mut entity.imagine_names);
             }
         }
     }
@@ -120,7 +123,18 @@ fn try_attribute_summon_imagine(encounter: &mut Encounter, attrs: &[pb::RawAttr]
         // 新規イマジン検知時のみ（＝低頻度）に記録。観測性のための恒久ログ。
         info!("battle imagine detected: uid={owner_uid} name={name} (summon skill {sk})");
         owner.imagine_names.push(name);
+        // バトルイマジンは装備枠(SlotPositionId 7/8)=最大2つ。セッション跨ぎのキャッシュ累積や
+        // 版ズレ召喚で 3つ以上に膨らむ不具合を防ぐため、常に最新 MAX 件へ丸める（古い順に落とす）。
+        cap_imagine_names(&mut owner.imagine_names);
         name_cache::update_imagine(owner_uid, &owner.imagine_names);
+    }
+}
+
+/// バトルイマジンの装備枠は2つ（SlotPositionId 7/8）。表示名は多くとも `MAX_IMAGINE_NAMES` 件に
+/// 制限し、超過分は古い方から落とす（＝直近に検知した現行ロードアウトを残す）。
+fn cap_imagine_names(names: &mut Vec<String>) {
+    while names.len() > MAX_IMAGINE_NAMES {
+        names.remove(0);
     }
 }
 
@@ -1257,5 +1271,32 @@ mod tests {
         };
         process_scene_delta(&mut enc, delta);
         assert!(enc.entities[&1].imagine_names.is_empty());
+    }
+
+    // ロローラは実ゲーム版の召喚ID(2900840=奥義！神霊依凭)で解決できる（版ズレで名前グルーピング不能な分の手動追記）。
+    #[test]
+    fn rorora_detected_via_game_summon_id() {
+        let mut enc = Encounter::default();
+        enc.entities.insert(1, player());
+
+        process_scene_delta(&mut enc, summon_spawn_delta(1, 2_900_840));
+        assert_eq!(enc.entities[&1].imagine_names, vec!["ロローラ".to_string()]);
+    }
+
+    // 装備枠は2つ。3体以上検知しても最新 MAX_IMAGINE_NAMES 件へ丸め、古い順に落とす（3つ以上表示しない）。
+    #[test]
+    fn imagine_names_capped_to_two_keeping_latest() {
+        let mut enc = Encounter::default();
+        enc.entities.insert(1, player());
+
+        process_scene_delta(&mut enc, summon_spawn_delta(1, 1_007_740)); // ヴェノミーンの巣
+        process_scene_delta(&mut enc, summon_spawn_delta(1, 2_900_240)); // アルーナ
+        process_scene_delta(&mut enc, summon_spawn_delta(1, 2_900_840)); // ロローラ（3体目）
+
+        // 古い ヴェノミーンの巣 が落ち、最新2件だけが残る。
+        assert_eq!(
+            enc.entities[&1].imagine_names,
+            vec!["アルーナ".to_string(), "ロローラ".to_string()]
+        );
     }
 }

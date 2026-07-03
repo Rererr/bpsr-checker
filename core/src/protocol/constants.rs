@@ -43,8 +43,15 @@ pub mod attr_type {
     pub const ATTR_SEASON_LEVEL: i32 = 0x2756;
     pub const ATTR_SEASON_STRENGTH: i32 = 0x2CB0;
     pub const ATTR_POS: i32 = 0x34;
-    // 装備中スキルの一覧（バトルイマジン枠含む。SkillLevelInfo の連結列）。
+    // 装備中スキルの一覧（SkillLevelInfo の連結列。※イマジン装備の在り処ではない＝スキルLvl差分）。
     pub const ATTR_SKILL_LEVEL_ID_LIST: i32 = 0x74; // 116
+
+    // 召喚エンティティ関連（バトルイマジン検知に使う。BPSR-ZDPS の EnumEAttrType 準拠）。
+    // 召喚は AttrSkillId=召喚元スキル(イマジンの正体)・AttrTopSummonerId=オーナー(プレイヤー) を持つ。
+    pub const ATTR_SUMMONER_ID: i32 = 0x5A; // 90  直接の召喚主
+    pub const ATTR_TOP_SUMMONER_ID: i32 = 0x5B; // 91  最上位の召喚主（＝プレイヤー）
+    pub const ATTR_SKILL_ID: i32 = 0x64; // 100 現在スキル/召喚元スキルID
+    pub const ATTR_SKILL_REMODEL_LEVEL: i32 = 0x79; // 121 スキル改造(ティア)レベル
 
     // 自キャラ戦闘ステータス（EnterScene の PlayerEnt.attrs から取得。2026-06-19 実機 probe +
     // ゲーム内ステータス画面ツールチップで全項目を値一致確認）。

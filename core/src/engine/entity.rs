@@ -65,7 +65,9 @@ pub struct Entity {
     pub crit_dmg: Option<i32>,
     pub lucky_dmg: Option<i32>,
 
-    /// 装備中のバトルイマジン名（ATTR_SKILL_LEVEL_ID_LIST から解決。装備順）。
+    /// 使用が確認できたバトルイマジンの表示名（召喚エンティティの `AttrSkillId` から解決・発見順・
+    /// 重複なし）。compute/UI はこの Vec を読む。更新は processor の `try_attribute_summon_imagine` 経由、
+    /// 永続は name_cache。詳細は [[imagine-2stage-display]]。
     pub imagine_names: Vec<String>,
 
     // Monsters（curr_hp / max_hp は自キャラの HP にも流用する）

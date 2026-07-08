@@ -697,12 +697,15 @@ component SkillRowItem inherits Rectangle {
     height: 20px;
     background: (root.clickable && ta.has-hover) ? #ffffff12 : transparent;
 
+    // プレイヤー一覧と同じ雰囲気の割合バー。elem-color は element=0(物理・被ダメ攻撃元一覧)で
+    // 淡いグレーになり背景にほぼ埋もれるため、アクセント色で統一して視認性を確保する
+    // （要素ごとの色分けは左のElementIconが担うのでバー自体は識別色を持たせなくてよい）。
     Rectangle {
         x: 0;
         y: 0;
         width: parent.width * (root.entry.pct / 100.0);
         height: 100%;
-        background: @linear-gradient(90deg, root.entry.elem-color.with-alpha(0.20) 0%, transparent 100%);
+        background: @linear-gradient(90deg, Theme.accent.with-alpha(0.20) 0%, transparent 100%);
     }
     HorizontalLayout {
         width: 100%;
@@ -1642,8 +1645,8 @@ component CombatSection inherits SectionCard {
     title: @tr("戦闘");
     StepperRow { label: @tr("戦闘終了(秒)"); value-text: root.nums.combat-exit; dec => { root.bump-num("combat-exit", -1); } inc => { root.bump-num("combat-exit", 1); } }
     StepperRow { label: @tr("更新間隔(ms)"); value-text: root.nums.poll-interval; dec => { root.bump-num("poll-interval", -1); } inc => { root.bump-num("poll-interval", 1); } }
-    StepperRow { label: @tr("3分計測(秒)"); value-text: root.nums.three-min-dur; dec => { root.bump-num("three-min-dur", -1); } inc => { root.bump-num("three-min-dur", 1); } }
-    ToggleRow { label: @tr("3分計測を自動で開く"); checked: root.cfg.three-min-auto-open; toggled => { root.set-bool("three-min-auto-open", !root.cfg.three-min-auto-open); } }
+    StepperRow { label: @tr("計測時間(秒)"); value-text: root.nums.three-min-dur; dec => { root.bump-num("three-min-dur", -1); } inc => { root.bump-num("three-min-dur", 1); } }
+    ToggleRow { label: @tr("計測を自動で開く"); checked: root.cfg.three-min-auto-open; toggled => { root.set-bool("three-min-auto-open", !root.cfg.three-min-auto-open); } }
 }
 
 // 履歴・グラフ
@@ -2172,13 +2175,21 @@ export component MainWindow inherits Window {
                         font-scale: root.font-scale;
                         toggle(id) => { root.toggle-history(id); }
                     }
-                    if root.history-rows.length == 0: Text {
-                        text: @tr("履歴なし");
-                        color: #666;
-                        font-size: 12px;
-                        height: 40px;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
+                    if root.history-rows.length == 0: VerticalLayout {
+                        padding-top: 18px;
+                        spacing: 5px;
+                        Text {
+                            text: @tr("履歴なし");
+                            color: #666;
+                            font-size: 12px;
+                            horizontal-alignment: center;
+                        }
+                        Text {
+                            text: @tr("戦闘が終了すると自動的にここへ記録されます");
+                            color: #ffffff60;
+                            font-size: 11px;
+                            horizontal-alignment: center;
+                        }
                     }
                 }
             }
@@ -2402,7 +2413,7 @@ export component MainWindow inherits Window {
                 padding: 12px;
                 spacing: 8px;
                 HorizontalLayout {
-                    Text { text: @tr("3分計測 結果"); color: Theme.accent; font-size: 13px; horizontal-stretch: 1; vertical-alignment: center; }
+                    Text { text: @tr("計測結果"); color: Theme.accent; font-size: 13px; horizontal-stretch: 1; vertical-alignment: center; }
                     rclose := TouchArea {
                         width: 24px;
                         clicked => { root.close-result(); }

@@ -2063,6 +2063,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         compute::set_time_series_config(c.time_series_samples, c.time_series_interval_ms);
         compute::set_imagine_only_mode(&enc, c.imagine_only_mode);
     }
+    // 戦闘履歴の永続化（%APPDATA%\bpsr-checker\history.json）。
+    // set_history_limit 適用後に呼ぶことで、起動時 load が設定済みの上限件数で正しく
+    // 切り詰められる。デモモードでは合成データで実ファイルを汚染しないため init 自体を
+    // 呼ばない（consumables/name_cache 同様、init 未呼び出しなら load/save は no-op）。
+    if !demo_mode {
+        engine::history::init(dir.join("history.json"));
+    }
 
     // デモモードの撮影補助: 設定パネルを開いた状態にする / 3分計測を自動開始する
     if demo_mode {

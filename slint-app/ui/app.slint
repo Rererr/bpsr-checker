@@ -152,11 +152,13 @@ struct StatCatalogItem {
 // 3分計測 結果パネルのプレイヤー行
 struct ResultRowUi {
     rank-text: string,
+    rank: int,         // 1始まり。TOP3のメダルアクセント判定に使う
     name: string,
     class-color: color,
     dps-text: string,
     dmg-text: string,
     pct-text: string,
+    pct: float,        // 0..100（割合バー幅。メインDPS表と同じ雰囲気の背景バー用）
     uid-str: string,   // クリックでスキル内訳の対象に
     selected: bool,
 }
@@ -774,6 +776,8 @@ component HistoryRowItem inherits Rectangle {
 component ResultRow inherits Rectangle {
     in property <ResultRowUi> e;
     callback activate(string);
+    // TOP3 は控えめなメダルカラー（金/銀/銅）。4位以下は従来通り。
+    property <color> medal-color: root.e.rank == 1 ? #e8c35a : (root.e.rank == 2 ? #c0c8d4 : (root.e.rank == 3 ? #c9a06e : transparent));
     height: 18px;
     background: root.e.selected ? Theme.accent.with-alpha(0.18) : (rta.has-hover ? #ffffff18 : #ffffff0a);
     border-width: 1px;
@@ -783,11 +787,27 @@ component ResultRow inherits Rectangle {
         mouse-cursor: pointer;
         clicked => { root.activate(root.e.uid-str); }
     }
+    // 割合バー（メインDPS表と同じ雰囲気の半透明グラデーション）
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width * (root.e.pct / 100.0);
+        height: 100%;
+        background: @linear-gradient(90deg, root.e.class-color.with-alpha(0.22) 0%, transparent 100%);
+    }
+    // TOP3 の左アクセント（細いメダルカラーの縦線）
+    if root.e.rank <= 3: Rectangle {
+        x: 0;
+        y: 0;
+        width: 2px;
+        height: 100%;
+        background: root.medal-color;
+    }
     HorizontalLayout {
         padding-left: 6px;
         padding-right: 6px;
         spacing: 8px;
-        Text { text: root.e.rank-text; color: #666; width: 18px; font-size: 10px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.e.rank-text; color: root.e.rank <= 3 ? root.medal-color : #666; width: 18px; font-size: 10px; horizontal-alignment: right; vertical-alignment: center; }
         Text { text: root.e.name; color: root.e.class-color; font-size: 11px; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
         Text { text: root.e.dps-text; color: Theme.accent; font-size: 10px; width: 56px; horizontal-alignment: right; vertical-alignment: center; }
         Text { text: root.e.dmg-text; color: #aaa; font-size: 10px; width: 60px; horizontal-alignment: right; vertical-alignment: center; }
@@ -816,6 +836,33 @@ component ResultSkillRow inherits Rectangle {
         Text { text: root.e.name; color: white; font-size: 11px; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
         Text { text: root.e.dmg-text; color: #e6e6f0; font-size: 10px; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
         Text { text: root.e.pct-text; color: #777; font-size: 10px; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
+    }
+}
+
+// 3分計測 結果パネル: 自己ベスト更新時の「新記録！」バッジ。
+// Slint に scale 変形が無いため、font-size/padding を anim(0..1) から導出して
+// 「小さい状態→自然サイズ」に見えるポップ演出＋フェードで代替する（出現時に一度だけ）。
+component NewRecordBadge inherits Rectangle {
+    property <bool> popped: false;
+    property <float> anim: root.popped ? 1.0 : 0.0;
+    animate anim { duration: 250ms; easing: ease-out; }
+    init => { root.popped = true; }
+    opacity: root.anim;
+    background: #e8c35a2b;
+    border-width: 1px;
+    border-color: #e8c35a;
+    border-radius: 4px;
+    HorizontalLayout {
+        padding-left: 4px + (1.0 - root.anim) * 4px;
+        padding-right: 4px + (1.0 - root.anim) * 4px;
+        padding-top: 2px;
+        padding-bottom: 2px;
+        Text {
+            text: @tr("新記録！");
+            color: #e8c35a;
+            font-size: 9px + 2px * root.anim;
+            vertical-alignment: center;
+        }
     }
 }
 
@@ -1755,8 +1802,11 @@ export component MainWindow inherits Window {
     in property <string> result-skill-axis-mid;     // エリア4 Y軸: 最大DPSの半分
     in property <float> result-duration-ms;         // 折れ線 X軸 時間ラベル用（計測全体の長さ）
     in property <int> capture-state;  // 0=起動中 1=待機(ゲーム通信なし) 2=受信中 3=開始失敗
-    in property <string> app-version;        // 設定パネル最下部の表示＋結果モーダルの透かし（画像コピーに写り込む）
+    in property <string> app-version;        // 設定パネル最下部の表示（バージョンのみ）
+    in property <string> result-watermark;   // 結果モーダルの透かし（バージョン・日時・計測時間。画像コピーに写り込む）
     in property <bool> result-img-copied;    // 画像コピー直後の一時フィードバック
+    in property <bool> result-is-new-record;    // 自キャラの自己ベスト更新（計測確定時のみ判定）
+    in property <string> result-best-dps-text;  // 自己ベストDPSの表示用整形済み文字列（自キャラ不在/記録無しは空）
     callback quit();
     callback minimize();
     callback start-drag();
@@ -2398,11 +2448,17 @@ export component MainWindow inherits Window {
         height: 100%;
         background: #000000cc;
         backdrop := TouchArea { clicked => { root.close-result(); } }
-        Rectangle {
+        result-card := Rectangle {
             x: 12px;
-            y: 12px;
+            // 開いた瞬間の入場演出（フェード＋わずかな上方スライド）。init で1度だけ
+            // entered を立てて animate に任せる＝恒常アニメではなく一過性のみ。
+            property <bool> entered: false;
+            y: self.entered ? 12px : 2px;
             width: parent.width - 24px;
             height: parent.height - 24px;
+            opacity: self.entered ? 1.0 : 0.0;
+            animate y, opacity { duration: 160ms; easing: ease-out; }
+            init => { self.entered = true; }
             background: #14141ef7;
             border-width: 1px;
             border-color: #ffffff26;
@@ -2412,6 +2468,7 @@ export component MainWindow inherits Window {
             VerticalLayout {
                 padding: 12px;
                 spacing: 8px;
+                // ヘッダー行（常に固定表示）
                 HorizontalLayout {
                     Text { text: @tr("計測結果"); color: Theme.accent; font-size: 13px; horizontal-stretch: 1; vertical-alignment: center; }
                     rclose := TouchArea {
@@ -2424,147 +2481,174 @@ export component MainWindow inherits Window {
                         }
                     }
                 }
-                // サマリ（総合DPS/総ダメ/計測時間）はヘッダー直下にコンパクトに残す
+                // サマリ（総合DPS/総ダメ/計測時間/自己ベスト）はヘッダー直下（常に固定表示）
                 HorizontalLayout {
                     spacing: 22px;
-                    VerticalLayout { spacing: 1px; Text { text: "DPS"; color: #888; font-size: 10px; } Text { text: root.result-dps; color: Theme.accent; font-size: 14px; } }
+                    VerticalLayout {
+                        spacing: 1px;
+                        Text { text: "DPS"; color: #888; font-size: 10px; }
+                        HorizontalLayout {
+                            spacing: 6px;
+                            alignment: start;
+                            Text { text: root.result-dps; color: Theme.accent; font-size: 14px; vertical-alignment: center; }
+                            if root.result-is-new-record: NewRecordBadge {}
+                        }
+                    }
                     VerticalLayout { spacing: 1px; Text { text: @tr("総ダメ"); color: #888; font-size: 10px; } Text { text: root.result-dmg; color: #e6e6f0; font-size: 14px; } }
                     VerticalLayout { spacing: 1px; Text { text: @tr("計測時間"); color: #888; font-size: 10px; } Text { text: root.result-duration; color: #e6e6f0; font-size: 14px; } }
-                }
-                // ── エリア1（フル幅）: 選択キャラ折れ線ラベル ＋ キャラ一覧（最大5・3行超は縦スクロール）＋ 累積合計ダメージ折れ線 ──
-                VerticalLayout {
-                    vertical-stretch: 30;
-                    spacing: 4px;
-                    // キャラ一覧（高さ≒3行ぶん。超過は縦スクロール）
-                    Rectangle {
-                        height: 58px;
-                        Flickable {
-                            width: 100%;
-                            height: 100%;
-                            viewport-height: charbox.preferred-height;
-                            charbox := VerticalLayout {
-                                spacing: 2px;
-                                for r in root.result-rows: ResultRow { e: r; activate(u) => { root.select-result-player(u); } }
-                                if root.result-rows.length == 0: Text { text: @tr("ダメージなし"); color: #555; font-size: 11px; height: 30px; horizontal-alignment: center; vertical-alignment: center; }
-                            }
-                        }
-                    }
-                    // 選択キャラの区間DPS折れ線ラベル
-                    Text {
-                        text: root.result-char-name == "" ? @tr("DPS推移") : @tr("DPS推移") + " — " + root.result-char-name;
-                        color: #888;
-                        font-size: 10px;
-                        overflow: elide;
-                    }
-                    // 選択キャラの区間DPS折れ線（残り高さいっぱい・左にY軸目安）
-                    SparkGraph {
-                        vertical-stretch: 1;
-                        visible-graph: root.result-char-spark-visible;
-                        commands: root.result-char-spark;
-                        resized(w, h) => { root.result-char-spark-resized(w, h); }
-                        line-color: Theme.accent;
-                        axis-top: root.result-char-axis-top;
-                        axis-mid: root.result-char-axis-mid;
-                        duration-ms: root.result-duration-ms;
-                        empty-text: "";
+                    if root.result-best-dps-text != "": VerticalLayout {
+                        spacing: 1px;
+                        Text { text: @tr("自己ベスト"); color: #888; font-size: 10px; }
+                        Text { text: root.result-best-dps-text; color: #999; font-size: 12px; }
                     }
                 }
-                // ── 中段: エリア2(65%)＝スキル内訳 ｜ エリア3(35%)＝円グラフ ──
-                HorizontalLayout {
-                    vertical-stretch: 50;
-                    spacing: 8px;
-                    // エリア2（65%）: スキル内訳（残り高さいっぱい・超過は縦スクロール）
-                    VerticalLayout {
-                        horizontal-stretch: 0.65;
-                        spacing: 4px;
-                        Text { text: root.result-pie-title; color: #cdd; font-size: 10px; overflow: elide; }
-                        Rectangle {
-                            vertical-stretch: 1;
-                            Flickable {
-                                width: 100%;
-                                height: 100%;
-                                viewport-height: resskillbox.preferred-height;
-                                resskillbox := VerticalLayout {
-                                    spacing: 2px;
-                                    for s in root.result-skill-rows: ResultSkillRow { e: s; activate(u) => { root.select-result-skill(u); } }
-                                    if root.result-skill-rows.length == 0: Text { text: @tr("スキルなし"); color: #555; font-size: 11px; height: 30px; horizontal-alignment: center; vertical-alignment: center; }
-                                }
-                            }
-                        }
-                    }
-                    // エリア3（35%）: TOP10＋その他 の円グラフ＋凡例
-                    VerticalLayout {
-                        horizontal-stretch: 0.35;
-                        spacing: 4px;
-                        // 円グラフ（領域内に収まる正方形。区切り線は灰色で外周に届かない）。
-                        // 凡例より高さ配分を多めにして円を大きく見せる（円:凡例 = 2:1）。
-                        pie-col := Rectangle {
-                            vertical-stretch: 2;
-                            property <length> sz: self.width < self.height ? self.width : self.height;
+                // ── スクロール領域: エリア1〜4。低いウィンドウでは縦スクロール、十分な高さでは
+                // 今まで通り 30/50/20 の比率で伸縮する（Flickable 自体の最小高さは0のため、
+                // ヘッダー/サマリ/アクション行を押し出さない＝それらは常に画面内に残る）。
+                res-scroll := Flickable {
+                    vertical-stretch: 1;
+                    max-height: 100000px;
+                    viewport-height: res-content.height;
+                    res-content := VerticalLayout {
+                        height: Math.max(res-scroll.height, res-content.preferred-height);
+                        spacing: 8px;
+                        // ── エリア1（フル幅）: 選択キャラ折れ線ラベル ＋ キャラ一覧（最大5・3行超は縦スクロール）＋ 累積合計ダメージ折れ線 ──
+                        VerticalLayout {
+                            vertical-stretch: 30;
+                            spacing: 4px;
+                            // キャラ一覧（高さ≒3行ぶん。超過は縦スクロール）
                             Rectangle {
-                                width: pie-col.sz;
-                                height: pie-col.sz;
-                                x: (pie-col.width - pie-col.sz) / 2;
-                                y: (pie-col.height - pie-col.sz) / 2;
-                                for slice in root.result-pie: Path {
+                                height: 58px;
+                                Flickable {
                                     width: 100%;
                                     height: 100%;
-                                    viewbox-x: 0;
-                                    viewbox-y: 0;
-                                    viewbox-width: 100;
-                                    viewbox-height: 100;
-                                    commands: slice.commands;
-                                    fill: slice.is-line ? transparent : slice.color;
-                                    stroke: slice.is-line ? #8a8a8acc : transparent;
-                                    stroke-width: slice.is-line ? 1px : 0px;
+                                    viewport-height: charbox.preferred-height;
+                                    charbox := VerticalLayout {
+                                        spacing: 2px;
+                                        for r in root.result-rows: ResultRow { e: r; activate(u) => { root.select-result-player(u); } }
+                                        if root.result-rows.length == 0: Text { text: @tr("ダメージなし"); color: #555; font-size: 11px; height: 30px; horizontal-alignment: center; vertical-alignment: center; }
+                                    }
+                                }
+                            }
+                            // 選択キャラの区間DPS折れ線ラベル
+                            Text {
+                                text: root.result-char-name == "" ? @tr("DPS推移") : @tr("DPS推移") + " — " + root.result-char-name;
+                                color: #888;
+                                font-size: 10px;
+                                overflow: elide;
+                            }
+                            // 選択キャラの区間DPS折れ線（残り高さいっぱい・左にY軸目安）
+                            SparkGraph {
+                                vertical-stretch: 1;
+                                visible-graph: root.result-char-spark-visible;
+                                commands: root.result-char-spark;
+                                resized(w, h) => { root.result-char-spark-resized(w, h); }
+                                line-color: Theme.accent;
+                                axis-top: root.result-char-axis-top;
+                                axis-mid: root.result-char-axis-mid;
+                                duration-ms: root.result-duration-ms;
+                                empty-text: "";
+                            }
+                        }
+                        // ── 中段: エリア2(65%)＝スキル内訳 ｜ エリア3(35%)＝円グラフ ──
+                        HorizontalLayout {
+                            vertical-stretch: 50;
+                            spacing: 8px;
+                            // エリア2（65%）: スキル内訳（残り高さいっぱい・超過は縦スクロール）
+                            VerticalLayout {
+                                horizontal-stretch: 0.65;
+                                spacing: 4px;
+                                Text { text: root.result-pie-title; color: #cdd; font-size: 10px; overflow: elide; }
+                                Rectangle {
+                                    vertical-stretch: 1;
+                                    Flickable {
+                                        width: 100%;
+                                        height: 100%;
+                                        viewport-height: resskillbox.preferred-height;
+                                        resskillbox := VerticalLayout {
+                                            spacing: 2px;
+                                            for s in root.result-skill-rows: ResultSkillRow { e: s; activate(u) => { root.select-result-skill(u); } }
+                                            if root.result-skill-rows.length == 0: Text { text: @tr("スキルなし"); color: #555; font-size: 11px; height: 30px; horizontal-alignment: center; vertical-alignment: center; }
+                                        }
+                                    }
+                                }
+                            }
+                            // エリア3（35%）: TOP10＋その他 の円グラフ＋凡例
+                            VerticalLayout {
+                                horizontal-stretch: 0.35;
+                                spacing: 4px;
+                                // 円グラフ（領域内に収まる正方形。区切り線は灰色で外周に届かない）。
+                                // 凡例より高さ配分を多めにして円を大きく見せる（円:凡例 = 2:1）。
+                                pie-col := Rectangle {
+                                    vertical-stretch: 2;
+                                    property <length> sz: self.width < self.height ? self.width : self.height;
+                                    Rectangle {
+                                        width: pie-col.sz;
+                                        height: pie-col.sz;
+                                        x: (pie-col.width - pie-col.sz) / 2;
+                                        y: (pie-col.height - pie-col.sz) / 2;
+                                        for slice in root.result-pie: Path {
+                                            width: 100%;
+                                            height: 100%;
+                                            viewbox-x: 0;
+                                            viewbox-y: 0;
+                                            viewbox-width: 100;
+                                            viewbox-height: 100;
+                                            commands: slice.commands;
+                                            fill: slice.is-line ? transparent : slice.color;
+                                            stroke: slice.is-line ? #8a8a8acc : transparent;
+                                            stroke-width: slice.is-line ? 1px : 0px;
+                                        }
+                                    }
+                                }
+                                // 凡例（スキル名＋同色＋割合）
+                                Flickable {
+                                    vertical-stretch: 1;
+                                    max-height: 100000px;
+                                    viewport-height: legbox.preferred-height;
+                                    legbox := VerticalLayout {
+                                        spacing: 1px;
+                                        for lg in root.result-legend: HorizontalLayout {
+                                            spacing: 4px;
+                                            height: 14px;
+                                            VerticalLayout { alignment: center; Rectangle { width: 8px; height: 8px; background: lg.color; border-radius: 2px; } }
+                                            Text { text: lg.name; color: #bbb; font-size: 9px; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
+                                            Text { text: lg.pct-text; color: #888; font-size: 9px; vertical-alignment: center; }
+                                        }
+                                    }
                                 }
                             }
                         }
-                        // 凡例（スキル名＋同色＋割合）
-                        Flickable {
-                            vertical-stretch: 1;
-                            max-height: 100000px;
-                            viewport-height: legbox.preferred-height;
-                            legbox := VerticalLayout {
-                                spacing: 1px;
-                                for lg in root.result-legend: HorizontalLayout {
-                                    spacing: 4px;
-                                    height: 14px;
-                                    VerticalLayout { alignment: center; Rectangle { width: 8px; height: 8px; background: lg.color; border-radius: 2px; } }
-                                    Text { text: lg.name; color: #bbb; font-size: 9px; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
-                                    Text { text: lg.pct-text; color: #888; font-size: 9px; vertical-alignment: center; }
-                                }
+                        // ── エリア4（フル幅）: 選択スキル折れ線ラベル ＋ 区間DPS折れ線 ──
+                        VerticalLayout {
+                            vertical-stretch: 20;
+                            spacing: 4px;
+                            Text {
+                                text: root.result-skill-name == "" ? @tr("スキルDPS推移") : @tr("スキルDPS推移") + " — " + root.result-skill-name;
+                                color: #888;
+                                font-size: 10px;
+                                overflow: elide;
+                            }
+                            SparkGraph {
+                                vertical-stretch: 1;
+                                visible-graph: root.result-skill-spark-visible;
+                                commands: root.result-skill-spark;
+                                resized(w, h) => { root.result-skill-spark-resized(w, h); }
+                                line-color: #66bb6a;
+                                axis-top: root.result-skill-axis-top;
+                                axis-mid: root.result-skill-axis-mid;
+                                duration-ms: root.result-duration-ms;
+                                empty-text: @tr("スキルを選択");
                             }
                         }
                     }
                 }
-                // ── エリア4（フル幅）: 選択スキル折れ線ラベル ＋ 区間DPS折れ線 ──
-                VerticalLayout {
-                    vertical-stretch: 20;
-                    spacing: 4px;
-                    Text {
-                        text: root.result-skill-name == "" ? @tr("スキルDPS推移") : @tr("スキルDPS推移") + " — " + root.result-skill-name;
-                        color: #888;
-                        font-size: 10px;
-                        overflow: elide;
-                    }
-                    SparkGraph {
-                        vertical-stretch: 1;
-                        visible-graph: root.result-skill-spark-visible;
-                        commands: root.result-skill-spark;
-                        resized(w, h) => { root.result-skill-spark-resized(w, h); }
-                        line-color: #66bb6a;
-                        axis-top: root.result-skill-axis-top;
-                        axis-mid: root.result-skill-axis-mid;
-                        duration-ms: root.result-duration-ms;
-                        empty-text: @tr("スキルを選択");
-                    }
-                }
+                // アクション行（常に固定表示）
                 HorizontalLayout {
                     spacing: 8px;
                     // 透かし（画像コピーに写り込む小さなクレジット）。stretch で余白を吸収しボタンを右寄せ
                     Text {
-                        text: root.app-version;
+                        text: root.result-watermark;
                         color: #555;
                         font-size: 9px;
                         vertical-alignment: center;

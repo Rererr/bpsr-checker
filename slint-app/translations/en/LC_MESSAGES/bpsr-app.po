@@ -342,6 +342,12 @@ msgstr "Reset"
 msgid "計測結果"
 msgstr "Measurement Result"
 
+msgid "自己ベスト"
+msgstr "Best"
+
+msgid "新記録！"
+msgstr "New Record!"
+
 msgid "総ダメ"
 msgstr "Total dmg"
 

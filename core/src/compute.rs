@@ -130,7 +130,9 @@ enum StatType {
 
 // ─── Header ──────────────────────────────────────────────────────────────────
 
-pub fn get_header_info(enc: &EncounterMutex) -> HeaderInfo {
+/// `tab`(0=dps 1=heal 2=taken。3=history は暫定で dps 扱い)に応じて合計DPS/合計値を切り替える。
+/// `fetch_players` (slint-app/src/main.rs) と同じタブ→統計種別マッピング。
+pub fn get_header_info(enc: &EncounterMutex, tab: i32) -> HeaderInfo {
     with_lock_or(enc, "get_header_info", HeaderInfo::default(), |encounter| {
         let selected = selected_uid::get();
         if selected.is_some() && !encounter.has_selected_participant {
@@ -142,9 +144,15 @@ pub fn get_header_info(enc: &EncounterMutex) -> HeaderInfo {
             .saturating_sub(encounter.time_fight_start_ms);
         let elapsed_secs = elapsed_ms as f64 / 1000.0;
 
+        let stats = match tab {
+            1 => &encounter.heal_stats,
+            2 => &encounter.dmg_taken_stats,
+            _ => &encounter.dmg_stats,
+        };
+
         HeaderInfo {
-            total_dps: rate_per_sec(encounter.dmg_stats.total, elapsed_secs),
-            total_dmg: encounter.dmg_stats.total as f64,
+            total_dps: rate_per_sec(stats.total, elapsed_secs),
+            total_dmg: stats.total as f64,
             elapsed_ms: elapsed_ms as f64,
             time_last_combat_packet_ms: encounter.time_last_combat_packet_ms as f64,
         }

@@ -530,6 +530,7 @@ component PlayerRowItem inherits Rectangle {
                 overflow: elide;
                 vertical-alignment: center;
                 horizontal-stretch: 1;
+                min-width: 90px * root.font-scale;
             }
             // 食事/シロップ バフのタイマーアイコン（残量に応じて色が上から縦に抜ける・ホバーで詳細）
             if root.show-consumable: VerticalLayout { alignment: center; ConsumableBadge {
@@ -696,12 +697,15 @@ component SkillRowItem inherits Rectangle {
     height: 20px;
     background: (root.clickable && ta.has-hover) ? #ffffff12 : transparent;
 
+    // プレイヤー一覧と同じ雰囲気の割合バー。elem-color は element=0(物理・被ダメ攻撃元一覧)で
+    // 淡いグレーになり背景にほぼ埋もれるため、アクセント色で統一して視認性を確保する
+    // （要素ごとの色分けは左のElementIconが担うのでバー自体は識別色を持たせなくてよい）。
     Rectangle {
         x: 0;
         y: 0;
         width: parent.width * (root.entry.pct / 100.0);
         height: 100%;
-        background: @linear-gradient(90deg, root.entry.elem-color.with-alpha(0.20) 0%, transparent 100%);
+        background: @linear-gradient(90deg, Theme.accent.with-alpha(0.20) 0%, transparent 100%);
     }
     HorizontalLayout {
         width: 100%;
@@ -1641,8 +1645,8 @@ component CombatSection inherits SectionCard {
     title: @tr("戦闘");
     StepperRow { label: @tr("戦闘終了(秒)"); value-text: root.nums.combat-exit; dec => { root.bump-num("combat-exit", -1); } inc => { root.bump-num("combat-exit", 1); } }
     StepperRow { label: @tr("更新間隔(ms)"); value-text: root.nums.poll-interval; dec => { root.bump-num("poll-interval", -1); } inc => { root.bump-num("poll-interval", 1); } }
-    StepperRow { label: @tr("3分計測(秒)"); value-text: root.nums.three-min-dur; dec => { root.bump-num("three-min-dur", -1); } inc => { root.bump-num("three-min-dur", 1); } }
-    ToggleRow { label: @tr("3分計測を自動で開く"); checked: root.cfg.three-min-auto-open; toggled => { root.set-bool("three-min-auto-open", !root.cfg.three-min-auto-open); } }
+    StepperRow { label: @tr("計測時間(秒)"); value-text: root.nums.three-min-dur; dec => { root.bump-num("three-min-dur", -1); } inc => { root.bump-num("three-min-dur", 1); } }
+    ToggleRow { label: @tr("計測を自動で開く"); checked: root.cfg.three-min-auto-open; toggled => { root.set-bool("three-min-auto-open", !root.cfg.three-min-auto-open); } }
 }
 
 // 履歴・グラフ
@@ -1790,7 +1794,31 @@ export component MainWindow inherits Window {
     // root.width への直接バインディングはヘッダ文字列経由で layoutinfo と循環するため、
     // changed コールバックで値として代入してループを断つ。
     property <bool> narrow-header: false;
-    changed width => { root.narrow-header = root.width < 600px; }
+    // 一覧の列を幅に応じて段階的に間引くレベル(6=全列表示可能 .. 0=最小)。同じ理由で
+    // root.width への直接バインディングは避け、changed width で値として代入する。
+    property <int> col-level: 6;
+    changed width => {
+        root.narrow-header = root.width < 600px;
+        root.col-level = root.width >= 600px ? 6
+            : (root.width >= 560px ? 5
+            : (root.width >= 500px ? 4
+            : (root.width >= 440px ? 3
+            : (root.width >= 380px ? 2
+            : (root.width >= 320px ? 1 : 0)))));
+    }
+    // 設定でONの列でも幅が足りなければ隠す（優先して隠す順: 幸運ダメ率→幸運率→会心ダメ率→
+    // ヒット数→毎分ヒット→推移スパークライン）。ダメージ/DPS/%・会心率・戦力は幅による強制
+    // 非表示の対象外（設定トグルのみで制御）。ヘッダ行と PlayerRowItem の両方がこれを参照する。
+    property <ColumnFlags> effective-cols: {
+        crit: root.cols.crit,
+        crit-value: root.cols.crit-value && root.col-level >= 4,
+        lucky: root.cols.lucky && root.col-level >= 5,
+        lucky-value: root.cols.lucky-value && root.col-level >= 6,
+        hits: root.cols.hits && root.col-level >= 3,
+        hpm: root.cols.hpm && root.col-level >= 2,
+        score: root.cols.score,
+    };
+    property <bool> effective-show-graph-col: root.show-graph-col && root.col-level >= 1;
     // 設定パネルの列数（窓幅でレスポンシブに 1/2/3）。短ラベルが多いので幅があれば3列まで。
     property <int> set-cols: root.width >= 660px ? 3 : (root.width >= 440px ? 2 : 1);
     // HSVピッカーをドラッグ中か。true の間は設定パネル Flickable の interactive を切り、
@@ -1837,10 +1865,12 @@ export component MainWindow inherits Window {
                 padding-left: 4px;
                 padding-right: 4px;
                 spacing: 2px;
+                // 回復/被ダメ/履歴は元々2〜3文字と短いため、狭幅でも英語へ差し替えず常に日本語で統一する
+                // （狭幅時のみ英語になり日本語UIに英単語が混ざっていた問題の解消）。
                 TabButton { label: @tr("DPS"); active: root.tab == 0; clicked => { root.select-tab(0); } }
-                TabButton { label: root.narrow-header ? @tr("Heal") : @tr("回復"); active: root.tab == 1; clicked => { root.select-tab(1); } }
-                TabButton { label: root.narrow-header ? @tr("Taken") : @tr("被ダメ"); active: root.tab == 2; clicked => { root.select-tab(2); } }
-                TabButton { label: root.narrow-header ? @tr("Log") : @tr("履歴"); active: root.tab == 3; clicked => { root.select-tab(3); } }
+                TabButton { label: @tr("回復"); active: root.tab == 1; clicked => { root.select-tab(1); } }
+                TabButton { label: @tr("被ダメ"); active: root.tab == 2; clicked => { root.select-tab(2); } }
+                TabButton { label: @tr("履歴"); active: root.tab == 3; clicked => { root.select-tab(3); } }
                 drag := TouchArea {
                     horizontal-stretch: 1;
                     mouse-cursor: move;
@@ -1855,7 +1885,7 @@ export component MainWindow inherits Window {
                         // タブへのはみ出し重なりを防ぐ（ドラッグ領域は stretch で潰れ得る）
                         text: root.narrow-header
                             ? root.total-text + "  " + root.elapsed-text
-                            : @tr("合計DPS") + " " + root.total-text + "   " + @tr("経過") + " " + root.elapsed-text;
+                            : (root.tab == 1 ? @tr("合計HPS") : (root.tab == 2 ? @tr("合計被DPS") : @tr("合計DPS"))) + " " + root.total-text + "   " + @tr("経過") + " " + root.elapsed-text;
                         visible: self.width + 12px <= parent.width;
                         color: #c8c8d8;
                         font-size: 11px * root.font-scale;
@@ -1968,8 +1998,8 @@ export component MainWindow inherits Window {
                     padding-left: 8px;
                     padding-right: 8px;
                     spacing: 6px;
-                    Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; vertical-alignment: center; }
-                    if root.show-graph-col: Text { text: @tr("推移"); color: #888; font-size: 9px * root.font-scale; width: 60px; horizontal-alignment: center; vertical-alignment: center; }
+                    Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; min-width: 90px * root.font-scale; vertical-alignment: center; }
+                    if root.effective-show-graph-col: Text { text: @tr("推移"); color: #888; font-size: 9px * root.font-scale; width: 60px; horizontal-alignment: center; vertical-alignment: center; }
                     Text {
                         text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ"));
                         color: #888;
@@ -1978,15 +2008,22 @@ export component MainWindow inherits Window {
                         horizontal-alignment: right;
                         vertical-alignment: center;
                     }
-                    Text { text: @tr("DPS"); color: #888; font-size: 10px * root.font-scale; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
+                    Text {
+                        text: root.tab == 1 ? @tr("HPS") : (root.tab == 2 ? @tr("被DPS") : @tr("DPS"));
+                        color: #888;
+                        font-size: 10px * root.font-scale;
+                        width: 58px;
+                        horizontal-alignment: right;
+                        vertical-alignment: center;
+                    }
                     Text { text: @tr("%"); color: #888; font-size: 10px * root.font-scale; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.cols.crit: Text { text: @tr("会心率"); color: #888; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.cols.crit-value: Text { text: @tr("会心ダメ率"); color: #888; font-size: 9px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.cols.lucky: Text { text: @tr("幸運率"); color: #888; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.cols.lucky-value: Text { text: @tr("幸運ダメ率"); color: #888; font-size: 9px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.cols.hits: Text { text: @tr("ヒット数"); color: #888; font-size: 9px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.cols.hpm: Text { text: @tr("毎分ヒット数"); color: #888; font-size: 9px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.cols.score: Text { text: @tr("戦力"); color: #888; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.effective-cols.crit: Text { text: @tr("会心率"); color: #888; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.effective-cols.crit-value: Text { text: @tr("会心ダメ率"); color: #888; font-size: 9px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.effective-cols.lucky: Text { text: @tr("幸運率"); color: #888; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.effective-cols.lucky-value: Text { text: @tr("幸運ダメ率"); color: #888; font-size: 9px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.effective-cols.hits: Text { text: @tr("ヒット数"); color: #888; font-size: 9px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.effective-cols.hpm: Text { text: @tr("毎分ヒット数"); color: #888; font-size: 9px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.effective-cols.score: Text { text: @tr("戦力"); color: #888; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
                     // データ行末尾のウォッチピン(14px)に合わせた見出し用スペーサー（列ズレ防止）
                     Rectangle { width: 14px; }
                 }
@@ -1999,9 +2036,9 @@ export component MainWindow inherits Window {
                     for row in root.rows: PlayerRowItem {
                         entry: row;
                         highlight-local: root.highlight-local;
-                        cols: root.cols;
+                        cols: root.effective-cols;
                         font-scale: root.font-scale;
-                        show-graph-col: root.show-graph-col;
+                        show-graph-col: root.effective-show-graph-col;
                         show-consumable: root.show-consumable;
                         sync-timer: root.cfg-ui.sync-timer;
                         activate(u) => { root.open-drill(u); }
@@ -2071,7 +2108,7 @@ export component MainWindow inherits Window {
                             spacing: 5px;
                             Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; vertical-alignment: center; }
                             Text { text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ")); color: #888; font-size: 10px * root.font-scale; width: 56px; horizontal-alignment: right; vertical-alignment: center; }
-                            Text { text: @tr("DPS"); color: #888; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                            Text { text: root.tab == 1 ? @tr("HPS") : (root.tab == 2 ? @tr("被DPS") : @tr("DPS")); color: #888; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
                         }
                     }
                     for row in root.compact-left: CompactRowItem {
@@ -2092,7 +2129,7 @@ export component MainWindow inherits Window {
                             spacing: 5px;
                             Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; vertical-alignment: center; }
                             Text { text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ")); color: #888; font-size: 10px * root.font-scale; width: 56px; horizontal-alignment: right; vertical-alignment: center; }
-                            Text { text: @tr("DPS"); color: #888; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                            Text { text: root.tab == 1 ? @tr("HPS") : (root.tab == 2 ? @tr("被DPS") : @tr("DPS")); color: #888; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
                         }
                     }
                     for row in root.compact-right: CompactRowItem {
@@ -2138,13 +2175,21 @@ export component MainWindow inherits Window {
                         font-scale: root.font-scale;
                         toggle(id) => { root.toggle-history(id); }
                     }
-                    if root.history-rows.length == 0: Text {
-                        text: @tr("履歴なし");
-                        color: #666;
-                        font-size: 12px;
-                        height: 40px;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
+                    if root.history-rows.length == 0: VerticalLayout {
+                        padding-top: 18px;
+                        spacing: 5px;
+                        Text {
+                            text: @tr("履歴なし");
+                            color: #666;
+                            font-size: 12px;
+                            horizontal-alignment: center;
+                        }
+                        Text {
+                            text: @tr("戦闘が終了すると自動的にここへ記録されます");
+                            color: #ffffff60;
+                            font-size: 11px;
+                            horizontal-alignment: center;
+                        }
                     }
                 }
             }
@@ -2368,7 +2413,7 @@ export component MainWindow inherits Window {
                 padding: 12px;
                 spacing: 8px;
                 HorizontalLayout {
-                    Text { text: @tr("3分計測 結果"); color: Theme.accent; font-size: 13px; horizontal-stretch: 1; vertical-alignment: center; }
+                    Text { text: @tr("計測結果"); color: Theme.accent; font-size: 13px; horizontal-stretch: 1; vertical-alignment: center; }
                     rclose := TouchArea {
                         width: 24px;
                         clicked => { root.close-result(); }

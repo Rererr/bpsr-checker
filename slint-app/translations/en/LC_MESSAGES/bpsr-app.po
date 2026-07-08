@@ -39,6 +39,15 @@ msgstr "Elapsed"
 msgid "合計DPS"
 msgstr "Total DPS"
 
+msgid "被DPS"
+msgstr "Taken DPS"
+
+msgid "合計HPS"
+msgstr "Total HPS"
+
+msgid "合計被DPS"
+msgstr "Total Taken DPS"
+
 msgid "戻る"
 msgstr "Back"
 
@@ -213,11 +222,11 @@ msgstr "Combat exit (s)"
 msgid "更新間隔(ms)"
 msgstr "Update interval (ms)"
 
-msgid "3分計測(秒)"
-msgstr "3-min timer (s)"
+msgid "計測時間(秒)"
+msgstr "Duration (s)"
 
-msgid "3分計測を自動で開く"
-msgstr "Auto-open 3-min result"
+msgid "計測を自動で開く"
+msgstr "Auto-open result"
 
 msgid "履歴・グラフ"
 msgstr "History & Graph"
@@ -306,6 +315,9 @@ msgstr "Clear history"
 msgid "履歴なし"
 msgstr "No history"
 
+msgid "戦闘が終了すると自動的にここへ記録されます"
+msgstr "Finished battles are recorded here automatically"
+
 msgid "人"
 msgstr " players"
 
@@ -313,7 +325,7 @@ msgid "推移"
 msgstr "Trend"
 
 msgid "計測"
-msgstr "3-min"
+msgstr "Measure"
 
 msgid "待機"
 msgstr "Armed"
@@ -327,8 +339,8 @@ msgstr "Resume"
 msgid "初期化"
 msgstr "Reset"
 
-msgid "3分計測 結果"
-msgstr "3-min Result"
+msgid "計測結果"
+msgstr "Measurement Result"
 
 msgid "総ダメ"
 msgstr "Total dmg"

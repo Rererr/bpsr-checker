@@ -668,6 +668,7 @@ version = "1.15.2"
 dependencies = [
  "arboard",
  "bpsr-core",
+ "chrono",
  "embed-manifest",
  "embed-resource",
  "i-slint-backend-testing",

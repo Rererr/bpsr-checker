@@ -5,6 +5,7 @@
 
 slint::include_modules!();
 
+mod best_records;
 mod buff_names;
 mod capture;
 mod consumable_names;
@@ -556,11 +557,13 @@ fn build_result_rows(
             };
             ResultRowUi {
                 rank_text: format!("{}.", i + 1).into(),
+                rank: (i + 1) as i32,
                 name: name.into(),
                 class_color: format::class_color(&p.class_name),
                 dps_text: format::format_dps(p.value_per_sec).into(),
                 dmg_text: format::format_number(p.total_value).into(),
                 pct_text: format::format_pct(p.value_pct).into(),
+                pct: p.value_pct as f32,
                 uid_str: format!("{uid}").into(),
                 selected: uid == selected_uid,
             }
@@ -806,6 +809,94 @@ fn show_result(
         skill_dims,
     );
     m.set_result_open(true);
+}
+
+/// カウントアップ演出の進捗(0..1)をイージング(ease-out-cubic)する。
+fn ease_out_cubic(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    1.0 - (1.0 - t).powi(3)
+}
+
+const RESULT_COUNTUP_MS: u64 = 500;
+const RESULT_COUNTUP_TICK_MS: u64 = 16;
+
+/// 結果パネルの DPS/総ダメを 0 から最終値へ ease-out-cubic でカウントアップする（新規計測確定時のみ）。
+/// `show_result` が直後に最終値を即時セットしているため、この呼び出しは同一tick内でそれを
+/// 0 へ上書きしてからアニメーションを開始する（再描画前に上書きされるため点滅しない）。
+/// timer はこの用途専有の Rc<Timer>（呼び出し側が持ち回して寿命を保つ）。完了で必ず stop する。
+fn start_result_countup(m: &MainWindow, timer: &Rc<Timer>, final_dps: f64, final_dmg: f64) {
+    m.set_result_dps(format::format_dps(0.0).into());
+    m.set_result_dmg(format::format_number(0.0).into());
+    let start = std::time::Instant::now();
+    let w = m.as_weak();
+    let timer_stop = timer.clone();
+    timer.start(
+        TimerMode::Repeated,
+        Duration::from_millis(RESULT_COUNTUP_TICK_MS),
+        move || {
+            let Some(m) = w.upgrade() else {
+                timer_stop.stop();
+                return;
+            };
+            let t = start.elapsed().as_secs_f32() * 1000.0 / RESULT_COUNTUP_MS as f32;
+            let eased = ease_out_cubic(t) as f64;
+            if t >= 1.0 {
+                m.set_result_dps(format::format_dps(final_dps).into());
+                m.set_result_dmg(format::format_number(final_dmg).into());
+                timer_stop.stop();
+                return;
+            }
+            m.set_result_dps(format::format_dps(final_dps * eased).into());
+            m.set_result_dmg(format::format_number(final_dmg * eased).into());
+        },
+    );
+}
+
+/// シェア画像の透かし（アクション行左）: "bpsr-checker vX.X.X ・ YYYY-MM-DD HH:MM ・ 計測 M:SS"。
+/// 日時は計測終了時点のローカル時刻。
+fn build_result_watermark(app_version: &str, duration_ms: f64) -> String {
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M");
+    let dur = format::format_elapsed(duration_ms);
+    if is_ja() {
+        format!("{app_version} ・ {now} ・ 計測 {dur}")
+    } else {
+        format!("{app_version} ・ {now} ・ {dur} measured")
+    }
+}
+
+/// 計測確定時の自己ベスト判定・更新。自キャラ(local_uid)がそのエンカウントに不在なら
+/// 記録・表示ともスキップする。デモモードでは保存しない(persist=false)がメモリ上の比較は行う。
+/// モーダルの result-is-new-record / result-best-dps-text を反映する。
+fn apply_result_best_record(
+    m: &MainWindow,
+    best: &Rc<RefCell<best_records::BestRecords>>,
+    snap: &bpsr_core::models::EncounterSnapshot,
+    local_uid: i64,
+    persist: bool,
+) {
+    let Some(self_row) = snap.player_rows.iter().find(|p| p.uid as i64 == local_uid) else {
+        m.set_result_is_new_record(false);
+        m.set_result_best_dps_text("".into());
+        return;
+    };
+    let duration_sec = (snap.duration_ms / 1000.0).round().max(0.0) as u32;
+    let recorded_at_ms = chrono::Utc::now().timestamp_millis();
+    let mut recs = best.borrow_mut();
+    let is_new = recs.try_update(
+        duration_sec,
+        self_row.value_per_sec,
+        self_row.total_value,
+        recorded_at_ms,
+    );
+    if is_new && persist {
+        recs.save();
+    }
+    let best_dps = recs
+        .get(duration_sec)
+        .map(|r| r.dps)
+        .unwrap_or(self_row.value_per_sec);
+    m.set_result_is_new_record(is_new);
+    m.set_result_best_dps_text(format::format_dps(best_dps).into());
 }
 
 /// uid の下4桁（候補ラベル用。元 UI の String(uid).slice(-4) 相当）。
@@ -1994,6 +2085,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 結果パネルの選択状態（エリア1=キャラ / エリア2=スキル）
     let selected_result_player = Rc::new(std::cell::Cell::<i64>::new(0));
     let selected_result_skill = Rc::new(std::cell::Cell::<i64>::new(0));
+    // 自己ベスト記録（%APPDATA%\bpsr-checker\best_records.json）。デモモードでは実ファイルを
+    // 汚染しないため load せず空から開始する（メモリ上の比較・新記録判定はデモでも動作する）。
+    let best_records = Rc::new(RefCell::new(if demo_mode {
+        best_records::BestRecords::default()
+    } else {
+        best_records::BestRecords::load()
+    }));
+    // 結果パネルの DPS/総ダメ カウントアップ演出専用タイマー（新規計測確定時のみ使う）。
+    // Timer::start は呼び出すたびに再起動されるため、Rc で使い回して寿命を保つ
+    // （完了時に自身を stop するため Rc clone を closure に渡す）。
+    let result_countup_timer = Rc::new(Timer::default());
     // 折れ線プロットの実寸(px)。SparkGraph.resized で更新し、再生成時の座標スケールに使う。
     // 初期値は初回レイアウト前の暫定（resized 発火で実値に置換される）。
     let char_plot_dims = Rc::new(Cell::new((600.0_f32, 40.0_f32)));
@@ -3133,6 +3235,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let compact_left_poll = compact_left.clone();
     let compact_right_poll = compact_right.clone();
     let uid_candidates_poll = uid_candidates.clone();
+    let best_records_poll = best_records.clone();
+    let result_countup_timer_poll = result_countup_timer.clone();
     // タスクトレイ／クリックスルー状態（poll closure が move で保持）
     let click_through = Rc::new(Cell::new(false));
     #[cfg(windows)]
@@ -3267,6 +3371,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             c.privacy_mask_names,
                             char_plot_dims_poll.get(),
                             skill_plot_dims_poll.get(),
+                        );
+                        // 自己ベスト判定・更新（自キャラ不在ならモーダル側で自動スキップ）。
+                        // デモモードでは保存しない(persist=false)がメモリ上の比較は行う。
+                        apply_result_best_record(
+                            &m,
+                            &best_records_poll,
+                            &snap,
+                            local_uid,
+                            !demo_mode,
+                        );
+                        // シェア画像の透かし（バージョン・計測終了時刻・計測時間）。
+                        m.set_result_watermark(
+                            build_result_watermark(&m.get_app_version(), snap.duration_ms).into(),
+                        );
+                        // 新規計測確定時のみ DPS/総ダメをカウントアップ演出する（履歴等からの
+                        // 再表示経路は show_result の即時表示のままにする）。
+                        start_result_countup(
+                            &m,
+                            &result_countup_timer_poll,
+                            snap.total_dps,
+                            snap.total_dmg,
                         );
                     }
                 }

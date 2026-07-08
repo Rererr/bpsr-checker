@@ -3185,7 +3185,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         compute::refresh_consumables(&enc_poll);
 
         // ライブ集計を反映（共有セルの現在タブに応じて取得）
-        let header = compute::get_header_info(&enc_poll);
+        let header = compute::get_header_info(&enc_poll, tab_cell_poll.get());
         m.set_total_text(format::format_dps(header.total_dps).into());
         m.set_elapsed_text(format::format_elapsed(header.elapsed_ms).into());
 

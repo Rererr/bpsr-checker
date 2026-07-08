@@ -267,6 +267,7 @@ component TabButton inherits TouchArea {
     in property <bool> active;
     Rectangle {
         background: root.active ? Theme.accent-strong.with-alpha(0.4) : (root.has-hover ? #ffffff14 : transparent);
+        animate background { duration: 100ms; easing: ease-out; }
         border-radius: 4px;
         HorizontalLayout {
             padding-left: 9px;
@@ -366,6 +367,7 @@ component HeaderButton inherits TouchArea {
     property <color> fg: root.active ? root.active-fg : #cdd;
     Rectangle {
         background: root.active ? root.active-bg : (root.has-hover ? #ffffff20 : transparent);
+        animate background { duration: 100ms; easing: ease-out; }
         border-radius: 4px;
         if root.show-icon: Path {
             width: 13px;
@@ -401,6 +403,7 @@ component SegButton inherits TouchArea {
     horizontal-stretch: root.fill ? 1 : 0;
     Rectangle {
         background: root.active ? Theme.accent-strong : (root.has-hover ? SettingsStyle.control-bg-hover : SettingsStyle.control-bg);
+        animate background { duration: 100ms; easing: ease-out; }
         border-radius: SettingsStyle.radius;
         Text { text: root.label; color: root.active ? white : #bbb; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
     }
@@ -496,6 +499,7 @@ component PlayerRowItem inherits Rectangle {
     callback toggle-watch(string);
     height: 20px * root.font-scale;
     background: rowta.has-hover ? #ffffff12 : transparent;
+    animate background { duration: 100ms; easing: ease-out; }
 
     // 行クリック（背面）。ウォッチピン等の TouchArea が前面で個別に捕捉する。
     rowta := TouchArea {
@@ -602,6 +606,7 @@ component PlayerRowItem inherits Rectangle {
                 border-width: 1px;
                 border-color: root.entry.watched ? Theme.accent : (watch.has-hover ? #888888 : #ffffff00);
                 background: root.entry.watched ? Theme.accent : transparent;
+                animate background, border-color { duration: 100ms; easing: ease-out; }
             }
             // ホバーで操作内容を説明（同期ON/OFFで意味が変わるため文言を切替）。
             watch-tip := PopupWindow {
@@ -652,6 +657,7 @@ component CompactRowItem inherits Rectangle {
     callback activate(string);
     height: 18px;
     background: cta.has-hover ? #ffffff12 : transparent;
+    animate background { duration: 100ms; easing: ease-out; }
     Rectangle {
         x: 0;
         y: 0;
@@ -698,6 +704,7 @@ component SkillRowItem inherits Rectangle {
     callback activate(string);
     height: 20px;
     background: (root.clickable && ta.has-hover) ? #ffffff12 : transparent;
+    animate background { duration: 100ms; easing: ease-out; }
 
     // プレイヤー一覧と同じ雰囲気の割合バー。elem-color は element=0(物理・被ダメ攻撃元一覧)で
     // 淡いグレーになり背景にほぼ埋もれるため、アクセント色で統一して視認性を確保する
@@ -739,6 +746,7 @@ component HistoryRowItem inherits Rectangle {
     callback toggle(string);
     height: root.e.is-header ? 24px : 18px;
     background: (root.e.is-header && hta.has-hover) ? #ffffff14 : (root.e.is-header ? #ffffff08 : transparent);
+    animate background { duration: 100ms; easing: ease-out; }
 
     // プレイヤー行の割合バー
     if !root.e.is-header: Rectangle {
@@ -780,6 +788,7 @@ component ResultRow inherits Rectangle {
     property <color> medal-color: root.e.rank == 1 ? #e8c35a : (root.e.rank == 2 ? #c0c8d4 : (root.e.rank == 3 ? #c9a06e : transparent));
     height: 18px;
     background: root.e.selected ? Theme.accent.with-alpha(0.18) : (rta.has-hover ? #ffffff18 : #ffffff0a);
+    animate background, border-color { duration: 100ms; easing: ease-out; }
     border-width: 1px;
     border-color: root.e.selected ? Theme.accent.with-alpha(0.667) : #ffffff00;
     border-radius: 2px;
@@ -821,6 +830,7 @@ component ResultSkillRow inherits Rectangle {
     callback activate(string);
     height: 18px;
     background: root.e.selected ? Theme.accent.with-alpha(0.18) : (rsta.has-hover ? #ffffff18 : #ffffff0a);
+    animate background, border-color { duration: 100ms; easing: ease-out; }
     border-width: 1px;
     border-color: root.e.selected ? Theme.accent.with-alpha(0.667) : #ffffff00;
     border-radius: 2px;
@@ -962,6 +972,7 @@ component CandidateChip inherits TouchArea {
     clicked => { root.pick(root.c.uid-str); }
     Rectangle {
         background: root.c.selected ? Theme.accent.with-alpha(0.2) : (root.has-hover ? #ffffff20 : #ffffff10);
+        animate background, border-color { duration: 100ms; easing: ease-out; }
         border-width: 1px;
         border-color: root.c.selected ? Theme.accent : #ffffff26;
         border-radius: 3px;
@@ -1075,6 +1086,7 @@ component ToggleRow inherits TouchArea {
     clicked => { root.toggled(); }
     Rectangle {
         background: root.has-hover ? SettingsStyle.row-hover : transparent;
+        animate background { duration: 100ms; easing: ease-out; }
         HorizontalLayout {
             padding-left: root.pad-x;
             padding-right: root.pad-x;
@@ -1088,6 +1100,7 @@ component ToggleRow inherits TouchArea {
                     border-color: #777;
                     border-radius: SettingsStyle.radius;
                     background: root.checked ? Theme.accent-strong : transparent;
+                    animate background { duration: 100ms; easing: ease-out; }
                     // チェックマークはフォント依存(✓はDingbatsで欠落環境あり)を避け Path 描画
                     if root.checked: Path {
                         width: 16px;
@@ -1173,9 +1186,19 @@ component StepperRow inherits Rectangle {
         Text { text: root.label; color: SettingsStyle.row-label; font-size: SettingsStyle.row-label-size; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
         dec-btn := TouchArea {
             width: 22px;
-            clicked => { root.dec(); }
+            // 長押しリピート: 押下中は400ms後から120ms間隔で連続実行。単発クリックは
+            // repeat-started が立たないため clicked 側の1回のみで処理される(二重加算なし)。
+            property <bool> repeat-started: false;
+            clicked => { if (!dec-btn.repeat-started) { root.dec(); } }
+            changed pressed => { if (self.pressed) { dec-btn.repeat-started = false; } }
+            dec-repeat := Timer {
+                interval: dec-btn.repeat-started ? 120ms : 400ms;
+                running: dec-btn.pressed;
+                triggered => { dec-btn.repeat-started = true; root.dec(); }
+            }
             Rectangle {
                 background: dec-btn.has-hover ? SettingsStyle.control-bg-hover : SettingsStyle.control-bg;
+                animate background { duration: 100ms; easing: ease-out; }
                 border-radius: SettingsStyle.radius;
                 Text { text: "-"; color: white; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
             }
@@ -1183,9 +1206,17 @@ component StepperRow inherits Rectangle {
         Text { text: root.value-text; color: #cdd; font-size: SettingsStyle.row-label-size; width: 44px; horizontal-alignment: center; vertical-alignment: center; }
         inc-btn := TouchArea {
             width: 22px;
-            clicked => { root.inc(); }
+            property <bool> repeat-started: false;
+            clicked => { if (!inc-btn.repeat-started) { root.inc(); } }
+            changed pressed => { if (self.pressed) { inc-btn.repeat-started = false; } }
+            inc-repeat := Timer {
+                interval: inc-btn.repeat-started ? 120ms : 400ms;
+                running: inc-btn.pressed;
+                triggered => { inc-btn.repeat-started = true; root.inc(); }
+            }
             Rectangle {
                 background: inc-btn.has-hover ? SettingsStyle.control-bg-hover : SettingsStyle.control-bg;
+                animate background { duration: 100ms; easing: ease-out; }
                 border-radius: SettingsStyle.radius;
                 Text { text: "+"; color: white; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
             }
@@ -1234,6 +1265,7 @@ component TemplateField inherits VerticalLayout {
             clicked => { root.reset(); }
             Rectangle {
                 background: reset-btn.has-hover ? SettingsStyle.control-bg-hover : SettingsStyle.control-bg;
+                animate background { duration: 100ms; easing: ease-out; }
                 border-radius: SettingsStyle.radius;
                 Text { text: @tr("リセット"); color: #cdd; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; }
             }
@@ -1284,6 +1316,7 @@ component CharacterSection inherits SectionCard {
             clicked => { root.set-uid(""); }
             Rectangle {
                 background: uidclear.has-hover ? SettingsStyle.control-bg-hover : SettingsStyle.control-bg;
+                animate background { duration: 100ms; easing: ease-out; }
                 border-radius: SettingsStyle.radius;
                 Text { text: @tr("クリア"); color: #cdd; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; }
             }
@@ -1551,6 +1584,7 @@ component ImagineTimerSection inherits SectionCard {
         clicked => { root.clear-watchlist(); }
         Rectangle {
             background: clear-wl-btn.has-hover ? #ffffff20 : #ffffff10;
+            animate background { duration: 100ms; easing: ease-out; }
             border-radius: 3px;
             Text { text: @tr("ウォッチをクリア"); color: #cdd; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; }
         }
@@ -2023,6 +2057,7 @@ export component MainWindow inherits Window {
                     clicked => { root.minimize(); }
                     Rectangle {
                         background: min-btn.has-hover ? #ffffff20 : transparent;
+                        animate background { duration: 100ms; easing: ease-out; }
                         border-radius: 4px;
                         Text { text: "−"; color: white; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
                     }
@@ -2032,6 +2067,7 @@ export component MainWindow inherits Window {
                     clicked => { root.quit(); }
                     Rectangle {
                         background: quit-btn.has-hover ? #c0392b : transparent;
+                        animate background { duration: 100ms; easing: ease-out; }
                         border-radius: 4px;
                         Text { text: "×"; color: white; font-size: 12px; }
                     }
@@ -2040,8 +2076,16 @@ export component MainWindow inherits Window {
         }
 
         // ── 一覧ビュー（履歴タブ以外・通常列）──
+        // 設定/ドリルダウン/履歴から戻った時や初回表示は if が作り直されるため init で毎回フェードイン
+        // する。同一インスタンスのままタブだけ切り替わる場合(DPS/回復/被ダメ間)は init が再発火せず
+        // 再フェードできないが、opacity を強制的に往復させると中断アニメの重ね掛けで意図しないパルス
+        // (0まで落ちきらず点滅して見える)になるだけなので、その場合はフェードなし(即時切替)のまま見送る。
         if !root.settings-open && root.view == 0 && root.tab != 3 && !root.cfg-ui.compact-split: VerticalLayout {
             vertical-stretch: 1;
+            property <bool> entered: false;
+            opacity: self.entered ? 1.0 : 0.0;
+            animate opacity { duration: 140ms; easing: ease-out; }
+            init => { self.entered = true; }
             Rectangle {
                 height: 16px;
                 HorizontalLayout {
@@ -2141,9 +2185,14 @@ export component MainWindow inherits Window {
         }
 
         // ── 軽量分割表示（2カラム・履歴タブ以外）──
+        // 一覧ビューと同じ理由で init のみによる初回フェードイン(タブ切替自体は即時のまま見送り)。
         if !root.settings-open && root.view == 0 && root.tab != 3 && root.cfg-ui.compact-split: Flickable {
             vertical-stretch: 1;
             max-height: 100000px;
+            property <bool> entered: false;
+            opacity: self.entered ? 1.0 : 0.0;
+            animate opacity { duration: 140ms; easing: ease-out; }
+            init => { self.entered = true; }
             viewport-height: csbox.preferred-height;
             csbox := HorizontalLayout {
                 spacing: 4px;
@@ -2194,8 +2243,14 @@ export component MainWindow inherits Window {
         }
 
         // ── 履歴ビュー ──
+        // tab==3 の間だけ存在する専用インスタンス（他タブへ抜けると破棄される）なので、
+        // 履歴タブに入るたび init が再発火し自然にフェードインする。
         if !root.settings-open && root.view == 0 && root.tab == 3: VerticalLayout {
             vertical-stretch: 1;
+            property <bool> entered: false;
+            opacity: self.entered ? 1.0 : 0.0;
+            animate opacity { duration: 140ms; easing: ease-out; }
+            init => { self.entered = true; }
             Rectangle {
                 height: 20px;
                 background: #20202e;
@@ -2209,6 +2264,7 @@ export component MainWindow inherits Window {
                         clicked => { root.clear-history(); }
                         Rectangle {
                             background: clear-btn.has-hover ? #ffffff20 : #ffffff10;
+                            animate background { duration: 100ms; easing: ease-out; }
                             border-radius: 3px;
                             Text { text: @tr("履歴クリア"); color: #cdd; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; }
                         }
@@ -2246,8 +2302,15 @@ export component MainWindow inherits Window {
         }
 
         // ── スキル内訳ビュー ──
+        // 初回オープン(view 0→1)は if が作り直されるため init で毎回フェードイン。被ダメ攻撃元→技別
+        // のような同一view内の深掘り遷移は、opacityの往復がパルスになるだけで綺麗なフェードにならない
+        // ため見送り（即時切替のまま）。
         if !root.settings-open && root.view == 1: VerticalLayout {
             vertical-stretch: 1;
+            property <bool> entered: false;
+            opacity: self.entered ? 1.0 : 0.0;
+            animate opacity { duration: 140ms; easing: ease-out; }
+            init => { self.entered = true; }
             Rectangle {
                 height: 20px;
                 background: #20202e;
@@ -2260,6 +2323,7 @@ export component MainWindow inherits Window {
                         clicked => { root.back(); }
                         Rectangle {
                             background: back-btn.has-hover ? #ffffff20 : transparent;
+                            animate background { duration: 100ms; easing: ease-out; }
                             border-radius: 4px;
                             Text { text: "← " + @tr("戻る"); color: #cdd; font-size: 11px; }
                         }
@@ -2303,8 +2367,13 @@ export component MainWindow inherits Window {
         }
 
         // ── 設定パネル ──
+        // 開閉のたび if が再評価されインスタンスが作り直されるため、init だけで毎回フェードインする。
         if root.settings-open: VerticalLayout {
             vertical-stretch: 1;
+            property <bool> entered: false;
+            opacity: self.entered ? 1.0 : 0.0;
+            animate opacity { duration: 140ms; easing: ease-out; }
+            init => { self.entered = true; }
             Rectangle {
                 height: 20px;
                 background: #20202e;
@@ -2317,22 +2386,29 @@ export component MainWindow inherits Window {
                         clicked => { root.toggle-settings(); }
                         Rectangle {
                             background: close-btn.has-hover ? #c0392b : transparent;
+                            animate background { duration: 100ms; easing: ease-out; }
                             border-radius: 4px;
                             Text { text: "×"; color: white; font-size: 11px; }
                         }
                     }
                 }
             }
-            Flickable {
+            // Flickable 単体だとスクロールバーが無く、下に続くコンテンツの存在に気付けない。
+            // Rectangle でラップし、スクロール可能な残量があるときだけ下端にグラデーション＋
+            // 下向きシェブロンを重ねて示す（状態依存の静的表示・アニメ無し）。
+            Rectangle {
                 vertical-stretch: 1;
-                max-height: 100000px;
-                // ピッカー ドラッグ中はスクロールを無効化（ドラッグのグラブ奪取を防ぐ）。
-                interactive: !root.picker-dragging;
-                viewport-height: setbox.preferred-height;
-                // 横は Flickable 幅に固定（横スクロール無効＝内側の列レイアウトが窓幅へ
-                // 逆流しないようにし、set-cols(root.width依存) との binding loop を断つ）
-                viewport-width: self.width;
-                setbox := VerticalLayout {
+                clip: true;
+                settings-flick := Flickable {
+                    width: 100%;
+                    height: 100%;
+                    // ピッカー ドラッグ中はスクロールを無効化（ドラッグのグラブ奪取を防ぐ）。
+                    interactive: !root.picker-dragging;
+                    viewport-height: setbox.preferred-height;
+                    // 横は Flickable 幅に固定（横スクロール無効＝内側の列レイアウトが窓幅へ
+                    // 逆流しないようにし、set-cols(root.width依存) との binding loop を断つ）
+                    viewport-width: self.width;
+                    setbox := VerticalLayout {
                     padding: 4px;
                     spacing: 8px;
                     // 横の layoutinfo を定数化し、列数(set-cols)→窓幅→set-cols の binding loop を断つ。
@@ -2428,6 +2504,29 @@ export component MainWindow inherits Window {
                         horizontal-alignment: center;
                     }
                 }
+                }
+                // 下端グラデーション＋シェブロン（まだ下にスクロール可能なコンテンツがある間だけ表示）。
+                // Flickable の viewport-y は 0 以下（下スクロールで負に増える）。
+                // 「表示済みの一番下」が総コンテンツ高に届いていなければスクロール余地ありと判定する。
+                if (-settings-flick.viewport-y + settings-flick.height) < (settings-flick.viewport-height - 0.5px): Rectangle {
+                    x: 0;
+                    y: parent.height - self.height;
+                    width: parent.width;
+                    height: 24px;
+                    background: @linear-gradient(180deg, #14141e00 0%, #14141ee6 100%);
+                    Path {
+                        x: (parent.width - self.width) / 2;
+                        y: parent.height - self.height - 4px;
+                        width: 10px;
+                        height: 6px;
+                        viewbox-width: 10;
+                        viewbox-height: 6;
+                        commands: "M 0.5 0.5 L 5 5 L 9.5 0.5";
+                        stroke: #ffffffaa;
+                        stroke-width: 1.4px;
+                        fill: transparent;
+                    }
+                }
             }
         }
     }
@@ -2476,6 +2575,7 @@ export component MainWindow inherits Window {
                         clicked => { root.close-result(); }
                         Rectangle {
                             background: rclose.has-hover ? #c0392b : transparent;
+                            animate background { duration: 100ms; easing: ease-out; }
                             border-radius: 4px;
                             Text { text: "×"; color: white; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; }
                         }
@@ -2659,25 +2759,25 @@ export component MainWindow inherits Window {
                         width: 76px;
                         height: 24px;
                         clicked => { root.copy-result-image(); }
-                        Rectangle { background: root.result-img-copied ? #2e7d32 : (copy-img-r.has-hover ? #ffffff20 : #ffffff10); border-radius: 4px; Text { text: root.result-img-copied ? @tr("済") : @tr("画像コピー"); color: #ccc; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; } }
+                        Rectangle { background: root.result-img-copied ? #2e7d32 : (copy-img-r.has-hover ? #ffffff20 : #ffffff10); animate background { duration: 100ms; easing: ease-out; } border-radius: 4px; Text { text: root.result-img-copied ? @tr("済") : @tr("画像コピー"); color: #ccc; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; } }
                     }
                     copy-r := TouchArea {
                         width: 64px;
                         height: 24px;
                         clicked => { root.copy-result(); }
-                        Rectangle { background: copy-r.has-hover ? #ffffff20 : #ffffff10; border-radius: 4px; Text { text: @tr("コピー"); color: #ccc; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; } }
+                        Rectangle { background: copy-r.has-hover ? #ffffff20 : #ffffff10; animate background { duration: 100ms; easing: ease-out; } border-radius: 4px; Text { text: @tr("コピー"); color: #ccc; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; } }
                     }
                     restart-r := TouchArea {
                         width: 64px;
                         height: 24px;
                         clicked => { root.restart-measure(); }
-                        Rectangle { background: restart-r.has-hover ? #ffffff20 : #ffffff10; border-radius: 4px; Text { text: @tr("再計測"); color: #ccc; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; } }
+                        Rectangle { background: restart-r.has-hover ? #ffffff20 : #ffffff10; animate background { duration: 100ms; easing: ease-out; } border-radius: 4px; Text { text: @tr("再計測"); color: #ccc; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; } }
                     }
                     closebtn-r := TouchArea {
                         width: 64px;
                         height: 24px;
                         clicked => { root.close-result(); }
-                        Rectangle { background: closebtn-r.has-hover ? Theme.accent.with-alpha(0.2) : Theme.accent.with-alpha(0.133); border-width: 1px; border-color: Theme.accent.with-alpha(0.45); border-radius: 4px; Text { text: @tr("閉じる"); color: Theme.accent; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; } }
+                        Rectangle { background: closebtn-r.has-hover ? Theme.accent.with-alpha(0.2) : Theme.accent.with-alpha(0.133); animate background { duration: 100ms; easing: ease-out; } border-width: 1px; border-color: Theme.accent.with-alpha(0.45); border-radius: 4px; Text { text: @tr("閉じる"); color: Theme.accent; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; } }
                     }
                 }
             }
@@ -2706,6 +2806,7 @@ component OverlayCloseButton inherits TouchArea {
     clicked => { root.close(); }
     Rectangle {
         background: root.has-hover ? #c0392b : #ffffff14;
+        animate background { duration: 100ms; easing: ease-out; }
         border-radius: 3px;
         Text { text: "×"; color: white; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
     }
@@ -2720,6 +2821,7 @@ component OverlayMinButton inherits TouchArea {
     clicked => { root.minimize(); }
     Rectangle {
         background: root.has-hover ? #ffffff33 : #ffffff14;
+        animate background { duration: 100ms; easing: ease-out; }
         border-radius: 3px;
         Text { text: "−"; color: white; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
     }

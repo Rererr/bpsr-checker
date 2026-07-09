@@ -72,8 +72,10 @@ pub struct TimeSeriesPoint {
     pub total_dps: f64,
 }
 
+// 構造体単位で #[serde(default)] を付与し、history.json に将来フィールドを追加しても
+// 旧ファイルのパースが失敗して全履歴が無言消失しないようにする（Default 導出済み）。
 #[derive(serde::Serialize, serde::Deserialize, Debug, Default, Clone)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct EncounterSnapshot {
     pub id: f64,
     pub start_ms: f64,
@@ -83,7 +85,6 @@ pub struct EncounterSnapshot {
     pub total_dps: f64,
     pub player_rows: Vec<PlayerRow>,
     pub time_series: Vec<TimeSeriesPoint>,
-    #[serde(default)]
     pub participant_player_uids: Vec<f64>,
 }
 

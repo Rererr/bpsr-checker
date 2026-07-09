@@ -72,7 +72,11 @@ pub fn trim_to_limit() {
 
 // ─── ディスク永続化 ─────────────────────────────────────────────────────────
 
-/// 保存ファイル構造（前方互換のため version 付き。consumables.rs と同形）。
+/// 保存ファイル構造（consumables.rs と同形）。
+/// 現状 version は将来のフォーマット移行用に書き込むのみで、読み込み時に分岐して使うことは
+/// していない（パース自体はできるが値は捨てる）。前方互換の実体は EncounterSnapshot 側の
+/// 構造体単位 #[serde(default)]（models.rs）が担っており、将来フィールドを追加しても
+/// 旧ファイルの読み込みは失敗しない。
 #[derive(Serialize, Deserialize)]
 struct HistoryFile {
     version: u32,

@@ -824,7 +824,15 @@ const RESULT_COUNTUP_TICK_MS: u64 = 16;
 /// `show_result` が直後に最終値を即時セットしているため、この呼び出しは同一tick内でそれを
 /// 0 へ上書きしてからアニメーションを開始する（再描画前に上書きされるため点滅しない）。
 /// timer はこの用途専有の Rc<Timer>（呼び出し側が持ち回して寿命を保つ）。完了で必ず stop する。
-fn start_result_countup(m: &MainWindow, timer: &Rc<Timer>, final_dps: f64, final_dmg: f64) {
+/// final_store は進行中の最終値を共有するための Rc<Cell>（画像コピー直前に即完了させる用途）。
+fn start_result_countup(
+    m: &MainWindow,
+    timer: &Rc<Timer>,
+    final_store: &Rc<Cell<(f64, f64)>>,
+    final_dps: f64,
+    final_dmg: f64,
+) {
+    final_store.set((final_dps, final_dmg));
     m.set_result_dps(format::format_dps(0.0).into());
     m.set_result_dmg(format::format_number(0.0).into());
     let start = std::time::Instant::now();
@@ -852,6 +860,17 @@ fn start_result_countup(m: &MainWindow, timer: &Rc<Timer>, final_dps: f64, final
     );
 }
 
+/// カウントアップ演出を即座に完了させる（最終値を確定表示してタイマーを止める）。
+/// 共有画像コピーなど、表示中の値をそのままレンダリングへ焼き込む操作の直前に呼ぶ
+/// （呼ばなければ計測確定から500ms以内のコピーでカウントアップ途中の小さい値が写り込む）。
+/// カウントアップが既に完了済み/未開始でも副作用は無い(同じ最終値を再セット・stopは無害)。
+fn finish_result_countup(m: &MainWindow, timer: &Rc<Timer>, final_store: &Rc<Cell<(f64, f64)>>) {
+    let (final_dps, final_dmg) = final_store.get();
+    m.set_result_dps(format::format_dps(final_dps).into());
+    m.set_result_dmg(format::format_number(final_dmg).into());
+    timer.stop();
+}
+
 /// シェア画像の透かし（アクション行左）: "bpsr-checker vX.X.X ・ YYYY-MM-DD HH:MM ・ 計測 M:SS"。
 /// 日時は計測終了時点のローカル時刻。
 fn build_result_watermark(app_version: &str, duration_ms: f64) -> String {
@@ -864,21 +883,17 @@ fn build_result_watermark(app_version: &str, duration_ms: f64) -> String {
     }
 }
 
-/// 計測確定時の自己ベスト判定・更新。自キャラ(local_uid)がそのエンカウントに不在なら
-/// 記録・表示ともスキップする。デモモードでは保存しない(persist=false)がメモリ上の比較は行う。
-/// モーダルの result-is-new-record / result-best-dps-text を反映する。
-fn apply_result_best_record(
-    m: &MainWindow,
+/// 計測確定時の自己ベスト判定・更新。auto-open 設定(モーダルを開くか)に依らず、finalize の
+/// 都度これを呼ぶ想定＝auto-open OFF でも記録は静かに積み上がる。自キャラ(local_uid)が
+/// そのエンカウントに不在なら記録せず None を返す。デモモードでは保存しない(persist=false)
+/// がメモリ上の比較・判定は行う。戻り値は (新記録か, 自己ベストDPS)。
+fn record_best(
     best: &Rc<RefCell<best_records::BestRecords>>,
     snap: &bpsr_core::models::EncounterSnapshot,
     local_uid: i64,
     persist: bool,
-) {
-    let Some(self_row) = snap.player_rows.iter().find(|p| p.uid as i64 == local_uid) else {
-        m.set_result_is_new_record(false);
-        m.set_result_best_dps_text("".into());
-        return;
-    };
+) -> Option<(bool, f64)> {
+    let self_row = snap.player_rows.iter().find(|p| p.uid as i64 == local_uid)?;
     let duration_sec = (snap.duration_ms / 1000.0).round().max(0.0) as u32;
     let recorded_at_ms = chrono::Utc::now().timestamp_millis();
     let mut recs = best.borrow_mut();
@@ -895,8 +910,22 @@ fn apply_result_best_record(
         .get(duration_sec)
         .map(|r| r.dps)
         .unwrap_or(self_row.value_per_sec);
-    m.set_result_is_new_record(is_new);
-    m.set_result_best_dps_text(format::format_dps(best_dps).into());
+    Some((is_new, best_dps))
+}
+
+/// `record_best` の結果を結果モーダルの表示プロパティ（新記録バッジ/自己ベスト併記）へ反映する。
+/// モーダルを実際に開く(auto-open)ときだけ呼ぶ。
+fn apply_result_best_record_ui(m: &MainWindow, outcome: Option<(bool, f64)>) {
+    match outcome {
+        Some((is_new, best_dps)) => {
+            m.set_result_is_new_record(is_new);
+            m.set_result_best_dps_text(format::format_dps(best_dps).into());
+        }
+        None => {
+            m.set_result_is_new_record(false);
+            m.set_result_best_dps_text("".into());
+        }
+    }
 }
 
 /// uid の下4桁（候補ラベル用。元 UI の String(uid).slice(-4) 相当）。
@@ -2096,6 +2125,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Timer::start は呼び出すたびに再起動されるため、Rc で使い回して寿命を保つ
     // （完了時に自身を stop するため Rc clone を closure に渡す）。
     let result_countup_timer = Rc::new(Timer::default());
+    // カウントアップ中の最終値（画像コピー時に即完了させ、途中値が写り込むのを防ぐため共有）。
+    let result_countup_final = Rc::new(Cell::new((0.0_f64, 0.0_f64)));
     // 折れ線プロットの実寸(px)。SparkGraph.resized で更新し、再生成時の座標スケールに使う。
     // 初期値は初回レイアウト前の暫定（resized 発火で実値に置換される）。
     let char_plot_dims = Rc::new(Cell::new((600.0_f32, 40.0_f32)));
@@ -3144,8 +3175,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ウィンドウは半透明合成のため α=255 を強制しないと貼り付け先で透ける。
     {
         let w = main.as_weak();
+        let result_countup_timer_ci = result_countup_timer.clone();
+        let result_countup_final_ci = result_countup_final.clone();
         main.on_copy_result_image(move || {
             let Some(m) = w.upgrade() else { return };
+            // カウントアップ演出の途中(計測確定から500ms以内)にコピーされると小さい値が
+            // 画像に焼き込まれてしまうため、snapshot 前に必ず最終値へ即完了させる。
+            finish_result_countup(&m, &result_countup_timer_ci, &result_countup_final_ci);
             let win = m.window();
             let snap = match win.take_snapshot() {
                 Ok(s) => s,
@@ -3237,6 +3273,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let uid_candidates_poll = uid_candidates.clone();
     let best_records_poll = best_records.clone();
     let result_countup_timer_poll = result_countup_timer.clone();
+    let result_countup_final_poll = result_countup_final.clone();
     // タスクトレイ／クリックスルー状態（poll closure が move で保持）
     let click_through = Rc::new(Cell::new(false));
     #[cfg(windows)]
@@ -3347,6 +3384,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 if let Some(snap) = compute::finalize_3min_measure_mode(&enc_poll) {
+                    // 自己ベスト判定・更新は auto-open 設定に依らず finalize の都度必ず行う
+                    // （auto-open OFF でも記録は静かに積み上がり、次にモーダルを見た時に
+                    // 正しい自己ベストが出るようにする）。自キャラ不在なら None（記録もしない）。
+                    // デモモードでは保存しない(persist=false)がメモリ上の比較は行う。
+                    let best_outcome = record_best(&best_records_poll, &snap, local_uid, !demo_mode);
                     let c = cfg_poll.borrow();
                     if c.three_min_auto_open && !c.imagine_only_mode {
                         // 既定の選択=自分(スキル有り)・無ければ最上位プレイヤー
@@ -3372,15 +3414,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             char_plot_dims_poll.get(),
                             skill_plot_dims_poll.get(),
                         );
-                        // 自己ベスト判定・更新（自キャラ不在ならモーダル側で自動スキップ）。
-                        // デモモードでは保存しない(persist=false)がメモリ上の比較は行う。
-                        apply_result_best_record(
-                            &m,
-                            &best_records_poll,
-                            &snap,
-                            local_uid,
-                            !demo_mode,
-                        );
+                        // 新記録バッジ/自己ベスト併記の表示プロパティへ反映（モーダルを開く時のみ）。
+                        apply_result_best_record_ui(&m, best_outcome);
                         // シェア画像の透かし（バージョン・計測終了時刻・計測時間）。
                         m.set_result_watermark(
                             build_result_watermark(&m.get_app_version(), snap.duration_ms).into(),
@@ -3390,6 +3425,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         start_result_countup(
                             &m,
                             &result_countup_timer_poll,
+                            &result_countup_final_poll,
                             snap.total_dps,
                             snap.total_dmg,
                         );

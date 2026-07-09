@@ -9,7 +9,10 @@ use std::path::PathBuf;
 const CURRENT_VERSION: u32 = 1;
 
 /// 1 duration ぶんの自己ベスト記録。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// 構造体単位で #[serde(default)] を付与し、将来フィールドを追加しても旧ファイルの
+/// パースが失敗して記録が無言消失しないようにする（Default 導出済み）。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct BestRecord {
     pub dps: f64,
     pub total_dmg: f64,
@@ -18,6 +21,9 @@ pub struct BestRecord {
 }
 
 /// version 付きの記録ファイル全体。
+/// 現状 version は将来のフォーマット移行用に書き込むのみで、読み込み時に分岐して使うことは
+/// していない（パース自体はできるが値は捨てる）。前方互換の実体はこの構造体単位・
+/// BestRecord 構造体単位の #[serde(default)] が担っている。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct BestRecords {
@@ -152,5 +158,27 @@ mod tests {
         assert_eq!(recs.get(180).unwrap().dps, 100.0);
         assert_eq!(recs.get(300).unwrap().dps, 50.0);
         assert!(recs.get(60).is_none());
+    }
+
+    // 前方互換の確認: BestRecord に将来フィールドが増えても、それを持たない「旧形式」の
+    // JSON が引き続きパースできること（#[serde(default)] が効いていることの回帰防止）。
+    #[test]
+    fn old_shape_json_without_newer_fields_still_parses() {
+        // recorded_at_ms を欠いた(将来 BestRecord に必須フィールド追加が起きた場合を模した)
+        // 旧形式の1レコードを与える。
+        let json = r#"{
+            "version": 1,
+            "records": {
+                "180": { "dps": 42.0, "total_dmg": 100.0 }
+            }
+        }"#;
+        let restored = parse(json);
+        assert_eq!(restored.records.len(), 1);
+        assert_eq!(restored.get(180).unwrap().dps, 42.0);
+        assert_eq!(restored.get(180).unwrap().recorded_at_ms, 0); // default 値
+
+        // ファイル自体(version含む)がまるごと欠けているケース(初回起動相当)も空扱いで壊れない。
+        let restored_empty = parse("{}");
+        assert_eq!(restored_empty.records.len(), 0);
     }
 }

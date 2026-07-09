@@ -5,13 +5,21 @@ use crate::protocol::pb::EntityKind;
 use std::collections::{HashMap, VecDeque};
 
 /// バトルイマジンの装備枠数（SlotPositionId 7/8）。プレイヤーが同時に装備・表示できる
-/// バトルイマジンは最大この数。`imagine_names` の上限として processor/compute が共有する。
+/// バトルイマジンは最大この数。`imagines`（確定・表示用）の上限として processor/compute が共有する。
 pub const MAX_IMAGINE_NAMES: usize = 2;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SkillMeta {
     pub property: u8,
     pub damage_mode: u8,
+}
+
+/// 検知済みバトルイマジン1枠。`last_seen` は wall-clock ではなく processor が発行する
+/// 単調増加の検知シーケンス番号（`next_imagine_seq`）。鮮度比較にのみ使う。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImagineSlot {
+    pub name: String,
+    pub last_seen: u64,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -69,10 +77,22 @@ pub struct Entity {
     pub crit_dmg: Option<i32>,
     pub lucky_dmg: Option<i32>,
 
-    /// 使用が確認できたバトルイマジンの表示名（召喚エンティティの `AttrSkillId` から解決・発見順・
-    /// 重複なし）。compute/UI はこの Vec を読む。更新は processor の `try_attribute_summon_imagine` 経由、
-    /// 永続は name_cache。詳細は [[imagine-2stage-display]]。
-    pub imagine_names: Vec<String>,
+    /// 表示用に確定したバトルイマジン（召喚エンティティの `AttrSkillId` から解決・重複なし）。
+    /// 定員 [`MAX_IMAGINE_NAMES`] 未満なら新規名は無条件で確定に追加されるが、定員一杯の状態で
+    /// 新規名を検知しても**この Vec は変えない**（`pending_imagine` へ保留する）。確定を書き換えるのは
+    /// 「ゲーム上あり得ない事象＝既に外れた枠の再spawn」が観測できたときだけ（rule1/5、pending 方式）。
+    /// これにより画面に新旧混在ペアが一瞬でも出ることを防ぐ。表示順（Vec の並び）は挿入順で安定し、
+    /// 再検知しても並べ替えない。compute/UI は [`Entity::imagine_display_names`] 経由で名前だけを読む。
+    /// 更新は processor の `try_attribute_summon_imagine` 経由、永続は name_cache。
+    /// 詳細は [[imagine-2stage-display]] [[imagine-pending-confirm]]。
+    pub imagines: Vec<ImagineSlot>,
+
+    /// 定員一杯の状態で検知した「まだ確証の無い」新規イマジン候補（最大1件）。表示には一切使わない
+    /// （`imagine_display_names` は `imagines` のみ参照）。既存スロットの再検知（＝現役の確定証拠）が
+    /// 得られた時か、pending とは別の新規名がもう1件検知された時（＝両枠同時交換の確定）にのみ
+    /// `imagines` へ昇格・反映され、それまでは保留され続ける。`clear_combat_stats` で Entity ごと
+    /// 破棄される（保留状態はグループ境界を跨がない）。
+    pub pending_imagine: Option<ImagineSlot>,
 
     // Monsters（curr_hp / max_hp は自キャラの HP にも流用する）
     pub monster_id: Option<u32>,
@@ -86,4 +106,11 @@ pub struct Entity {
     // Per-skill DPS time series（スキル別の推移グラフ用。entity の time_series と同タイミングで採取）
     pub skill_time_series: HashMap<i32, VecDeque<TimeSeriesPoint>>,
     pub skill_last_sample_total_dmg: HashMap<i32, i64>,
+}
+
+impl Entity {
+    /// 表示用のイマジン名一覧（挿入順=表示順で安定）。compute/UI はこれを読む。
+    pub fn imagine_display_names(&self) -> Vec<String> {
+        self.imagines.iter().map(|s| s.name.clone()).collect()
+    }
 }

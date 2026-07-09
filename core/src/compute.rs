@@ -224,7 +224,7 @@ pub fn get_dmg_taken_attackers(
         elapsed_secs,
         &player.time_series,
         ConsumableTimes::default(), // inspected_player 見出しは食事/シロップ非表示
-        format_imagine_suffix(&player.imagine_names), // 見出しは使用イマジンを強制表示
+        format_imagine_suffix(&player.imagine_display_names()), // 見出しは使用イマジンを強制表示
     );
 
     let mut top_value = 0.0_f64;
@@ -293,7 +293,7 @@ pub fn get_dmg_taken_skills(
         elapsed_secs,
         &player.time_series,
         ConsumableTimes::default(), // inspected_player 見出しは食事/シロップ非表示
-        format_imagine_suffix(&player.imagine_names), // 見出しは使用イマジンを強制表示
+        format_imagine_suffix(&player.imagine_display_names()), // 見出しは使用イマジンを強制表示
     );
 
     let attacker_total_i64 = attacker_total as i64;
@@ -430,7 +430,7 @@ fn build_players_window_unsorted(
             elapsed_secs,
             &entity.time_series,
             consumable,
-            format_imagine_suffix(&entity.imagine_names),
+            format_imagine_suffix(&entity.imagine_display_names()),
         );
         window.player_rows.push(row);
     }
@@ -563,7 +563,7 @@ pub fn get_skills(
         elapsed_secs,
         &player.time_series,
         ConsumableTimes::default(), // inspected_player 見出しは食事/シロップ非表示
-        format_imagine_suffix(&player.imagine_names), // 見出しは使用イマジンを強制表示
+        format_imagine_suffix(&player.imagine_display_names()), // 見出しは使用イマジンを強制表示
     );
 
     let mut skill_window = SkillsWindow {
@@ -1228,11 +1228,12 @@ mod tests {
         }
     }
 
-    // DPSランキング表示(get_dps_players)の imagine_suffix を実経路で検証する。
-    // 召喚を3体検知しても表示は最新2件（アルーナ/ロローラ）に丸められ、ロローラが実ゲーム版の
-    // 召喚ID(2900840)で解決される＝「3つ以上出さない」「ロローラが表示される」を同時に満たす。
+    // DPSランキング表示(get_dps_players)の imagine_suffix を実経路で検証する。pending 方式では
+    // 3体目(新規)を検知しても即座には確定へ反映されない（confirmed は元の2件のまま＝新旧混在
+    // ペアを一切表示しない）。確証（＝既存スロットの再検知）が得られて初めて pending の
+    // ロローラが確定へ昇格し、実ゲーム版の召喚ID(2900840)で解決されたロローラが表示される。
     #[test]
-    fn dps_ranking_imagine_suffix_capped_and_shows_rorora() {
+    fn dps_ranking_imagine_suffix_confirmed_only_after_recheck_shows_rorora() {
         use crate::engine::entity::Entity;
         use crate::engine::processor::process_scene_delta;
         use crate::protocol::pb::EntityKind;
@@ -1258,8 +1259,23 @@ mod tests {
             .iter()
             .find(|r| r.uid as i64 == SELF_UID)
             .expect("SELF row present in DPS ranking");
+        // 3体目(ロローラ)はまだ確証が無いので pending 止まり。表示は元の2件のまま。
+        assert_eq!(row.imagine_suffix, "-ヴェノミーンの巣/アルーナ");
 
-        // 最も古い ヴェノミーンの巣 は落ち、最新2件だけ・ロローラを含む。
-        assert_eq!(row.imagine_suffix, "-アルーナ/ロローラ");
+        {
+            let mut e = enc.lock().unwrap();
+            // ヴェノミーンの巣(現役)を再検知 → 確証が得られ、pending のロローラが確定へ昇格。
+            process_scene_delta(&mut e, summon_spawn_delta(SELF_UID, 1_007_740));
+        }
+
+        let window = get_dps_players(&enc);
+        let row = window
+            .player_rows
+            .iter()
+            .find(|r| r.uid as i64 == SELF_UID)
+            .expect("SELF row present in DPS ranking");
+        // 昇格後は最新2件（ヴェノミーンの巣/ロローラ）に丸められ、ロローラが実ゲーム版の
+        // 召喚ID(2900840)で解決されて表示される＝「3つ以上出さない」「ロローラが表示される」を満たす。
+        assert_eq!(row.imagine_suffix, "-ヴェノミーンの巣/ロローラ");
     }
 }

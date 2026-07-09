@@ -416,7 +416,14 @@ fn prime_entities(enc: &EncounterMutex) {
         // 他プレイヤーには表示名を直接注入（名前列 {imagine} 展開・見出し確認用）。
         for &(uid, names) in IMAGINE_ROSTER {
             if let Some(ent) = e.entities.get_mut(&uid) {
-                ent.imagine_names = names.iter().map(|s| s.to_string()).collect();
+                ent.imagines = names
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| crate::engine::entity::ImagineSlot {
+                        name: s.to_string(),
+                        last_seen: i as u64,
+                    })
+                    .collect();
             }
         }
     }

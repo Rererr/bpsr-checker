@@ -2,7 +2,7 @@ use crate::capture::server::Server;
 use crate::engine::class::{Class, ClassSpec, get_class_from_spec, get_class_spec_from_skill_id};
 use crate::engine::combat_stats::process_stats;
 use crate::engine::encounter::{Encounter, EncounterMutex};
-use crate::engine::entity::{Entity, MAX_IMAGINE_NAMES, SkillMeta};
+use crate::engine::entity::{Entity, ImagineSlot, MAX_IMAGINE_NAMES, SkillMeta};
 use crate::engine::monster_names::MONSTER_NAMES_BOSS;
 use crate::engine::name_cache;
 use crate::engine::selected_uid;
@@ -14,7 +14,16 @@ use bytes::Bytes;
 use log::{debug, info, warn};
 use prost::Message;
 use std::io::Cursor;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// バトルイマジン検知の鮮度比較用シーケンス番号。wall-clock ではなく単調増加カウンタにする
+/// のは、同一ミリ秒に複数検知が起きるとテスト・実戦とも鮮度が潰れて順序判定できなくなるため。
+static IMAGINE_DETECTION_SEQ: AtomicU64 = AtomicU64::new(0);
+
+fn next_imagine_seq() -> u64 {
+    IMAGINE_DETECTION_SEQ.fetch_add(1, Ordering::Relaxed)
+}
 
 /// Get-or-create an entity, pre-populating identity (name/class/score)
 /// from the persistent name cache when the entity is freshly created
@@ -57,10 +66,17 @@ fn get_or_create_entity(
             }
             if !cached.imagine_names.is_empty() {
                 // 直前セッションで学習したイマジン名を復元（召喚検知が来るまでの間の即表示用）。
+                // 挿入順に昇順の検知シーケンスを割り当てて ImagineSlot 化する
+                // （先頭ほど古い＝last_seen が小さい。復元直後に鮮度の優劣を決めておく）。
+                entity.imagines = cached
+                    .imagine_names
+                    .into_iter()
+                    .map(|name| ImagineSlot { name, last_seen: next_imagine_seq() })
+                    .collect();
                 // 旧バージョンのキャッシュはセッションを跨いで累積し MAX_IMAGINE_NAMES を超え得るため、
-                // 復元時にも最新 MAX 件へ丸める（古い順に落とす）。
-                entity.imagine_names = cached.imagine_names;
-                cap_imagine_names(&mut entity.imagine_names);
+                // 復元時にも最新 MAX 件へ丸める（cap_imagine_names はこのキャッシュ復元専用）。
+                cap_imagine_names(&mut entity.imagines);
+                // pending は復元しない（常に None スタート。保留状態はグループ境界を跨がない）。
             }
         }
     }
@@ -69,13 +85,23 @@ fn get_or_create_entity(
 
 /// 召喚エンティティ（非 Player/非 Monster）の attr から、オーナー（`AttrTopSummonerId`、無ければ
 /// `AttrSummonerId`）と召喚元スキル（`AttrSkillId`）を読む。スキルがバトルイマジン名に解決できたら
-/// オーナー（プレイヤー）の `imagine_names` へ発見順で追記（重複なし）し、name_cache に永続する。
+/// オーナー（プレイヤー）の確定イマジン `imagines` / 保留候補 `pending_imagine` を更新する。
 ///
 /// バトルイマジンは装備枠の「奥義」発動スキルだが、戦闘中は召喚エンティティとして現れ、その
 /// `AttrSkillId` が召喚元スキル（分身/召喚スキル。NameDesign が親イマジンと同名なので
 /// ImagineSkillNames.json で解決できる）を指す。ダメージを出さないイマジン（例: アルーナ＝蘇生）も
 /// 召喚は spawn するため、ダメージ列ではなくこの経路が唯一の確実な検知信号になる。
 /// 名前解決できないスキル（＝非イマジン召喚）は無視する（誤名回避の安全側デフォルト）。
+///
+/// # pending（保留）方式
+/// 定員 [`MAX_IMAGINE_NAMES`] が埋まっている状態で新規名を検知しても `imagines`（確定・表示用）は
+/// 即座に書き換えない。確証（＝ゲーム上あり得ない事象＝既に外れた枠の再 spawn）が得られるまで
+/// `pending_imagine`（最大1件）へ留め置く。これにより画面に「新旧混在ペア」が一瞬でも表示される
+/// ことを原理的に防ぐ。確定へ昇格するのは次のいずれか:
+/// - 既存スロットの再検知（＝そのスロットは現役の確定証拠）と同時に pending があれば、
+///   一致しなかった方のスロットを pending の内容へ差し替える（単枠交換の確定）。
+/// - pending とは別の新規名がもう1件検知される（＝両枠同時交換の確定）。
+/// pending 自身が再検知されても確定へは至らない（現役の証拠にはならない。単に鮮度だけ更新）。
 fn try_attribute_summon_imagine(encounter: &mut Encounter, attrs: &[pb::RawAttr]) {
     let mut top_owner: Option<i64> = None;
     let mut direct_owner: Option<i64> = None;
@@ -119,22 +145,78 @@ fn try_attribute_summon_imagine(encounter: &mut Encounter, attrs: &[pb::RawAttr]
     };
     let owner_uid = entity::get_player_uid(owner_uuid);
     let owner = get_or_create_entity(encounter, owner_uid, EntityKind::Player);
-    if !owner.imagine_names.contains(&name) {
-        // 新規イマジン検知時のみ（＝低頻度）に記録。観測性のための恒久ログ。
+    let seq = next_imagine_seq();
+
+    // rule1: 既存の確定スロットと一致 → 再検知＝現役の証拠。並び順は変えず鮮度だけ更新する。
+    if let Some(slot) = owner.imagines.iter_mut().find(|s| s.name == name) {
+        slot.last_seen = seq;
+        if let Some(pending) = owner.pending_imagine.take() {
+            // 一致したスロット(reactivate した方)が現役と確定したので、一致しなかった方を
+            // pending の内容で置き換える（単枠交換の確定）。
+            if let Some(other) = owner.imagines.iter_mut().find(|s| s.name != name) {
+                info!(
+                    "battle imagine confirmed (single-slot swap): uid={owner_uid} {} -> {} (reactivated: {name})",
+                    other.name, pending.name
+                );
+                *other = pending;
+            }
+            name_cache::update_imagine(owner_uid, &owner.imagine_display_names());
+        }
+        return;
+    }
+
+    // rule2: pending 自身の再検知 → まだ現役の証拠にはならない。鮮度だけ更新し confirmed は触らない。
+    if let Some(pending) = owner.pending_imagine.as_mut() {
+        if pending.name == name {
+            pending.last_seen = seq;
+            debug!("battle imagine pending re-detected (not yet confirmed): uid={owner_uid} name={name}");
+            return;
+        }
+    }
+
+    // ここまで来た name は imagines にも pending にも一致しない新規名。
+    if owner.imagines.len() < MAX_IMAGINE_NAMES {
+        // rule3: 定員未満なので曖昧さが無く、即座に確定へ追加してよい。
         info!("battle imagine detected: uid={owner_uid} name={name} (summon skill {sk})");
-        owner.imagine_names.push(name);
-        // バトルイマジンは装備枠(SlotPositionId 7/8)=最大2つ。セッション跨ぎのキャッシュ累積や
-        // 版ズレ召喚で 3つ以上に膨らむ不具合を防ぐため、常に最新 MAX 件へ丸める（古い順に落とす）。
-        cap_imagine_names(&mut owner.imagine_names);
-        name_cache::update_imagine(owner_uid, &owner.imagine_names);
+        owner.imagines.push(ImagineSlot { name, last_seen: seq });
+        name_cache::update_imagine(owner_uid, &owner.imagine_display_names());
+        return;
+    }
+
+    match owner.pending_imagine.take() {
+        None => {
+            // rule4: 定員一杯かつ pending 空 → まだ確証が無いので pending へ留め置く。
+            // confirmed（imagines）は一切変更しない。未確定情報は name_cache にも書かない。
+            info!("battle imagine pending (awaiting confirmation): uid={owner_uid} name={name}");
+            owner.pending_imagine = Some(ImagineSlot { name, last_seen: seq });
+        }
+        Some(old_pending) => {
+            // rule5: pending とは別の新規名がもう1件 → 両枠同時交換が確定。
+            info!(
+                "battle imagine confirmed (dual-slot swap): uid={owner_uid} {} , {name}",
+                old_pending.name
+            );
+            owner.imagines = vec![old_pending, ImagineSlot { name, last_seen: seq }];
+            name_cache::update_imagine(owner_uid, &owner.imagine_display_names());
+        }
     }
 }
 
-/// バトルイマジンの装備枠は2つ（SlotPositionId 7/8）。表示名は多くとも `MAX_IMAGINE_NAMES` 件に
-/// 制限し、超過分は古い方から落とす（＝直近に検知した現行ロードアウトを残す）。
-fn cap_imagine_names(names: &mut Vec<String>) {
+/// バトルイマジンの装備枠は2つ（SlotPositionId 7/8）。**この関数はライブ検知経路からは呼ばれない**
+/// （ライブ検知の追い出し判断は `try_attribute_summon_imagine` の rule1/5 が pending 方式で明示的に
+/// 行うため、鮮度最小を機械的に追い出す処理は不要になった）。`get_or_create_entity` のキャッシュ
+/// 復元専用: 旧バージョンでセッションを跨いで累積し `MAX_IMAGINE_NAMES` を超えた古いキャッシュを、
+/// 復元時にも最新 MAX 件へ丸める（最も長く再検知されていない＝`last_seen` が最小のものから落とす）。
+fn cap_imagine_names(names: &mut Vec<ImagineSlot>) {
     while names.len() > MAX_IMAGINE_NAMES {
-        names.remove(0);
+        let Some((idx, _)) = names
+            .iter()
+            .enumerate()
+            .min_by_key(|(idx, slot)| (slot.last_seen, *idx))
+        else {
+            break;
+        };
+        names.remove(idx);
     }
 }
 
@@ -1205,7 +1287,10 @@ mod tests {
 
         // 1007740 = 奥义!毒爆 → ヴェノミーンの巣（分身/召喚スキル）
         process_scene_delta(&mut enc, summon_spawn_delta(1, 1_007_740));
-        assert_eq!(enc.entities[&1].imagine_names, vec!["ヴェノミーンの巣".to_string()]);
+        assert_eq!(
+            enc.entities[&1].imagine_display_names(),
+            vec!["ヴェノミーンの巣".to_string()]
+        );
     }
 
     // 無ダメージのイマジン(アルーナ=蘇生)も召喚 spawn 経路で検知できる（本機能の主目的）。
@@ -1216,7 +1301,7 @@ mod tests {
 
         // 2900240 = 奥义！生命祈愿 → アルーナ（蘇生・ダメージを出さない）
         process_scene_delta(&mut enc, summon_spawn_delta(1, 2_900_240));
-        assert_eq!(enc.entities[&1].imagine_names, vec!["アルーナ".to_string()]);
+        assert_eq!(enc.entities[&1].imagine_display_names(), vec!["アルーナ".to_string()]);
     }
 
     // 複数の召喚は発見順に累積し、同一名は重複させない。
@@ -1228,14 +1313,14 @@ mod tests {
         process_scene_delta(&mut enc, summon_spawn_delta(1, 1_007_740)); // ヴェノミーンの巣
         process_scene_delta(&mut enc, summon_spawn_delta(1, 2_900_240)); // アルーナ
         assert_eq!(
-            enc.entities[&1].imagine_names,
+            enc.entities[&1].imagine_display_names(),
             vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()]
         );
 
         // 同じイマジン(別ID 1007741=虚拟体 も同名解決)を再度 → 重複しない
         process_scene_delta(&mut enc, summon_spawn_delta(1, 1_007_741));
         assert_eq!(
-            enc.entities[&1].imagine_names,
+            enc.entities[&1].imagine_display_names(),
             vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()]
         );
     }
@@ -1248,7 +1333,7 @@ mod tests {
 
         // 55404 は ImagineSkillNames.json に無い（実機で観測した非イマジン召喚）
         process_scene_delta(&mut enc, summon_spawn_delta(1, 55_404));
-        assert!(enc.entities[&1].imagine_names.is_empty());
+        assert!(enc.entities[&1].imagine_display_names().is_empty());
     }
 
     // オーナー(AttrTopSummonerId)が欠けた召喚 attr は帰属できず無視される。
@@ -1270,7 +1355,7 @@ mod tests {
             skill_effects: None,
         };
         process_scene_delta(&mut enc, delta);
-        assert!(enc.entities[&1].imagine_names.is_empty());
+        assert!(enc.entities[&1].imagine_display_names().is_empty());
     }
 
     // ロローラは実ゲーム版の召喚ID(2900840=奥義！神霊依凭)で解決できる（版ズレで名前グルーピング不能な分の手動追記）。
@@ -1280,23 +1365,250 @@ mod tests {
         enc.entities.insert(1, player());
 
         process_scene_delta(&mut enc, summon_spawn_delta(1, 2_900_840));
-        assert_eq!(enc.entities[&1].imagine_names, vec!["ロローラ".to_string()]);
+        assert_eq!(enc.entities[&1].imagine_display_names(), vec!["ロローラ".to_string()]);
     }
 
-    // 装備枠は2つ。3体以上検知しても最新 MAX_IMAGINE_NAMES 件へ丸め、古い順に落とす（3つ以上表示しない）。
+    // 装備枠は2つ。pending 方式では 3体目(新規)を検知しても confirmed を即座には書き換えない
+    // （rule4: 定員一杯・pending 空 → まだ確証が無いのでいったん pending へ留め置くだけ）。
+    // 「新規名を検知した瞬間に古い方を追い出して新旧混在ペアを作ってしまう」という前回ロジックの
+    // 問題そのものを避けるのが pending 方式の意図であり、この挙動変化はその直接の反映。
     #[test]
     fn imagine_names_capped_to_two_keeping_latest() {
         let mut enc = Encounter::default();
         enc.entities.insert(1, player());
 
-        process_scene_delta(&mut enc, summon_spawn_delta(1, 1_007_740)); // ヴェノミーンの巣
-        process_scene_delta(&mut enc, summon_spawn_delta(1, 2_900_240)); // アルーナ
-        process_scene_delta(&mut enc, summon_spawn_delta(1, 2_900_840)); // ロローラ（3体目）
+        process_scene_delta(&mut enc, summon_spawn_delta(1, 1_007_740)); // A: ヴェノミーンの巣
+        process_scene_delta(&mut enc, summon_spawn_delta(1, 2_900_240)); // B: アルーナ
+        process_scene_delta(&mut enc, summon_spawn_delta(1, 2_900_840)); // C: ロローラ（3体目・新規）
 
-        // 古い ヴェノミーンの巣 が落ち、最新2件だけが残る。
+        // confirmed は [A,B] のまま（[B,C] へは即座に丸められない）。
         assert_eq!(
-            enc.entities[&1].imagine_names,
-            vec!["アルーナ".to_string(), "ロローラ".to_string()]
+            enc.entities[&1].imagine_display_names(),
+            vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()]
         );
+        // C はまだ確証が無いので pending へ留め置かれるだけ。
+        assert_eq!(
+            enc.entities[&1].pending_imagine.as_ref().map(|s| s.name.as_str()),
+            Some("ロローラ")
+        );
+    }
+
+    // ① 単枠交換の pending→confirmed 昇格（本バグ修正の核心）: A,B を検知後、新規 C は
+    // 定員一杯のため即座に confirmed へは反映されず pending に留まる（confirmed は [A,B] のまま
+    // 変化しない＝新旧混在ペアが一切表示されない）。その後 A（現役）を再検知すると、それが
+    // 「B は既に外された」ことの確証になり、pending の C が確定へ昇格して B を置き換える。
+    #[test]
+    fn single_slot_swap_pending_then_confirmed_on_recheck() {
+        let mut enc = Encounter::default();
+        enc.entities.insert(2, player());
+
+        process_scene_delta(&mut enc, summon_spawn_delta(2, 1_007_740)); // A: ヴェノミーンの巣
+        process_scene_delta(&mut enc, summon_spawn_delta(2, 2_900_240)); // B: アルーナ
+        assert_eq!(
+            enc.entities[&2].imagine_display_names(),
+            vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()]
+        );
+
+        // C（新規）を検知 → 定員一杯・pending 空 → rule4: pending へ留め置くだけ
+        process_scene_delta(&mut enc, summon_spawn_delta(2, 2_900_840)); // C: ロローラ
+        assert_eq!(
+            enc.entities[&2].imagine_display_names(),
+            vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()],
+            "pending 設定だけでは confirmed が変化してはいけない"
+        );
+        assert_eq!(
+            enc.entities[&2].pending_imagine.as_ref().map(|s| s.name.as_str()),
+            Some("ロローラ")
+        );
+
+        // A（現役）を再検知 → rule1: pending(C) が確定へ昇格し、放置された B を置き換える
+        process_scene_delta(&mut enc, summon_spawn_delta(2, 1_007_740));
+        assert_eq!(
+            enc.entities[&2].imagine_display_names(),
+            vec!["ヴェノミーンの巣".to_string(), "ロローラ".to_string()]
+        );
+        assert!(enc.entities[&2].pending_imagine.is_none());
+    }
+
+    // ② 両枠同時交換で「新旧混在ペア」が一度も画面に出ないことの直接的な証明（pending 方式の本質）。
+    // A,B(confirmed) → C(新規・定員一杯・pending 空→pending 化。confirmed は完全に不変)
+    // → D(pending とは別の新規・rule5)で両枠同時交換が確定し [C,D] へ一気に切り替わる。
+    // このテストを通じて観測可能な confirmed は常に [A,B] か [C,D] のいずれかのみであり、
+    // [A,C]/[B,D]/[B,C] のような混在ペアが一瞬たりとも表示されないことがポイント。
+    #[test]
+    fn dual_slot_swap_confirmed_only_after_second_new_name() {
+        let mut enc = Encounter::default();
+        enc.entities.insert(3, player());
+
+        process_scene_delta(&mut enc, summon_spawn_delta(3, 1_007_740)); // A: ヴェノミーンの巣
+        process_scene_delta(&mut enc, summon_spawn_delta(3, 2_900_240)); // B: アルーナ
+        assert_eq!(
+            enc.entities[&3].imagine_display_names(),
+            vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()]
+        );
+
+        // C（新規）を検知 → rule4: pending へ留め置くだけ。confirmed は旧ペア [A,B] のまま不変。
+        process_scene_delta(&mut enc, summon_spawn_delta(3, 2_900_840)); // C: ロローラ
+        assert_eq!(
+            enc.entities[&3].imagine_display_names(),
+            vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()],
+            "混在ペア([A,C]等)を一瞬でも見せてはいけない"
+        );
+
+        // D（pending とは別の新規）を検知 → rule5: 両枠同時交換の確定。[C,D] へ一気に切り替わる。
+        process_scene_delta(&mut enc, summon_spawn_delta(3, 1_002_830)); // D: フロストオーガ
+        assert_eq!(
+            enc.entities[&3].imagine_display_names(),
+            vec!["ロローラ".to_string(), "フロストオーガ".to_string()]
+        );
+        assert!(enc.entities[&3].pending_imagine.is_none());
+    }
+
+    // ③ cap 不変条件: A,B,C,D,E を検知しても confirmed は常に len()<=2 に収まる
+    // （pending の有無に関わらず imagines への push/置換は常に定員内で完結するため）。
+    #[test]
+    fn imagine_count_never_exceeds_cap() {
+        let mut enc = Encounter::default();
+        enc.entities.insert(4, player());
+
+        let skills = [1_007_740, 2_900_240, 2_900_840, 1_002_830, 1_007_741_i32];
+        for &sk in &skills {
+            // 1007741 は 1007740 と同名（ヴェノミーンの巣）解決だが cap 確認の分母には影響しない。
+            process_scene_delta(&mut enc, summon_spawn_delta(4, sk));
+            assert!(
+                enc.entities[&4].imagine_display_names().len() <= MAX_IMAGINE_NAMES,
+                "imagine count exceeded cap after skill {sk}"
+            );
+        }
+    }
+
+    // ④ 表示順の安定性: A,B 検知後に一方・両方を何度再検知しても並び順は反転しない([B,A] にならない)。
+    // 名前は常に既存2枠のいずれかと一致する（第3の新規名は登場しない）ので pending は一切絡まない。
+    #[test]
+    fn display_order_stable_across_rechecks() {
+        let mut enc = Encounter::default();
+        enc.entities.insert(5, player());
+
+        process_scene_delta(&mut enc, summon_spawn_delta(5, 1_007_740)); // A
+        process_scene_delta(&mut enc, summon_spawn_delta(5, 2_900_240)); // B
+        assert_eq!(
+            enc.entities[&5].imagine_display_names(),
+            vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()]
+        );
+
+        // B を複数回、A も再検知 → 並び替えは起きない
+        process_scene_delta(&mut enc, summon_spawn_delta(5, 2_900_240));
+        process_scene_delta(&mut enc, summon_spawn_delta(5, 2_900_240));
+        process_scene_delta(&mut enc, summon_spawn_delta(5, 1_007_740));
+        process_scene_delta(&mut enc, summon_spawn_delta(5, 2_900_240));
+
+        assert_eq!(
+            enc.entities[&5].imagine_display_names(),
+            vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()],
+            "display order must not reverse to [B, A]"
+        );
+        assert!(enc.entities[&5].pending_imagine.is_none());
+    }
+
+    // ⑤ pending 自身の再検知だけでは確定に至らない回帰防止テスト。A,B(confirmed)→C(新規・pending
+    // 化)の後、C を再検知しても rule2 が発火するだけで confirmed は不変・pending も C のまま
+    // （＝ pending の再検知は「まだ現役の証拠」にはならず、昇格には既存スロットの再検知＝rule1、
+    // または別の新規名＝rule5 のいずれかが必要）。
+    #[test]
+    fn pending_redetection_does_not_promote_alone() {
+        let mut enc = Encounter::default();
+        enc.entities.insert(6, player());
+
+        process_scene_delta(&mut enc, summon_spawn_delta(6, 1_007_740)); // A
+        process_scene_delta(&mut enc, summon_spawn_delta(6, 2_900_240)); // B
+        process_scene_delta(&mut enc, summon_spawn_delta(6, 2_900_840)); // C（新規）→ pending
+
+        process_scene_delta(&mut enc, summon_spawn_delta(6, 2_900_840)); // C を再検知（rule2）
+
+        assert_eq!(
+            enc.entities[&6].imagine_display_names(),
+            vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()],
+            "pending 自身の再検知だけでは confirmed を書き換えてはいけない"
+        );
+        assert_eq!(
+            enc.entities[&6].pending_imagine.as_ref().map(|s| s.name.as_str()),
+            Some("ロローラ"),
+            "pending の再検知は pending のまま(昇格しない)"
+        );
+    }
+
+    // ⑥ pending 設定だけでは name_cache へ永続化されない回帰防止テスト（未確定情報をディスクへ
+    // 書かない、という設計の直接検証）。専用 uid を使い他テストの name_cache と衝突しないこと。
+    #[test]
+    fn pending_never_persisted_to_name_cache() {
+        let mut enc = Encounter::default();
+        let uid = 990_002; // name_cache はプロセス共有のため専用 uid を使う
+
+        enc.entities.insert(uid, player());
+        process_scene_delta(&mut enc, summon_spawn_delta(uid, 1_007_740)); // A
+        process_scene_delta(&mut enc, summon_spawn_delta(uid, 2_900_240)); // B
+
+        let cached = name_cache::lookup(uid).expect("cache entry should exist after B confirmed");
+        assert_eq!(
+            cached.imagine_names,
+            vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()]
+        );
+
+        // C（新規）を検知 → rule4: pending へ留め置くだけ（confirmed は不変・name_cache も未変更）
+        process_scene_delta(&mut enc, summon_spawn_delta(uid, 2_900_840));
+
+        let cached_after_pending =
+            name_cache::lookup(uid).expect("cache entry should still exist");
+        assert_eq!(
+            cached_after_pending.imagine_names,
+            vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()],
+            "pending 設定だけで name_cache へ永続化してはいけない"
+        );
+    }
+
+    // ⑦ clear_combat_stats 跨ぎのシナリオ: Player entity 破棄 → name_cache 復元後も pending 方式が
+    // 破綻しないことを確認する。復元直後に A を再検知しても pending が無いので confirmed は不変。
+    // 続けて C（新規）を検知すると定員一杯のため pending へ留め置かれるだけで confirmed は
+    // [A,B] のまま（pending 方式のおかげでこの中間状態も断定できる＝旧 LRU 方式からの改善点）。
+    // もう一度 A を再検知すると rule1 が発火し、pending(C) が確定へ昇格して B を置き換える。
+    #[test]
+    fn imagine_survives_across_clear_combat_stats_with_recheck() {
+        let mut enc = Encounter::default();
+        let uid = 990_001; // name_cache はプロセス共有のため他テストと衝突しない専用 uid を使う
+
+        enc.entities.insert(uid, player());
+        process_scene_delta(&mut enc, summon_spawn_delta(uid, 1_007_740)); // A: ヴェノミーンの巣
+        process_scene_delta(&mut enc, summon_spawn_delta(uid, 2_900_240)); // B: アルーナ
+        assert_eq!(
+            enc.entities[&uid].imagine_display_names(),
+            vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()]
+        );
+
+        enc.clear_combat_stats(); // Player entity は破棄される（name_cache には残る）
+        assert!(!enc.entities.contains_key(&uid));
+
+        // 次パケットで A を再検知 → name_cache から [A,B] を復元した上で A の鮮度を更新するのみ
+        // （pending が無いので confirmed は不変）。
+        process_scene_delta(&mut enc, summon_spawn_delta(uid, 1_007_740));
+        assert_eq!(
+            enc.entities[&uid].imagine_display_names(),
+            vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()]
+        );
+
+        // 続けて C（ロローラ）を新規検知 → 定員一杯・pending 空 → rule4: pending へ留め置くだけ
+        process_scene_delta(&mut enc, summon_spawn_delta(uid, 2_900_840));
+        assert_eq!(
+            enc.entities[&uid].imagine_display_names(),
+            vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()],
+            "pending 設定だけでは confirmed を書き換えない"
+        );
+
+        // もう一度 A を再検知 → rule1: pending(C) が確定へ昇格し、放置された B を置き換える
+        process_scene_delta(&mut enc, summon_spawn_delta(uid, 1_007_740));
+        assert_eq!(
+            enc.entities[&uid].imagine_display_names(),
+            vec!["ヴェノミーンの巣".to_string(), "ロローラ".to_string()]
+        );
+        assert!(enc.entities[&uid].pending_imagine.is_none());
     }
 }

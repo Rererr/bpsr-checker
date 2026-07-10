@@ -34,21 +34,22 @@ fn next_imagine_seq() -> u64 {
 const PENDING_PROMOTE_HITS: u32 = 3;
 
 /// `ImagineSkillNames.json` 未登録の召喚元スキルIDを、プロセス生存中1回だけログへ記録する
-/// ための既知集合（診断用・一時的）。新規イマジンの召喚報告ID発見のため、人が多い場所での
-/// 長時間観測でログに未知IDを残す目的。既知イマジンの検知ロジック自体には影響しない。
+/// ための既知集合（`BPSR_PROBE=1` の開発時調査専用。配布ビルドではログ出力せずディスクを
+/// 圧迫しない）。新規イマジンの召喚報告ID発見のため、人が多い場所での長時間観測でログに
+/// 未知IDを残す目的。既知イマジンの検知ロジック自体には影響しない。
 static UNRESOLVED_SUMMON_SKILLS: LazyLock<Mutex<HashSet<i32>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
 
-/// 装備スキルリスト(ATTR_SKILL_LEVEL_ID_LIST=116)の実機検証用診断（一時的）。
+/// 装備スキルリスト(ATTR_SKILL_LEVEL_ID_LIST=116)の調査用ログ（`BPSR_PROBE=1` の開発時のみ）。
 /// uid ごとに最後にログした skill_id 列を覚え、内容が変わった時だけ info! する
-/// （人が多い場所でも appear の度に同内容を繰り返さないための抑制）。
-/// 目的: 「装備リストを一次情報にした漏れの無いイマジン表示」へ拡張する前提として、
-/// EnterScene/appear のフルスナップショットに奥義/絶技スキルが載るかを実機確認する。
+/// （人が多い場所でも appear の度に同内容を繰り返さないための抑制）。表示への反映自体は
+/// `apply_skill_list_imagines` が probe と無関係に常時行う。このログは調査目的のみ。
 static LAST_SKILL_LIST: LazyLock<Mutex<HashMap<i64, Vec<i32>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// 装備データ(ATTR_EQUIP_DATA=200)の実機検証用診断（一時的）。抑制は LAST_SKILL_LIST と同様。
-/// イマジンのアイテム構成IDがプレイヤー attr として観測できるかを確認する。
+/// 装備データ(ATTR_EQUIP_DATA=200)の調査用ログ（`BPSR_PROBE=1` の開発時のみ）。
+/// 抑制は LAST_SKILL_LIST と同様。イマジンのアイテム構成IDがプレイヤー attr として
+/// 観測できるかを確認する目的。
 static LAST_EQUIP_LIST: LazyLock<Mutex<HashMap<i64, Vec<(i32, i32)>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
@@ -187,9 +188,11 @@ fn try_attribute_summon_imagine(encounter: &mut Encounter, attrs: &[pb::RawAttr]
         return;
     }
     let Some(name) = crate::engine::imagine_skills::imagine_name(sk) else {
-        if let Ok(mut seen) = UNRESOLVED_SUMMON_SKILLS.lock() {
-            if seen.insert(sk) {
-                info!("summon attr: unresolved skill (not a known imagine): owner={owner_uuid} skill_id={sk}");
+        if crate::probe::enabled() {
+            if let Ok(mut seen) = UNRESOLVED_SUMMON_SKILLS.lock() {
+                if seen.insert(sk) {
+                    info!("summon attr: unresolved skill (not a known imagine): owner={owner_uuid} skill_id={sk}");
+                }
             }
         }
         return;
@@ -451,9 +454,9 @@ fn apply_skill_list_imagines(
     );
 }
 
-/// 装備スキルリスト attr の実機検証用診断ログ（一時的）。内容が前回ログ時から変わった時だけ
-/// 全 skill_id を記録し、イマジン奥義候補（canonical 解決 or 奥義！/絶技！接頭辞）を
-/// 明示行で残す。src はどの経路で届いたか（enter_scene/appear/delta）。
+/// 装備スキルリスト attr の調査用ログ（`BPSR_PROBE=1` の開発時のみ呼ばれる）。内容が
+/// 前回ログ時から変わった時だけ全 skill_id を記録し、イマジン奥義候補（canonical 解決 or
+/// 奥義！/絶技！接頭辞）を明示行で残す。src はどの経路で届いたか（enter_scene/appear/delta）。
 fn log_skill_level_id_list(uid: i64, src: &'static str, infos: &[pb::SkillLevelInfo]) {
     let ids: Vec<i32> = infos.iter().map(|i| i.skill_id).collect();
     let Ok(mut last) = LAST_SKILL_LIST.lock() else {
@@ -487,7 +490,8 @@ fn log_skill_level_id_list(uid: i64, src: &'static str, infos: &[pb::SkillLevelI
     last.insert(uid, ids);
 }
 
-/// 装備データ attr の実機検証用診断ログ（一時的）。抑制方式は log_skill_level_id_list と同様。
+/// 装備データ attr の調査用ログ（`BPSR_PROBE=1` の開発時のみ呼ばれる）。抑制方式は
+/// log_skill_level_id_list と同様。
 fn log_equip_data(uid: i64, src: &'static str, raw_data: &[u8]) {
     let equips = decode_equip_nine_list(raw_data);
     let pairs: Vec<(i32, i32)> = equips.iter().map(|e| (e.slot, e.equip_id)).collect();
@@ -794,17 +798,18 @@ fn process_world_enter_snapshot(
         None,
     );
 
-    log_container_equips(player_uid, v_data);
-    log_aoyi_slots(player_uid, v_data);
+    if crate::probe::enabled() {
+        log_container_equips(player_uid, v_data);
+        log_aoyi_slots(player_uid, v_data);
+    }
     // 補足: 装備中イマジンの権威的確定は attr 116（フル装備スキルリスト）経路で行う
     // （apply_skill_list_imagines）。0x15 の profession_list.slot_skill_info_map には
     // クラススキルしか載らず、イマジン装備枠は無いことを実機確認済み（2026-07-10）。
 }
 
-/// SyncContainerData(0x15) の奥義（バトルイマジン）装備スロットの実機検証用診断ログ（一時的）。
-/// `profession_list.aoyi_skill_info_map` に装備中イマジンの奥義スキルID＋凸数が載る想定。
-/// 既存の名前解決（imagine_name=召喚報告ID系 / skill_name_ja=スキル名辞書）でどう引けるかも併記し、
-/// 表示配線に使う名前ソースを実データで決める。
+/// SyncContainerData(0x15) の奥義（バトルイマジン）装備スロットの調査用ログ
+/// （`BPSR_PROBE=1` の開発時のみ呼ばれる）。装備中イマジンの特定は attr 116 経路
+/// （`apply_skill_list_imagines`）で確定済みのため、これは 0x15 側の構造調査専用の記録。
 fn log_aoyi_slots(player_uid: i64, v_data: &pb::PlayerSnapshot) {
     let Some(profession) = v_data.profession_list.as_ref() else {
         return;
@@ -843,10 +848,9 @@ fn log_aoyi_slots(player_uid: i64, v_data: &pb::PlayerSnapshot) {
     }
 }
 
-/// SyncContainerData(0x15) の装備リスト×アイテムパッケージ突合の実機検証用診断ログ（一時的）。
-/// 装備スロットの item_uuid をパッケージ内アイテムと突合して config_id を引き、どのパッケージ
-/// （type 6=バトルイマジンの想定）に居たかを記録する。自キャラの装備イマジンを発動に依存せず
-/// 特定できるかの確認用。0x15 はログイン時のみ発火する可能性が高い（実機で要確認）。
+/// SyncContainerData(0x15) の装備リスト×アイテムパッケージ突合の調査用ログ
+/// （`BPSR_PROBE=1` の開発時のみ呼ばれる）。装備スロットの item_uuid をパッケージ内アイテムと
+/// 突合して config_id を引き、どのパッケージ（type 6=バトルイマジンの想定）に居たかを記録する。
 fn log_container_equips(player_uid: i64, v_data: &pb::PlayerSnapshot) {
     let packages = v_data.item_package.as_ref().map(|p| &p.packages);
     if let Some(packages) = packages {
@@ -1457,12 +1461,14 @@ fn process_player_attrs(
             attr_type::ATTR_SKILL_LEVEL_ID_LIST => {
                 if !attr.raw_data.is_empty() {
                     let infos = decode_skill_level_info_list(&attr.raw_data);
-                    log_skill_level_id_list(uid, src, &infos);
+                    if crate::probe::enabled() {
+                        log_skill_level_id_list(uid, src, &infos);
+                    }
                     apply_skill_list_imagines(uid, player_entity, &infos, src);
                 }
             }
             attr_type::ATTR_EQUIP_DATA => {
-                if !attr.raw_data.is_empty() {
+                if crate::probe::enabled() && !attr.raw_data.is_empty() {
                     log_equip_data(uid, src, &attr.raw_data);
                 }
             }

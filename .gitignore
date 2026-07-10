@@ -5,6 +5,7 @@ dist/
 .claude/settings.local.json
 .claude/settings.local.json.bak.*
 .claude/worktrees/
+.playwright-mcp/
 src-tauri/gen/
 translation_work/
 

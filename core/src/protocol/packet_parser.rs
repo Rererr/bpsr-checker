@@ -119,18 +119,26 @@ fn decode_notify(frame: &mut BinaryReader, compressed: bool) -> Option<FrameOutc
     let body = maybe_decompress(frame.read_remaining(), compressed, "notify")?;
 
     if service == SOCIAL_NTF_SERVICE_ID && method == SOCIAL_NTF_NOTIFY_METHOD_ID {
+        crate::probe::log_method(service, method, Some("SocialEnvelope"), body.len());
         return Some(FrameOutcome::Forward {
             op: Pkt::SocialEnvelope,
             payload: body,
         });
     }
     if service != SERVICE_UUID {
+        crate::probe::log_method(service, method, None, body.len());
         return Some(FrameOutcome::Skip);
     }
 
     match Pkt::try_from(method) {
-        Ok(op) => Some(FrameOutcome::Forward { op, payload: body }),
+        Ok(op) => {
+            if crate::probe::enabled() {
+                crate::probe::log_method(service, method, Some(&format!("{op:?}")), body.len());
+            }
+            Some(FrameOutcome::Forward { op, payload: body })
+        }
         Err(_) => {
+            crate::probe::log_method(service, method, None, body.len());
             debug!("notify: unmapped method 0x{method:08x} on service 0x{service:016x}");
             Some(FrameOutcome::Skip)
         }

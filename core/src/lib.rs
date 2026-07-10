@@ -7,4 +7,5 @@ pub mod compute;
 pub mod engine;
 pub mod error;
 pub mod models;
+pub mod probe;
 pub mod protocol;

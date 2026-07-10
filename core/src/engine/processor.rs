@@ -13,8 +13,10 @@ use crate::protocol::pb::{self, EntityKind};
 use bytes::Bytes;
 use log::{debug, info, warn};
 use prost::Message;
+use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// バトルイマジン検知の鮮度比較用シーケンス番号。wall-clock ではなく単調増加カウンタにする
@@ -24,6 +26,31 @@ static IMAGINE_DETECTION_SEQ: AtomicU64 = AtomicU64::new(0);
 fn next_imagine_seq() -> u64 {
     IMAGINE_DETECTION_SEQ.fetch_add(1, Ordering::Relaxed)
 }
+
+/// `pending_imagine` が単独昇格（自己修復）するまでに要求する再検知回数
+/// （rule4 の初回検知=1 を含む）。休眠イマジン（召喚報告ID未登録で相方が rule5 を
+/// 満たせない）が絡む装備替えでも、有限回の再検知で確定表示が自己修復するようにする。
+/// 閾値を小さくしすぎると単発の誤読で誤昇格しやすくなり、大きくしすぎると自己修復が遅れる。
+const PENDING_PROMOTE_HITS: u32 = 3;
+
+/// `ImagineSkillNames.json` 未登録の召喚元スキルIDを、プロセス生存中1回だけログへ記録する
+/// ための既知集合（診断用・一時的）。新規イマジンの召喚報告ID発見のため、人が多い場所での
+/// 長時間観測でログに未知IDを残す目的。既知イマジンの検知ロジック自体には影響しない。
+static UNRESOLVED_SUMMON_SKILLS: LazyLock<Mutex<HashSet<i32>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+/// 装備スキルリスト(ATTR_SKILL_LEVEL_ID_LIST=116)の実機検証用診断（一時的）。
+/// uid ごとに最後にログした skill_id 列を覚え、内容が変わった時だけ info! する
+/// （人が多い場所でも appear の度に同内容を繰り返さないための抑制）。
+/// 目的: 「装備リストを一次情報にした漏れの無いイマジン表示」へ拡張する前提として、
+/// EnterScene/appear のフルスナップショットに奥義/絶技スキルが載るかを実機確認する。
+static LAST_SKILL_LIST: LazyLock<Mutex<HashMap<i64, Vec<i32>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// 装備データ(ATTR_EQUIP_DATA=200)の実機検証用診断（一時的）。抑制は LAST_SKILL_LIST と同様。
+/// イマジンのアイテム構成IDがプレイヤー attr として観測できるかを確認する。
+static LAST_EQUIP_LIST: LazyLock<Mutex<HashMap<i64, Vec<(i32, i32)>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Get-or-create an entity, pre-populating identity (name/class/score)
 /// from the persistent name cache when the entity is freshly created
@@ -68,10 +95,18 @@ fn get_or_create_entity(
                 // 直前セッションで学習したイマジン名を復元（召喚検知が来るまでの間の即表示用）。
                 // 挿入順に昇順の検知シーケンスを割り当てて ImagineSlot 化する
                 // （先頭ほど古い＝last_seen が小さい。復元直後に鮮度の優劣を決めておく）。
+                // 凸数は並列配列 imagine_tiers から復元（旧キャッシュで不足する分は 0=未判明）。
+                let tiers = cached.imagine_tiers;
                 entity.imagines = cached
                     .imagine_names
                     .into_iter()
-                    .map(|name| ImagineSlot { name, last_seen: next_imagine_seq() })
+                    .enumerate()
+                    .map(|(i, name)| ImagineSlot {
+                        name,
+                        last_seen: next_imagine_seq(),
+                        tier: tiers.get(i).copied().unwrap_or(0),
+                        pending_hits: 0,
+                    })
                     .collect();
                 // 旧バージョンのキャッシュはセッションを跨いで累積し MAX_IMAGINE_NAMES を超え得るため、
                 // 復元時にも最新 MAX 件へ丸める（cap_imagine_names はこのキャッシュ復元専用）。
@@ -101,11 +136,15 @@ fn get_or_create_entity(
 /// - 既存スロットの再検知（＝そのスロットは現役の確定証拠）と同時に pending があれば、
 ///   一致しなかった方のスロットを pending の内容へ差し替える（単枠交換の確定）。
 /// - pending とは別の新規名がもう1件検知される（＝両枠同時交換の確定）。
-/// pending 自身が再検知されても確定へは至らない（現役の証拠にはならない。単に鮮度だけ更新）。
+/// - pending 自身が [`PENDING_PROMOTE_HITS`] 回再検知される（＝相方が休眠イマジン等で
+///   rule5 の条件を満たせない場合の自己修復。旧確定ペアを両方破棄し、確証のある pending 名
+///   だけを単独確定にする。2枠目は次に新規検知が来るまで「未知（空）」表示のまま）。
+/// 通常の再検知だけでは確定へは至らない（現役の証拠にはならない。単に鮮度だけ更新）。
 fn try_attribute_summon_imagine(encounter: &mut Encounter, attrs: &[pb::RawAttr]) {
     let mut top_owner: Option<i64> = None;
     let mut direct_owner: Option<i64> = None;
     let mut skill_id: Option<i32> = None;
+    let mut tier: i32 = 0; // イマジンレベル（凸数）。0=未判明のまま扱う
     for attr in attrs {
         match attr.id {
             attr_type::ATTR_TOP_SUMMONER_ID => {
@@ -129,6 +168,13 @@ fn try_attribute_summon_imagine(encounter: &mut Encounter, attrs: &[pb::RawAttr]
                     }
                 }
             }
+            attr_type::ATTR_SKILL_REMODEL_LEVEL => {
+                if let Ok(v) = decode_protobuf_int32(&attr.raw_data) {
+                    if v > 0 {
+                        tier = v;
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -141,18 +187,29 @@ fn try_attribute_summon_imagine(encounter: &mut Encounter, attrs: &[pb::RawAttr]
         return;
     }
     let Some(name) = crate::engine::imagine_skills::imagine_name(sk) else {
+        if let Ok(mut seen) = UNRESOLVED_SUMMON_SKILLS.lock() {
+            if seen.insert(sk) {
+                info!("summon attr: unresolved skill (not a known imagine): owner={owner_uuid} skill_id={sk}");
+            }
+        }
         return;
     };
     let owner_uid = entity::get_player_uid(owner_uuid);
     let owner = get_or_create_entity(encounter, owner_uid, EntityKind::Player);
     let seq = next_imagine_seq();
 
-    // rule1: 既存の確定スロットと一致 → 再検知＝現役の証拠。並び順は変えず鮮度だけ更新する。
+    // rule1: 既存の確定スロットと一致 → 再検知＝現役の証拠。並び順は変えず鮮度だけ更新する
+    // （凸数はキャッシュ復元直後 0 の場合やレベル上げ後があるため、非0 が来たら追従する）。
     if let Some(slot) = owner.imagines.iter_mut().find(|s| s.name == name) {
         slot.last_seen = seq;
-        if let Some(pending) = owner.pending_imagine.take() {
+        let tier_changed = tier > 0 && slot.tier != tier;
+        if tier_changed {
+            slot.tier = tier;
+        }
+        if let Some(mut pending) = owner.pending_imagine.take() {
             // 一致したスロット(reactivate した方)が現役と確定したので、一致しなかった方を
-            // pending の内容で置き換える（単枠交換の確定）。
+            // pending の内容で置き換える（単枠交換の確定）。確定スロットの pending_hits は常に0。
+            pending.pending_hits = 0;
             if let Some(other) = owner.imagines.iter_mut().find(|s| s.name != name) {
                 info!(
                     "battle imagine confirmed (single-slot swap): uid={owner_uid} {} -> {} (reactivated: {name})",
@@ -160,26 +217,69 @@ fn try_attribute_summon_imagine(encounter: &mut Encounter, attrs: &[pb::RawAttr]
                 );
                 *other = pending;
             }
-            name_cache::update_imagine(owner_uid, &owner.imagine_display_names());
+            name_cache::update_imagine(
+                owner_uid,
+                &owner.imagine_display_names(),
+                &owner.imagine_tiers(),
+            );
+        } else if tier_changed {
+            // 名前構成は不変でも凸数が確定/変化したら永続化する（表示の (N) を次回起動へ引き継ぐ）。
+            name_cache::update_imagine(
+                owner_uid,
+                &owner.imagine_display_names(),
+                &owner.imagine_tiers(),
+            );
         }
         return;
     }
 
-    // rule2: pending 自身の再検知 → まだ現役の証拠にはならない。鮮度だけ更新し confirmed は触らない。
+    // rule2: pending 自身の再検知 → 通常は鮮度だけ更新し confirmed は触らない。ただし
+    // PENDING_PROMOTE_HITS 回に達したら自己修復（旧確定ペアを両方破棄し、確証のある pending
+    // 名だけを単独確定にする）。相方が休眠イマジンで rule5 の条件を満たせない場合の救済。
+    let mut promoted: Option<ImagineSlot> = None;
     if let Some(pending) = owner.pending_imagine.as_mut() {
         if pending.name == name {
             pending.last_seen = seq;
-            debug!("battle imagine pending re-detected (not yet confirmed): uid={owner_uid} name={name}");
-            return;
+            if tier > 0 {
+                pending.tier = tier;
+            }
+            pending.pending_hits += 1;
+            if pending.pending_hits >= PENDING_PROMOTE_HITS {
+                promoted = owner.pending_imagine.take();
+            } else {
+                debug!(
+                    "battle imagine pending re-detected (not yet confirmed): uid={owner_uid} name={name} hits={}",
+                    pending.pending_hits
+                );
+                return;
+            }
         }
+    }
+    if let Some(mut promoted) = promoted {
+        promoted.pending_hits = 0;
+        info!(
+            "battle imagine self-heal: uid={owner_uid} promoted {} to sole confirmed (stale pair evicted after {PENDING_PROMOTE_HITS} re-detections; dormant partner suspected)",
+            promoted.name
+        );
+        owner.imagines = vec![promoted];
+        name_cache::update_imagine(
+            owner_uid,
+            &owner.imagine_display_names(),
+            &owner.imagine_tiers(),
+        );
+        return;
     }
 
     // ここまで来た name は imagines にも pending にも一致しない新規名。
     if owner.imagines.len() < MAX_IMAGINE_NAMES {
         // rule3: 定員未満なので曖昧さが無く、即座に確定へ追加してよい。
         info!("battle imagine detected: uid={owner_uid} name={name} (summon skill {sk})");
-        owner.imagines.push(ImagineSlot { name, last_seen: seq });
-        name_cache::update_imagine(owner_uid, &owner.imagine_display_names());
+        owner.imagines.push(ImagineSlot { name, last_seen: seq, tier, pending_hits: 0 });
+        name_cache::update_imagine(
+            owner_uid,
+            &owner.imagine_display_names(),
+            &owner.imagine_tiers(),
+        );
         return;
     }
 
@@ -188,16 +288,23 @@ fn try_attribute_summon_imagine(encounter: &mut Encounter, attrs: &[pb::RawAttr]
             // rule4: 定員一杯かつ pending 空 → まだ確証が無いので pending へ留め置く。
             // confirmed（imagines）は一切変更しない。未確定情報は name_cache にも書かない。
             info!("battle imagine pending (awaiting confirmation): uid={owner_uid} name={name}");
-            owner.pending_imagine = Some(ImagineSlot { name, last_seen: seq });
+            owner.pending_imagine =
+                Some(ImagineSlot { name, last_seen: seq, tier, pending_hits: 1 });
         }
-        Some(old_pending) => {
+        Some(mut old_pending) => {
             // rule5: pending とは別の新規名がもう1件 → 両枠同時交換が確定。
             info!(
                 "battle imagine confirmed (dual-slot swap): uid={owner_uid} {} , {name}",
                 old_pending.name
             );
-            owner.imagines = vec![old_pending, ImagineSlot { name, last_seen: seq }];
-            name_cache::update_imagine(owner_uid, &owner.imagine_display_names());
+            old_pending.pending_hits = 0;
+            owner.imagines =
+                vec![old_pending, ImagineSlot { name, last_seen: seq, tier, pending_hits: 0 }];
+            name_cache::update_imagine(
+                owner_uid,
+                &owner.imagine_display_names(),
+                &owner.imagine_tiers(),
+            );
         }
     }
 }
@@ -250,7 +357,7 @@ fn decode_protobuf_int64(data: &[u8]) -> AppResult<i64> {
         .map_err(|e| AppError::Parse(format!("decode_varint i64: {e}")))
 }
 
-/// 自キャラ戦闘ステータス attr のデコード。ZDPS の isNoValue 準拠で**空 raw_data は値 0**を意味する
+/// 自キャラ戦闘ステータス attr のデコード。**空 raw_data は値 0**（no-value 通知）を意味する
 /// （クラス変更等でステータスが 0 になると空 raw_data で届くため、空を 0 として反映しないと
 /// 古い値が残る）。デコード不能時も 0 を返す。
 fn decode_stat_i32(data: &[u8]) -> i32 {
@@ -258,6 +365,142 @@ fn decode_stat_i32(data: &[u8]) -> i32 {
         return 0;
     }
     decode_protobuf_int32(data).unwrap_or(0)
+}
+
+/// raw_data を SkillLevelList（repeated SkillLevelInfo=1 のタグ付き形式）として decode する
+/// （ATTR_SKILL_LEVEL_ID_LIST=116 の中身。2026-07-10 ダンジョン実測でタグ付き形式と確定）。
+fn decode_skill_level_info_list(data: &[u8]) -> Vec<pb::SkillLevelInfo> {
+    pb::SkillLevelList::decode(data).map(|list| list.skills).unwrap_or_default()
+}
+
+/// raw_data を EquipNineList（repeated EquipNine=1 のタグ付き形式）として decode する
+/// （ATTR_EQUIP_DATA=200 の中身）。
+fn decode_equip_nine_list(data: &[u8]) -> Vec<pb::EquipNine> {
+    pb::EquipNineList::decode(data).map(|list| list.equips).unwrap_or_default()
+}
+
+/// 装備スキルリストがフルスナップショット（全習得スキル+装備中イマジン）とみなせる最小件数。
+/// フルリストは実測40件超（クラススキルブック一式）で、差分更新は数件のため、この閾値で
+/// 「部分リストを装備イマジンの全量と誤認して確定表示を壊す」事故を防ぐ。
+const MIN_FULL_SKILL_LIST_LEN: usize = 10;
+
+/// フルの装備スキルリスト（attr 116）から装備中バトルイマジンを権威的に確定する。
+/// ダンジョン実測(2026-07-10)で、フルリストには**装備中イマジンの canonical スキルID
+/// （39xx）がちょうど装備分（≤2件）だけ**凸数付きで載ることを確認済み（休眠イマジン含む。
+/// 自分=EnterScene(マップ移動ごと)、他人=AOI appear(ダンジョン読込/ボス切替)で届く）。
+/// 部分リスト（差分）や、イマジンを1件も解決できないリストでは何もしない（安全側）。
+/// 以降の装備替えの即時追従は従来の召喚検知（pending 方式）が補完する。
+fn apply_skill_list_imagines(
+    uid: i64,
+    player_entity: &mut Entity,
+    infos: &[pb::SkillLevelInfo],
+    src: &'static str,
+) {
+    if infos.len() < MIN_FULL_SKILL_LIST_LEN {
+        return;
+    }
+    let mut slots: Vec<ImagineSlot> = Vec::new();
+    for info in infos {
+        let Some(name) = crate::engine::imagine_skills::imagine_name(info.skill_id) else {
+            continue;
+        };
+        if slots.iter().any(|s| s.name == name) {
+            continue;
+        }
+        if slots.len() >= MAX_IMAGINE_NAMES {
+            warn!(
+                "skill list imagines: uid={uid} more than {MAX_IMAGINE_NAMES} arcane entries; extra id={} name={name} ignored",
+                info.skill_id
+            );
+            continue;
+        }
+        slots.push(ImagineSlot {
+            name,
+            last_seen: next_imagine_seq(),
+            tier: info.remodel_level.max(0),
+            pending_hits: 0,
+        });
+    }
+    if slots.is_empty() {
+        return;
+    }
+    // 名前と凸数が現状と同一なら何もしない（鮮度・キャッシュの無駄な更新を避ける）。
+    let same = player_entity.imagines.len() == slots.len()
+        && player_entity
+            .imagines
+            .iter()
+            .zip(&slots)
+            .all(|(a, b)| a.name == b.name && a.tier == b.tier);
+    if same {
+        return;
+    }
+    info!(
+        "battle imagine confirmed (skill list [{src}]): uid={uid} {}",
+        slots
+            .iter()
+            .map(|s| format!("{}({})", s.name, s.tier))
+            .collect::<Vec<_>>()
+            .join("/")
+    );
+    player_entity.imagines = slots;
+    player_entity.pending_imagine = None;
+    name_cache::update_imagine(
+        uid,
+        &player_entity.imagine_display_names(),
+        &player_entity.imagine_tiers(),
+    );
+}
+
+/// 装備スキルリスト attr の実機検証用診断ログ（一時的）。内容が前回ログ時から変わった時だけ
+/// 全 skill_id を記録し、イマジン奥義候補（canonical 解決 or 奥義！/絶技！接頭辞）を
+/// 明示行で残す。src はどの経路で届いたか（enter_scene/appear/delta）。
+fn log_skill_level_id_list(uid: i64, src: &'static str, infos: &[pb::SkillLevelInfo]) {
+    let ids: Vec<i32> = infos.iter().map(|i| i.skill_id).collect();
+    let Ok(mut last) = LAST_SKILL_LIST.lock() else {
+        return;
+    };
+    if last.get(&uid) == Some(&ids) {
+        return;
+    }
+    let detail: Vec<String> = infos
+        .iter()
+        .map(|i| format!("{}(lv{},t{})", i.skill_id, i.current_level, i.remodel_level))
+        .collect();
+    info!("skill list attr [{src}]: uid={uid} n={} ids=[{}]", ids.len(), detail.join(", "));
+    for i in infos {
+        // イマジン候補の判定は2系統: ①ImagineSkillNames の canonical 解決（確実）
+        // ②日本語スキル名の「奥義！」「絶技！」接頭辞（未登録の新イマジン発見用）。
+        let canonical = crate::engine::imagine_skills::imagine_name(i.skill_id);
+        let ja_name = crate::engine::skill_names::skill_name_ja(i.skill_id);
+        let prefix_hit =
+            ja_name.is_some_and(|n| n.starts_with("奥義！") || n.starts_with("絶技！"));
+        if canonical.is_some() || prefix_hit {
+            info!(
+                "skill list attr [{src}]: uid={uid} imagine arcane: id={} imagine_name={} skill_name={} tier={}",
+                i.skill_id,
+                canonical.as_deref().unwrap_or("-"),
+                ja_name.unwrap_or("-"),
+                i.remodel_level
+            );
+        }
+    }
+    last.insert(uid, ids);
+}
+
+/// 装備データ attr の実機検証用診断ログ（一時的）。抑制方式は log_skill_level_id_list と同様。
+fn log_equip_data(uid: i64, src: &'static str, raw_data: &[u8]) {
+    let equips = decode_equip_nine_list(raw_data);
+    let pairs: Vec<(i32, i32)> = equips.iter().map(|e| (e.slot, e.equip_id)).collect();
+    let Ok(mut last) = LAST_EQUIP_LIST.lock() else {
+        return;
+    };
+    if last.get(&uid) == Some(&pairs) {
+        return;
+    }
+    let detail: Vec<String> =
+        pairs.iter().map(|(slot, id)| format!("slot{slot}={id}")).collect();
+    info!("equip data attr [{src}]: uid={uid} n={} [{}]", pairs.len(), detail.join(", "));
+    last.insert(uid, pairs);
 }
 
 pub(crate) fn now_ms() -> u128 {
@@ -355,6 +598,8 @@ pub fn process_opcode(enc: &EncounterMutex, env: PktEnvelope) -> AppResult<()> {
 
             match op {
                 Pkt::WorldEnterScene => {
+                    // probe: EnterScene の実フィールド構造（decode 型に無いものも含む）を棚卸し
+                    crate::probe::scan_message("EnterScene(0x3)", &data, Some(1));
                     let Some(msg) = decode_packet::<pb::EnterScene>(data, "EnterScene") else {
                         return Ok(());
                     };
@@ -371,6 +616,8 @@ pub fn process_opcode(enc: &EncounterMutex, env: PktEnvelope) -> AppResult<()> {
                 }
 
                 Pkt::WorldEnterSnapshot => {
+                    // probe: SyncContainerData(v_data=CharSerialize) の実フィールド構造を棚卸し
+                    crate::probe::scan_message("WorldEnterSnapshot(0x15)", &data, Some(1));
                     let Some(msg) =
                         decode_packet::<pb::WorldEnterSnapshot>(data, "WorldEnterSnapshot")
                     else {
@@ -452,9 +699,16 @@ fn process_world_entity_batch(encounter: &mut Encounter, msg: pb::WorldEntityBat
         target_entity.entity_type = target_entity_type;
 
         if let Some(attrs) = &pkt_entity.attrs {
+            if crate::probe::enabled() {
+                crate::probe::log_attrs(
+                    &format!("appear {target_entity_type:?}"),
+                    target_uuid,
+                    &attrs.attrs,
+                );
+            }
             match target_entity_type {
                 EntityKind::Player => {
-                    process_player_attrs(target_uid, target_entity, &attrs.attrs);
+                    process_player_attrs(target_uid, target_entity, &attrs.attrs, "appear");
                 }
                 EntityKind::Monster => {
                     process_monster_attrs(target_entity, &attrs.attrs);
@@ -539,6 +793,98 @@ fn process_world_enter_snapshot(
         None,
         None,
     );
+
+    log_container_equips(player_uid, v_data);
+    log_aoyi_slots(player_uid, v_data);
+    // 補足: 装備中イマジンの権威的確定は attr 116（フル装備スキルリスト）経路で行う
+    // （apply_skill_list_imagines）。0x15 の profession_list.slot_skill_info_map には
+    // クラススキルしか載らず、イマジン装備枠は無いことを実機確認済み（2026-07-10）。
+}
+
+/// SyncContainerData(0x15) の奥義（バトルイマジン）装備スロットの実機検証用診断ログ（一時的）。
+/// `profession_list.aoyi_skill_info_map` に装備中イマジンの奥義スキルID＋凸数が載る想定。
+/// 既存の名前解決（imagine_name=召喚報告ID系 / skill_name_ja=スキル名辞書）でどう引けるかも併記し、
+/// 表示配線に使う名前ソースを実データで決める。
+fn log_aoyi_slots(player_uid: i64, v_data: &pb::PlayerSnapshot) {
+    let Some(profession) = v_data.profession_list.as_ref() else {
+        return;
+    };
+    // 装備中判定のデバッグ: 職業マップのキー一覧と、現在職業の装備スロット→スキルIDを記録する
+    // （apply_container_imagines が何も確定しない場合の原因切り分け用）。
+    let mut prof_ids: Vec<i32> = profession.profession_list.keys().copied().collect();
+    prof_ids.sort_unstable();
+    info!(
+        "professions: uid={player_uid} cur={} available={prof_ids:?}",
+        profession.cur_profession_id
+    );
+    if let Some(cur) = profession.profession_list.get(&profession.cur_profession_id) {
+        let mut slots: Vec<(i32, i32)> =
+            cur.slot_skill_info_map.iter().map(|(s, k)| (*s, *k)).collect();
+        slots.sort_unstable();
+        info!("profession slots: uid={player_uid} {slots:?}");
+    } else {
+        info!("profession slots: uid={player_uid} (cur profession not in map)");
+    }
+    if profession.aoyi_skill_info_map.is_empty() {
+        info!("aoyi slots: uid={player_uid} (empty)");
+        return;
+    }
+    let mut slots: Vec<_> = profession.aoyi_skill_info_map.iter().collect();
+    slots.sort_by_key(|(slot, _)| **slot);
+    for (slot, info) in slots {
+        let via_imagine = crate::engine::imagine_skills::imagine_name(info.skill_id)
+            .unwrap_or_else(|| "-".to_string());
+        let via_skill =
+            crate::engine::skill_names::skill_name_ja(info.skill_id).unwrap_or("-");
+        info!(
+            "aoyi slot: uid={player_uid} slot={slot} skill_id={} lv={} tier={} imagine_name={via_imagine} skill_name={via_skill}",
+            info.skill_id, info.level, info.remodel_level
+        );
+    }
+}
+
+/// SyncContainerData(0x15) の装備リスト×アイテムパッケージ突合の実機検証用診断ログ（一時的）。
+/// 装備スロットの item_uuid をパッケージ内アイテムと突合して config_id を引き、どのパッケージ
+/// （type 6=バトルイマジンの想定）に居たかを記録する。自キャラの装備イマジンを発動に依存せず
+/// 特定できるかの確認用。0x15 はログイン時のみ発火する可能性が高い（実機で要確認）。
+fn log_container_equips(player_uid: i64, v_data: &pb::PlayerSnapshot) {
+    let packages = v_data.item_package.as_ref().map(|p| &p.packages);
+    if let Some(packages) = packages {
+        let mut summary: Vec<String> = packages
+            .iter()
+            .map(|(pkg_id, bag)| format!("pkg{}:{}items", pkg_id, bag.items.len()))
+            .collect();
+        summary.sort();
+        info!("container packages: uid={player_uid} [{}]", summary.join(", "));
+    }
+    let Some(equip) = v_data.equip.as_ref() else {
+        info!("container equip: uid={player_uid} (no equip list)");
+        return;
+    };
+    let mut slots: Vec<_> = equip.equip_list.iter().collect();
+    slots.sort_by_key(|(slot, _)| **slot);
+    for (slot, info) in slots {
+        // item_uuid を全パッケージから探し、パッケージIDと config_id を特定する。
+        let mut found: Option<(i32, i32)> = None; // (pkg_id, config_id)
+        if let Some(packages) = packages {
+            for (pkg_id, bag) in packages {
+                if let Some(item) = bag.items.get(&(info.item_uuid as i64)) {
+                    found = Some((*pkg_id, item.config_id));
+                    break;
+                }
+            }
+        }
+        match found {
+            Some((pkg_id, config_id)) => info!(
+                "container equip: uid={player_uid} slot={slot} refine={} pkg={pkg_id} config_id={config_id}",
+                info.equip_slot_refine_level
+            ),
+            None => info!(
+                "container equip: uid={player_uid} slot={slot} refine={} item_uuid={} (item not found in packages)",
+                info.equip_slot_refine_level, info.item_uuid
+            ),
+        }
+    }
 }
 
 fn process_local_delta_batch(encounter: &mut Encounter, msg: pb::LocalDeltaBatch) {
@@ -575,9 +921,16 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
         let target_entity = get_or_create_entity(encounter, target_uid, target_entity_type);
 
         if let Some(attrs_collection) = scene_delta.attrs {
+            if crate::probe::enabled() {
+                crate::probe::log_attrs(
+                    &format!("delta {target_entity_type:?}"),
+                    target_uuid,
+                    &attrs_collection.attrs,
+                );
+            }
             match target_entity_type {
                 EntityKind::Player => {
-                    process_player_attrs(target_uid, target_entity, &attrs_collection.attrs);
+                    process_player_attrs(target_uid, target_entity, &attrs_collection.attrs, "delta");
                 }
                 EntityKind::Monster => {
                     process_monster_attrs(target_entity, &attrs_collection.attrs);
@@ -954,6 +1307,9 @@ fn process_enter_scene(encounter: &mut Encounter, msg: pb::EnterScene) {
     if player_uid == 0 {
         return;
     }
+    if crate::probe::enabled() {
+        crate::probe::log_attrs("enter_scene Player", player_ent.uuid, &attrs.attrs);
+    }
     // EnterScene は自キャラの入場通知。local_player_uid 未確定ならここで確定させる
     // （初回フル同期をこの経路で確実に取得するため）。
     if encounter.local_player_uid == 0 {
@@ -961,10 +1317,15 @@ fn process_enter_scene(encounter: &mut Encounter, msg: pb::EnterScene) {
     }
     let target_entity = get_or_create_entity(encounter, player_uid, EntityKind::Player);
     target_entity.entity_type = EntityKind::Player;
-    process_player_attrs(player_uid, target_entity, &attrs.attrs);
+    process_player_attrs(player_uid, target_entity, &attrs.attrs, "enter_scene");
 }
 
-fn process_player_attrs(uid: i64, player_entity: &mut Entity, attrs: &[pb::RawAttr]) {
+fn process_player_attrs(
+    uid: i64,
+    player_entity: &mut Entity,
+    attrs: &[pb::RawAttr],
+    src: &'static str,
+) {
     use crate::capture::binary_reader::BinaryReader;
 
     let mut cache_name: Option<String> = None;
@@ -974,7 +1335,7 @@ fn process_player_attrs(uid: i64, player_entity: &mut Entity, attrs: &[pb::RawAt
     let mut cache_season_str: Option<i32> = None;
 
     for attr in attrs {
-        // 空 raw_data はスキップしない: ステータスが 0 になった通知（ZDPS の isNoValue=空）を
+        // 空 raw_data はスキップしない: ステータスが 0 になった通知（no-value=空 raw_data）を
         // 取りこぼすと古い値が残るため、ステータス系アームで空を 0 として反映する。
         if attr.id == 0 {
             continue;
@@ -1091,6 +1452,19 @@ fn process_player_attrs(uid: i64, player_entity: &mut Entity, attrs: &[pb::RawAt
             }
             attr_type::ATTR_LUCKY_DMG => {
                 player_entity.lucky_dmg = Some(decode_stat_i32(&attr.raw_data));
+            }
+            // 装備スキルリスト（フルの場合は装備イマジンの一次情報。診断ログ+権威的更新）。
+            attr_type::ATTR_SKILL_LEVEL_ID_LIST => {
+                if !attr.raw_data.is_empty() {
+                    let infos = decode_skill_level_info_list(&attr.raw_data);
+                    log_skill_level_id_list(uid, src, &infos);
+                    apply_skill_list_imagines(uid, player_entity, &infos, src);
+                }
+            }
+            attr_type::ATTR_EQUIP_DATA => {
+                if !attr.raw_data.is_empty() {
+                    log_equip_data(uid, src, &attr.raw_data);
+                }
             }
             _ => {}
         }
@@ -1253,6 +1627,18 @@ mod tests {
             out.push(byte | 0x80);
         }
         out
+    }
+
+    /// summon_spawn_delta の凸数(AttrSkillRemodelLevel)付き版。
+    fn summon_spawn_delta_with_tier(owner_uid: i64, skill_id: i32, tier: i32) -> pb::SceneDelta {
+        let mut delta = summon_spawn_delta(owner_uid, skill_id);
+        if let Some(attrs) = delta.attrs.as_mut() {
+            attrs.attrs.push(pb::RawAttr {
+                id: attr_type::ATTR_SKILL_REMODEL_LEVEL,
+                raw_data: enc_varint(tier as u64),
+            });
+        }
+        delta
     }
 
     /// 召喚エンティティの spawn を模した合成 SceneDelta。オーナー(AttrTopSummonerId)と
@@ -1534,6 +1920,220 @@ mod tests {
             enc.entities[&6].pending_imagine.as_ref().map(|s| s.name.as_str()),
             Some("ロローラ"),
             "pending の再検知は pending のまま(昇格しない)"
+        );
+    }
+
+    // ⑤b 休眠相方（召喚報告ID未登録で二度と検知されない相方）による pending 永久スタックの
+    // 自己修復。相方 B' が rule5 を満たす新規名を出さない限り、pending(C) は PENDING_PROMOTE_HITS
+    // 回の再検知で単独確定へ昇格し、旧確定ペア[A,B]を両方破棄する（2枠目は「未知」へ縮小）。
+    // 閾値未満では確定は不変であることも境界値として確認する。
+    #[test]
+    fn pending_self_heals_after_threshold_hits_when_partner_stays_dormant() {
+        let mut enc = Encounter::default();
+        enc.entities.insert(7, player());
+
+        process_scene_delta(&mut enc, summon_spawn_delta(7, 1_007_740)); // A: ヴェノミーンの巣
+        process_scene_delta(&mut enc, summon_spawn_delta(7, 2_900_240)); // B: アルーナ
+        process_scene_delta(&mut enc, summon_spawn_delta(7, 2_900_840)); // C（新規）→ rule4: pending(hits=1)
+
+        // hits=2（PENDING_PROMOTE_HITS=3 未満）→ まだ昇格しない
+        process_scene_delta(&mut enc, summon_spawn_delta(7, 2_900_840));
+        assert_eq!(
+            enc.entities[&7].imagine_display_names(),
+            vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()],
+            "閾値未満の再検知では自己修復してはいけない"
+        );
+
+        // hits=3（閾値到達）→ 自己修復: 旧確定ペア[A,B]を両方破棄し、C だけを単独確定にする
+        process_scene_delta(&mut enc, summon_spawn_delta(7, 2_900_840));
+        assert_eq!(
+            enc.entities[&7].imagine_display_names(),
+            vec!["ロローラ".to_string()],
+            "休眠相方のため C だけの単独確定へ自己修復するべき"
+        );
+        assert!(enc.entities[&7].pending_imagine.is_none());
+
+        // 自己修復後に別の新規名 D を検知 → rule3（定員未満）で 2 枠目へ直接追加され、
+        // 混在ペアを経由せず [C, D] へ回復する。
+        process_scene_delta(&mut enc, summon_spawn_delta(7, 1_002_830)); // D: フロストオーガ
+        assert_eq!(
+            enc.entities[&7].imagine_display_names(),
+            vec!["ロローラ".to_string(), "フロストオーガ".to_string()]
+        );
+    }
+
+    // 装備スキルリスト/装備データ attr の decode 検証（タグ付き repeated 形式。
+    // 2026-07-10 ダンジョン実測 hex と同じワイヤ形式で roundtrip する）。
+    #[test]
+    fn decode_skill_level_info_list_roundtrip() {
+        let list = pb::SkillLevelList {
+            skills: vec![
+                pb::SkillLevelInfo { skill_id: 3926, current_level: 1, remodel_level: 5 },
+                pb::SkillLevelInfo { skill_id: 2424, current_level: 4, remodel_level: 0 },
+                pb::SkillLevelInfo { skill_id: 3910, current_level: 1, remodel_level: 3 },
+            ],
+        };
+        let decoded = decode_skill_level_info_list(&list.encode_to_vec());
+        assert_eq!(
+            decoded.iter().map(|i| (i.skill_id, i.current_level, i.remodel_level)).collect::<Vec<_>>(),
+            vec![(3926, 1, 5), (2424, 4, 0), (3910, 1, 3)]
+        );
+    }
+
+    // 実機ダンジョンで観測した attr116 の生バイト列（先頭部分）がそのまま decode できること。
+    #[test]
+    fn decode_skill_level_info_list_real_dungeon_bytes() {
+        let raw: Vec<u8> = vec![
+            0x0a, 0x05, 0x08, 0xd9, 0x36, 0x10, 0x01, // {skill_id=7001, lv=1}
+            0x0a, 0x07, 0x08, 0x8d, 0x12, 0x10, 0x1e, 0x18, 0x03, // {2317, lv30, t3}
+            0x0a, 0x05, 0x08, 0xf2, 0x19, 0x10, 0x01, // {3314, lv=1}
+        ];
+        let decoded = decode_skill_level_info_list(&raw);
+        assert_eq!(
+            decoded.iter().map(|i| (i.skill_id, i.current_level, i.remodel_level)).collect::<Vec<_>>(),
+            vec![(7001, 1, 0), (2317, 30, 3), (3314, 1, 0)]
+        );
+    }
+
+    #[test]
+    fn decode_equip_nine_list_roundtrip() {
+        let list = pb::EquipNineList {
+            equips: vec![
+                pb::EquipNine { slot: 200, equip_id: 2_001_032 },
+                pb::EquipNine { slot: 207, equip_id: 2_071_011 },
+            ],
+        };
+        let decoded = decode_equip_nine_list(&list.encode_to_vec());
+        assert_eq!(
+            decoded.iter().map(|e| (e.slot, e.equip_id)).collect::<Vec<_>>(),
+            vec![(200, 2_001_032), (207, 2_071_011)]
+        );
+    }
+
+    // 凸数(AttrSkillRemodelLevel)が表示ラベル「名前(N)」へ反映されること、凸数無し検知では
+    // (N) が付かないこと、再検知で凸数が判明したら追従し name_cache へ並列永続化されることを検証。
+    #[test]
+    fn imagine_tier_shown_in_labels_and_updates_on_redetection() {
+        let mut enc = Encounter::default();
+        let uid = 990_003; // name_cache はプロセス共有のため専用 uid を使う
+        enc.entities.insert(uid, player());
+
+        // 凸数付き検知 → ラベルに (5)。凸数無し検知 → 名前のみ。
+        process_scene_delta(&mut enc, summon_spawn_delta_with_tier(uid, 1_007_740, 5));
+        process_scene_delta(&mut enc, summon_spawn_delta(uid, 2_900_240));
+        assert_eq!(
+            enc.entities[&uid].imagine_display_labels(),
+            vec!["ヴェノミーンの巣(5)".to_string(), "アルーナ".to_string()]
+        );
+        // 一致判定・永続化用の名前一覧は凸数を含まない（名前のみ）。
+        assert_eq!(
+            enc.entities[&uid].imagine_display_names(),
+            vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()]
+        );
+
+        // 再検知で凸数が判明したら追従する（0→3）。
+        process_scene_delta(&mut enc, summon_spawn_delta_with_tier(uid, 2_900_240, 3));
+        assert_eq!(
+            enc.entities[&uid].imagine_display_labels(),
+            vec!["ヴェノミーンの巣(5)".to_string(), "アルーナ(3)".to_string()]
+        );
+
+        // name_cache へ凸数が並列配列として永続化される。
+        let cached = name_cache::lookup(uid).expect("cache entry should exist");
+        assert_eq!(
+            cached.imagine_names,
+            vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()]
+        );
+        assert_eq!(cached.imagine_tiers, vec![5, 3]);
+    }
+
+    /// クラススキル多数+イマジン奥義（canonical 39xx）を混ぜたフル装備スキルリストの
+    /// SceneDelta（attr 116）を作る。実機のフルリスト（40件超）を模して閾値を満たす。
+    fn skill_list_delta(uid: i64, arcane: &[(i32, i32)]) -> pb::SceneDelta {
+        let mut skills: Vec<pb::SkillLevelInfo> = (0..MIN_FULL_SKILL_LIST_LEN as i32)
+            .map(|i| pb::SkillLevelInfo {
+                skill_id: 2400 + i, // クラススキル帯（イマジンとして解決されない）
+                current_level: 30,
+                remodel_level: 6,
+            })
+            .collect();
+        for &(id, tier) in arcane {
+            skills.push(pb::SkillLevelInfo { skill_id: id, current_level: 1, remodel_level: tier });
+        }
+        let raw = pb::SkillLevelList { skills }.encode_to_vec();
+        let player_uuid = (uid << 16) | 640; // Player 型コード
+        pb::SceneDelta {
+            uuid: player_uuid,
+            attrs: Some(pb::EntityAttrs {
+                uuid: player_uuid,
+                attrs: vec![pb::RawAttr {
+                    id: attr_type::ATTR_SKILL_LEVEL_ID_LIST,
+                    raw_data: raw,
+                }],
+            }),
+            buff_list: None,
+            skill_effects: None,
+        }
+    }
+
+    // フル装備スキルリスト(attr 116)由来の装備イマジン確定: canonical 39xx（凸数付き）を
+    // 抽出して古い確定ペア・pending を権威的に置き換えること、クラススキルは無視されること、
+    // 部分リスト（閾値未満）では何もしないことを検証。他プレイヤーの appear/delta と自分の
+    // enter_scene が同じ経路を通る（process_player_attrs の 116 アーム）。
+    #[test]
+    fn full_skill_list_sets_imagines_authoritatively() {
+        let mut enc = Encounter::default();
+        let uid = 990_004; // name_cache はプロセス共有のため専用 uid を使う
+        enc.entities.insert(uid, player());
+
+        // 事前状態: 古い確定ペア[A,B]+pending(C) を召喚検知で作っておく。
+        process_scene_delta(&mut enc, summon_spawn_delta(uid, 1_007_740)); // A
+        process_scene_delta(&mut enc, summon_spawn_delta(uid, 2_900_240)); // B
+        process_scene_delta(&mut enc, summon_spawn_delta(uid, 2_900_840)); // C → pending
+        assert!(enc.entities[&uid].pending_imagine.is_some());
+
+        // フルリスト（クラススキル10+イマジン2: 3902=サンダーオーガ凸0, 3906=フロストオーガ凸2）
+        process_scene_delta(&mut enc, skill_list_delta(uid, &[(3902, 0), (3906, 2)]));
+        assert_eq!(
+            enc.entities[&uid].imagine_display_labels(),
+            vec!["サンダーオーガ".to_string(), "フロストオーガ(2)".to_string()]
+        );
+        assert!(enc.entities[&uid].pending_imagine.is_none());
+
+        // name_cache にも名前+凸数が永続化される。
+        let cached = name_cache::lookup(uid).expect("cache entry should exist");
+        assert_eq!(
+            cached.imagine_names,
+            vec!["サンダーオーガ".to_string(), "フロストオーガ".to_string()]
+        );
+        assert_eq!(cached.imagine_tiers, vec![0, 2]);
+
+        // 部分リスト（閾値未満）は無視され、確定表示は変わらない。
+        let mut partial = skill_list_delta(uid, &[(3942, 5)]);
+        if let Some(attrs) = partial.attrs.as_mut() {
+            let raw = pb::SkillLevelList {
+                skills: vec![pb::SkillLevelInfo {
+                    skill_id: 3942,
+                    current_level: 1,
+                    remodel_level: 5,
+                }],
+            }
+            .encode_to_vec();
+            attrs.attrs[0].raw_data = raw;
+        }
+        process_scene_delta(&mut enc, partial);
+        assert_eq!(
+            enc.entities[&uid].imagine_display_names(),
+            vec!["サンダーオーガ".to_string(), "フロストオーガ".to_string()],
+            "閾値未満の部分リストで確定表示を壊してはいけない"
+        );
+
+        // その後の装備替えは従来の召喚検知が追従する（新規名ロローラ→pending 止まり）。
+        process_scene_delta(&mut enc, summon_spawn_delta(uid, 2_900_840));
+        assert!(enc.entities[&uid].pending_imagine.is_some());
+        assert_eq!(
+            enc.entities[&uid].imagine_display_names(),
+            vec!["サンダーオーガ".to_string(), "フロストオーガ".to_string()]
         );
     }
 

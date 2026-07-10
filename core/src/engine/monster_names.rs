@@ -9,7 +9,7 @@ pub static MONSTER_NAMES_BOSS: LazyLock<HashMap<u32, String>> = LazyLock::new(||
     serde_json::from_str(data).expect("invalid MonsterNameBoss.json")
 });
 
-/// ボス/モンスター名（英語・BPSR-ZDPS 由来）。ja と同じ id 集合。
+/// ボス/モンスター名（英語）。ja と同じ id 集合。
 static MONSTER_NAMES_EN: LazyLock<HashMap<u32, String>> = LazyLock::new(|| {
     let data = include_str!("../../data/json/MonsterNameBoss.en.json");
     serde_json::from_str(data).expect("invalid MonsterNameBoss.en.json")

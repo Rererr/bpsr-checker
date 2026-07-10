@@ -267,16 +267,17 @@ const IMAGINE_DEBUFFS: &[(i64, i32, i64)] = &[
 ];
 
 /// 名前列 {imagine} 展開・見出し強制表示の確認用に、他プレイヤーへ表示名を直接注入する。
-/// (対象uid, イマジン名の配列) — ImagineSkillNames.json の表示名。SELF は実検知経路で付与するため
-/// ここには含めない（下の summon_attr_delta 参照）。
-const IMAGINE_ROSTER: &[(i64, &[&str])] = &[
-    (90002, &["バジリスク", "ティナ"]),
+/// (対象uid, (イマジン名, 凸数) の配列) — 名前は ImagineSkillNames.json の表示名。凸数 0 は
+/// 「未判明」＝(N) を付けない表示の確認用。SELF は実検知経路で付与するためここには含めない
+/// （下の summon_attr_delta 参照）。
+const IMAGINE_ROSTER: &[(i64, &[(&str, i32)])] = &[
+    (90002, &[("バジリスク", 5), ("ティナ", 3)]),
     // 90003(ハヤテ) は敢えて未登録＝イマジン未使用のプレイヤー表示（名前列に何も付かない）。
-    (90004, &["タータ", "アルーナ"]),
-    (90005, &["ティナ", "アルーナ"]),
-    (90006, &["タータ", "ティナ"]),
-    (90007, &["バジリスク", "タータ"]),
-    (90008, &["アルーナ", "ティナ"]),
+    (90004, &[("タータ", 1), ("アルーナ", 0)]),
+    (90005, &[("ティナ", 4), ("アルーナ", 5)]),
+    (90006, &[("タータ", 0), ("ティナ", 0)]),
+    (90007, &[("バジリスク", 2), ("タータ", 5)]),
+    (90008, &[("アルーナ", 3), ("ティナ", 1)]),
 ];
 
 /// 食事/シロップ（ConsumableBuffIds.json 収録 ID）。
@@ -419,9 +420,11 @@ fn prime_entities(enc: &EncounterMutex) {
                 ent.imagines = names
                     .iter()
                     .enumerate()
-                    .map(|(i, s)| crate::engine::entity::ImagineSlot {
-                        name: s.to_string(),
+                    .map(|(i, &(name, tier))| crate::engine::entity::ImagineSlot {
+                        name: name.to_string(),
                         last_seen: i as u64,
+                        tier,
+                        pending_hits: 0,
                     })
                     .collect();
             }
@@ -434,15 +437,25 @@ fn prime_entities(enc: &EncounterMutex) {
     // また 3体（枠は2つ）検知させることで、上限 MAX_IMAGINE_NAMES で古い順に落ちて最新2件
     // (アルーナ/ロローラ)だけが表示される＝「3つ以上表示しない」丸めの確認も兼ねる。
     if let Ok(mut e) = enc.lock() {
-        processor::process_scene_delta(&mut e, summon_attr_delta(player_uuid(SELF_UID), 1_007_740));
-        processor::process_scene_delta(&mut e, summon_attr_delta(player_uuid(SELF_UID), 2_900_240));
-        processor::process_scene_delta(&mut e, summon_attr_delta(player_uuid(SELF_UID), 2_900_840));
+        processor::process_scene_delta(
+            &mut e,
+            summon_attr_delta(player_uuid(SELF_UID), 1_007_740, 5),
+        );
+        processor::process_scene_delta(
+            &mut e,
+            summon_attr_delta(player_uuid(SELF_UID), 2_900_240, 3),
+        );
+        processor::process_scene_delta(
+            &mut e,
+            summon_attr_delta(player_uuid(SELF_UID), 2_900_840, 2),
+        );
     }
 }
 
-/// 召喚エンティティの spawn を模した合成 SceneDelta。オーナー(AttrTopSummonerId=91)と
-/// 召喚元スキル(AttrSkillId=100)だけを載せる。uuid はサマナ以外の型コードで Unknown 判定にする。
-fn summon_attr_delta(owner_uuid: i64, skill_id: i32) -> pb::SceneDelta {
+/// 召喚エンティティの spawn を模した合成 SceneDelta。オーナー(AttrTopSummonerId=91)・
+/// 召喚元スキル(AttrSkillId=100)・凸数(AttrSkillRemodelLevel=121)を載せる。
+/// uuid はサマナ以外の型コードで Unknown 判定にする。
+fn summon_attr_delta(owner_uuid: i64, skill_id: i32, tier: i32) -> pb::SceneDelta {
     use crate::protocol::constants::attr_type;
     let summon_uuid = (skill_id as i64) << 16 | 0x0100; // &0xFFFF=0x100 → EntityKind::Unknown
     pb::SceneDelta {
@@ -457,6 +470,10 @@ fn summon_attr_delta(owner_uuid: i64, skill_id: i32) -> pb::SceneDelta {
                 pb::RawAttr {
                     id: attr_type::ATTR_SKILL_ID,
                     raw_data: encode_varint(skill_id as u64),
+                },
+                pb::RawAttr {
+                    id: attr_type::ATTR_SKILL_REMODEL_LEVEL,
+                    raw_data: encode_varint(tier as u64),
                 },
             ],
         }),

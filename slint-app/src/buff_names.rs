@@ -1,6 +1,6 @@
 //! バフ/デバフ base_id → 表示名（data/BuffName.{ja,en}.json を埋め込み）。
 //! 表示言語は core の runtime_settings::display_lang() に追従。簡体字のバフ名ソースが
-//! 無いため zh は英語を表示する（ja は既存 curated、en は BPSR-ZDPS 由来）。
+//! 無いため zh は英語を表示する（ja は既存 curated、en は既存英訳辞書由来）。
 
 use std::collections::HashMap;
 use std::sync::LazyLock;

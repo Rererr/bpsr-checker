@@ -22,6 +22,11 @@ pub struct CachedPlayer {
     /// 表示中のバトルイマジン名（装備ベース or 発動で確定した値）。名前と同様に永続化する。
     #[serde(default)]
     pub imagine_names: Vec<String>,
+    /// `imagine_names` と同順のイマジンレベル（凸数）並列配列。0=未判明。
+    /// 旧バージョンのキャッシュには無いフィールドのため default（空）で前方/後方互換。
+    /// 長さが `imagine_names` と食い違う場合、読み手は不足分を 0 として扱う。
+    #[serde(default)]
+    pub imagine_tiers: Vec<i32>,
     #[serde(default)]
     pub last_seen_ms: u64,
 }
@@ -131,9 +136,10 @@ pub fn update(
     save_locked(&guard);
 }
 
-/// Record the displayed Battle Imagine names for a player. Persists on change
-/// only (same discipline as `update`). Empty `imagine_names` clears the entry.
-pub fn update_imagine(uid: i64, imagine_names: &[String]) {
+/// Record the displayed Battle Imagine names and tiers (凸数, 0=unknown) for a
+/// player. `imagine_tiers` is a parallel array to `imagine_names`. Persists on
+/// change only (same discipline as `update`). Empty `imagine_names` clears the entry.
+pub fn update_imagine(uid: i64, imagine_names: &[String], imagine_tiers: &[i32]) {
     if uid == 0 {
         return;
     }
@@ -141,8 +147,9 @@ pub fn update_imagine(uid: i64, imagine_names: &[String]) {
         return;
     };
     let entry = guard.entries.entry(uid).or_default();
-    if entry.imagine_names != imagine_names {
+    if entry.imagine_names != imagine_names || entry.imagine_tiers != imagine_tiers {
         entry.imagine_names = imagine_names.to_vec();
+        entry.imagine_tiers = imagine_tiers.to_vec();
         entry.last_seen_ms = now_ms();
         save_locked(&guard);
     }

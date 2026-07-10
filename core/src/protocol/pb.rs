@@ -13,8 +13,9 @@ pub struct EntityAttrs {
     #[prost(message, repeated, tag = "2")]
     pub attrs: ::prost::alloc::vec::Vec<RawAttr>,
 }
-/// RawAttr.raw_data の中身（ATTR_SKILL_LEVEL_ID_LIST）。装備中スキル1枠分。
-/// raw_data はこのメッセージを (varint 長)(本体) で連結した並び（タグなし）。
+/// RawAttr.raw_data の中身（ATTR_SKILL_LEVEL_ID_LIST）。スキル1枠分。
+/// raw_data は SkillLevelList（repeated field 1 のタグ付き形式）。2026-07-10 ダンジョン実測で
+/// タグ付き（0a …）形式と確定（旧実装の「(varint 長)(本体) 連結」は誤りで枠ズレしていた）。
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SkillLevelInfo {
     #[prost(int32, tag = "1")]
@@ -23,6 +24,25 @@ pub struct SkillLevelInfo {
     pub current_level: i32,
     #[prost(int32, tag = "3")]
     pub remodel_level: i32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SkillLevelList {
+    #[prost(message, repeated, tag = "1")]
+    pub skills: ::prost::alloc::vec::Vec<SkillLevelInfo>,
+}
+/// RawAttr.raw_data の中身（ATTR_EQUIP_DATA=200）。装備1枠分。
+/// raw_data は EquipNineList（repeated field 1 のタグ付き形式。SkillLevelList と同様）。
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct EquipNine {
+    #[prost(int32, tag = "1")]
+    pub slot: i32,
+    #[prost(int32, tag = "2")]
+    pub equip_id: i32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EquipNineList {
+    #[prost(message, repeated, tag = "1")]
+    pub equips: ::prost::alloc::vec::Vec<EquipNine>,
 }
 /// SceneDelta.effects(field 3) の要素
 /// duration_ms: 0/未設定=無期限、-1=永続、>0=ミリ秒の持続時間
@@ -39,7 +59,7 @@ pub struct TimedEffect {
     #[prost(int64, tag = "5")]
     pub extra: i64,
 }
-/// buff_list の 1 要素 (= ZDPS の BuffEffect)。
+/// buff_list の 1 要素 (= BuffEffect)。
 /// event_type は EBuffEventType (1=AddTo, 2=Remove, 4=Timer, 5=StackLayer …)、
 /// buff_uuid は対象バフのインスタンスキー、body_raw は LogicEffect (= BuffPayload) の bytes。
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -120,10 +140,29 @@ pub struct PlayerSnapshot {
     pub scene_data: ::core::option::Option<WorldLocation>,
     #[prost(message, optional, tag = "7")]
     pub item_package: ::core::option::Option<InvBags>,
+    #[prost(message, optional, tag = "12")]
+    pub equip: ::core::option::Option<EquipList>,
     #[prost(message, optional, tag = "57")]
     pub r#mod: ::core::option::Option<ModuleSet>,
     #[prost(message, optional, tag = "61")]
     pub profession_list: ::core::option::Option<ClassState>,
+}
+/// 装備中スロット一覧（CharSerialize.equip）。key=装備スロット番号。
+/// バトルイマジン枠の item_uuid を item_package(パッケージ type 6=バトルイマジン)の
+/// アイテムと突合すると、装備中イマジンのアイテム構成ID(config_id)が引ける。
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EquipList {
+    #[prost(map = "int32, message", tag = "1")]
+    pub equip_list: ::std::collections::HashMap<i32, EquipInfo>,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct EquipInfo {
+    #[prost(int32, tag = "1")]
+    pub equip_slot: i32,
+    #[prost(uint64, tag = "2")]
+    pub item_uuid: u64,
+    #[prost(int32, tag = "3")]
+    pub equip_slot_refine_level: i32,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct EntityVanish {
@@ -155,6 +194,8 @@ pub struct EnterSceneInfo {
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct InvItem {
+    #[prost(int32, tag = "2")]
+    pub config_id: i32,
     #[prost(message, optional, tag = "13")]
     pub mod_new_attr: ::core::option::Option<ModuleAttrs>,
 }
@@ -193,10 +234,37 @@ pub struct InvBag {
     #[prost(map = "int64, message", tag = "4")]
     pub items: ::std::collections::HashMap<i64, InvItem>,
 }
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+/// プロフェッション（職業）状態。ログイン時の SyncContainerData(0x15) に載るため、発動に
+/// 依存せず自キャラの装備イマジンが分かる（実機確認済 2026-07-10）:
+/// - aoyi_skill_info_map: 習得済み奥義/絶技（＝バトルイマジン）の全コレクション。
+///    key=skill_id（canonical 39xx）、value に凸数(remodel_level)。装備中とは限らない。
+/// - profession_list\[cur_profession_id\].slot_skill_info_map: 現在職業の装備スロット→skill_id。
+///    このうち skill_id が aoyi_skill_info_map に載っているものが装備中バトルイマジン。
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ClassState {
     #[prost(int32, tag = "1")]
     pub cur_profession_id: i32,
+    #[prost(map = "int32, message", tag = "4")]
+    pub profession_list: ::std::collections::HashMap<i32, ProfessionInfo>,
+    #[prost(map = "int32, message", tag = "7")]
+    pub aoyi_skill_info_map: ::std::collections::HashMap<i32, ProfessionSkillInfo>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ProfessionInfo {
+    #[prost(int32, tag = "1")]
+    pub profession_id: i32,
+    #[prost(map = "int32, int32", tag = "7")]
+    pub slot_skill_info_map: ::std::collections::HashMap<i32, i32>,
+}
+/// 装備スキル1枠分（remodel_level=イマジンレベル/凸数）。
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ProfessionSkillInfo {
+    #[prost(int32, tag = "1")]
+    pub skill_id: i32,
+    #[prost(int32, tag = "2")]
+    pub level: i32,
+    #[prost(int32, tag = "4")]
+    pub remodel_level: i32,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct WorldLocation {

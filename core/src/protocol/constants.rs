@@ -43,10 +43,16 @@ pub mod attr_type {
     pub const ATTR_SEASON_LEVEL: i32 = 0x2756;
     pub const ATTR_SEASON_STRENGTH: i32 = 0x2CB0;
     pub const ATTR_POS: i32 = 0x34;
-    // 装備中スキルの一覧（SkillLevelInfo の連結列。※イマジン装備の在り処ではない＝スキルLvl差分）。
+    // 装備中スキルの一覧（SkillLevelInfo の連結列）。装備していればイマジンの奥義/絶技スキルも
+    // 載るため、発動に依存しない「漏れの無いイマジン表示」の一次情報候補。過去 probe(2026-07-03)は
+    // 「スキルLvl差分のみ」と観測したが、それは delta 経路のみの観測だった可能性が高く、
+    // EnterScene/AOI appear のフルスナップショットでは全装備スキルが載る想定（実機検証中）。
     pub const ATTR_SKILL_LEVEL_ID_LIST: i32 = 0x74; // 116
+    // 装備データ（EquipNine{slot, equip_id} の連結列）。
+    // イマジンのアイテム構成IDが載るかの実機検証用。
+    pub const ATTR_EQUIP_DATA: i32 = 0xC8; // 200
 
-    // 召喚エンティティ関連（バトルイマジン検知に使う。BPSR-ZDPS の EnumEAttrType 準拠）。
+    // 召喚エンティティ関連（バトルイマジン検知に使う。EAttrType の実機観測値準拠）。
     // 召喚は AttrSkillId=召喚元スキル(イマジンの正体)・AttrTopSummonerId=オーナー(プレイヤー) を持つ。
     pub const ATTR_SUMMONER_ID: i32 = 0x5A; // 90  直接の召喚主
     pub const ATTR_TOP_SUMMONER_ID: i32 = 0x5B; // 91  最上位の召喚主（＝プレイヤー）

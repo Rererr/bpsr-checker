@@ -10,7 +10,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-blue)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/exU3gPBx3)
 
-Built with **Slint (a native Rust GUI)**. It focuses on just the features you actually need during combat and measurement, so it stays genuinely lightweight — low CPU and memory, and smooth even over long sessions — while still letting you display a semi-transparent overlay on top of the game. **It never sends any data to external servers.**
+Built with **Slint (a native Rust GUI)**. It focuses on just the features you actually need during combat and measurement, so it keeps CPU and memory usage low and stays smooth even over long sessions, while still letting you display a semi-transparent overlay on top of the game. **It never sends any data to external servers.**
 
 <p align="center">
   <img src="docs/images/main.png" alt="Main window — DPS list (semi-transparent overlay)" width="820">
@@ -119,7 +119,7 @@ For details, see [`core/src/capture/windivert.rs`](./core/src/capture/windivert.
 
 **Left-click** the tray icon to **restore the main window**; **right-click** to open the menu.
 
-- **Click-through** — Toggle on/off. While on, all windows pass the mouse through (so you can operate the game behind them), so **always disable it from the tray menu**.
+- **Click-through** — Toggle on/off. While on, all windows pass the mouse through (so you can operate the game behind them), which is why you **must always disable it from the tray menu**.
 - **Show/hide main**
 - **Quit**
 

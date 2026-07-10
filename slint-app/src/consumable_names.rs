@@ -1,5 +1,5 @@
 //! 食事/シロップ base_id → 日本語効果ラベル（data/ConsumableBuffNames.ja.json を埋め込み）。
-//! JSON は scripts/gen-consumable-names.py が BPSR-ZDPS BuffTable から生成する。
+//! JSON は scripts/gen-consumable-names.py が BuffTable データから生成する。
 
 use std::collections::HashMap;
 use std::sync::OnceLock;

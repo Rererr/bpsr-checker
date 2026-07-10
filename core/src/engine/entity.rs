@@ -16,10 +16,18 @@ pub struct SkillMeta {
 
 /// 検知済みバトルイマジン1枠。`last_seen` は wall-clock ではなく processor が発行する
 /// 単調増加の検知シーケンス番号（`next_imagine_seq`）。鮮度比較にのみ使う。
+///
+/// `tier` はイマジンレベル（凸数。召喚 spawn の `ATTR_SKILL_REMODEL_LEVEL` から取得）。
+/// 0 は「未判明」を意味し表示に `(N)` を付けない。再検知で非0が来たら更新する。
+///
+/// `pending_hits` は `pending_imagine` としての再検知回数（休眠相方によるスタック自己修復の
+/// 判定に使う）。**確定済み（`imagines` 内）のスロットでは常に 0 で無視する**フィールド。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImagineSlot {
     pub name: String,
     pub last_seen: u64,
+    pub tier: i32,
+    pub pending_hits: u32,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -109,8 +117,29 @@ pub struct Entity {
 }
 
 impl Entity {
-    /// 表示用のイマジン名一覧（挿入順=表示順で安定）。compute/UI はこれを読む。
+    /// 表示用のイマジン名一覧（挿入順=表示順で安定）。名前のみ（凸数なし）。
+    /// 検知ロジックの一致判定・name_cache 永続化はこちらを使う。
     pub fn imagine_display_names(&self) -> Vec<String> {
         self.imagines.iter().map(|s| s.name.clone()).collect()
+    }
+
+    /// イマジン凸数一覧（`imagine_display_names` と同順の並列配列）。name_cache 永続化用。
+    pub fn imagine_tiers(&self) -> Vec<i32> {
+        self.imagines.iter().map(|s| s.tier).collect()
+    }
+
+    /// 表示用のイマジンラベル一覧。凸数が判明していれば「名前(N)」、未判明なら名前のみ。
+    /// compute/UI の表示はこちらを読む。
+    pub fn imagine_display_labels(&self) -> Vec<String> {
+        self.imagines
+            .iter()
+            .map(|s| {
+                if s.tier > 0 {
+                    format!("{}({})", s.name, s.tier)
+                } else {
+                    s.name.clone()
+                }
+            })
+            .collect()
     }
 }

@@ -224,7 +224,7 @@ pub fn get_dmg_taken_attackers(
         elapsed_secs,
         &player.time_series,
         ConsumableTimes::default(), // inspected_player 見出しは食事/シロップ非表示
-        format_imagine_suffix(&player.imagine_display_names()), // 見出しは使用イマジンを強制表示
+        format_imagine_suffix(&player.imagine_display_labels()), // 見出しは使用イマジンを強制表示
     );
 
     let mut top_value = 0.0_f64;
@@ -293,7 +293,7 @@ pub fn get_dmg_taken_skills(
         elapsed_secs,
         &player.time_series,
         ConsumableTimes::default(), // inspected_player 見出しは食事/シロップ非表示
-        format_imagine_suffix(&player.imagine_display_names()), // 見出しは使用イマジンを強制表示
+        format_imagine_suffix(&player.imagine_display_labels()), // 見出しは使用イマジンを強制表示
     );
 
     let attacker_total_i64 = attacker_total as i64;
@@ -430,7 +430,7 @@ fn build_players_window_unsorted(
             elapsed_secs,
             &entity.time_series,
             consumable,
-            format_imagine_suffix(&entity.imagine_display_names()),
+            format_imagine_suffix(&entity.imagine_display_labels()),
         );
         window.player_rows.push(row);
     }
@@ -448,7 +448,8 @@ struct ConsumableTimes {
     syrup_base_id: i32,
 }
 
-/// 装備中バトルイマジン名から "-ティナ/アルーナ" 形式の表示用サフィックスを作る。
+/// 装備中バトルイマジンの表示ラベル（`imagine_display_labels`＝凸数判明時は「名前(N)」）から
+/// "-ティナ(5)/アルーナ" 形式の表示用サフィックスを作る。
 /// 未装備なら空文字（テンプレート展開・見出し強制表示のいずれも自然に何も付かない）。
 /// 装備枠は2つ（[`MAX_IMAGINE_NAMES`]）なので、万一それ以上溜まっていても表示は先頭 MAX 件に丸める
 /// （検知/キャッシュ側で既に丸めているが、表示層でも保険をかけて「3つ以上」を出さない）。
@@ -563,7 +564,7 @@ pub fn get_skills(
         elapsed_secs,
         &player.time_series,
         ConsumableTimes::default(), // inspected_player 見出しは食事/シロップ非表示
-        format_imagine_suffix(&player.imagine_display_names()), // 見出しは使用イマジンを強制表示
+        format_imagine_suffix(&player.imagine_display_labels()), // 見出しは使用イマジンを強制表示
     );
 
     let mut skill_window = SkillsWindow {

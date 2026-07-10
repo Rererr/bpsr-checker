@@ -3,7 +3,7 @@ use std::sync::LazyLock;
 
 use crate::engine::runtime_settings::{self, Lang};
 
-/// スキル名（英語・BPSR-ZDPS 由来で品質向上済み）。全 id を網羅する基準辞書。
+/// スキル名（英語）。全 id を網羅する基準辞書。
 /// 公式 JA 名が無い id・JA 以外の表示言語はこちらを使う。
 static SKILL_NAMES_EN: LazyLock<HashMap<i32, String>> = LazyLock::new(|| {
     let data = include_str!("../../data/json/SkillName.json");
@@ -18,6 +18,12 @@ static SKILL_NAMES_JA: LazyLock<HashMap<i32, String>> = LazyLock::new(|| {
     let data = include_str!("../../data/json/SkillName.ja.json");
     serde_json::from_str(data).expect("invalid SkillName.ja.json")
 });
+
+/// 日本語スキル名の直接参照（表示言語設定に依存しない）。イマジン奥義/絶技スキルの
+/// 判別（名前が「奥義！」「絶技！」で始まるか）等、内部ロジック用。未収録 id は None。
+pub fn skill_name_ja(id: i32) -> Option<&'static str> {
+    SKILL_NAMES_JA.get(&id).map(String::as_str)
+}
 
 pub fn get_skill_name(id: i32) -> String {
     // 表示言語が JA かつ公式 JA 名がある id のみ JA を優先。それ以外は EN（全言語共通）。

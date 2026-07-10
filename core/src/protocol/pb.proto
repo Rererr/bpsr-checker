@@ -24,13 +24,25 @@ message EntityAttrs {
   repeated RawAttr attrs = 2;
 }
 
-// RawAttr.raw_data の中身（ATTR_SKILL_LEVEL_ID_LIST）。装備中スキル1枠分。
-// raw_data はこのメッセージを (varint 長)(本体) で連結した並び（タグなし）。
+// RawAttr.raw_data の中身（ATTR_SKILL_LEVEL_ID_LIST）。スキル1枠分。
+// raw_data は SkillLevelList（repeated field 1 のタグ付き形式）。2026-07-10 ダンジョン実測で
+// タグ付き（0a …）形式と確定（旧実装の「(varint 長)(本体) 連結」は誤りで枠ズレしていた）。
 message SkillLevelInfo {
   int32 skill_id = 1;
   int32 current_level = 2;
   int32 remodel_level = 3;
 }
+
+message SkillLevelList { repeated SkillLevelInfo skills = 1; }
+
+// RawAttr.raw_data の中身（ATTR_EQUIP_DATA=200）。装備1枠分。
+// raw_data は EquipNineList（repeated field 1 のタグ付き形式。SkillLevelList と同様）。
+message EquipNine {
+  int32 slot = 1;
+  int32 equip_id = 2;
+}
+
+message EquipNineList { repeated EquipNine equips = 1; }
 
 // SceneDelta.effects(field 3) の要素
 // duration_ms: 0/未設定=無期限、-1=永続、>0=ミリ秒の持続時間
@@ -42,7 +54,7 @@ message TimedEffect {
   int64 extra = 5;
 }
 
-// buff_list の 1 要素 (= ZDPS の BuffEffect)。
+// buff_list の 1 要素 (= BuffEffect)。
 // event_type は EBuffEventType (1=AddTo, 2=Remove, 4=Timer, 5=StackLayer …)、
 // buff_uuid は対象バフのインスタンスキー、body_raw は LogicEffect (= BuffPayload) の bytes。
 message BuffEvent {
@@ -97,8 +109,20 @@ message PlayerSnapshot {
   PlayerProfile char_base = 2;
   WorldLocation scene_data = 3;
   InvBags item_package = 7;
+  EquipList equip = 12;
   ModuleSet mod = 57;
   ClassState profession_list = 61;
+}
+
+// 装備中スロット一覧（CharSerialize.equip）。key=装備スロット番号。
+// バトルイマジン枠の item_uuid を item_package(パッケージ type 6=バトルイマジン)の
+// アイテムと突合すると、装備中イマジンのアイテム構成ID(config_id)が引ける。
+message EquipList { map<int32, EquipInfo> equip_list = 1; }
+
+message EquipInfo {
+  int32 equip_slot = 1;
+  uint64 item_uuid = 2;
+  int32 equip_slot_refine_level = 3;
 }
 
 message EntityVanish { int64 uuid = 1; }
@@ -116,7 +140,10 @@ message EntityAppear {
 message EnterScene { EnterSceneInfo enter_scene_info = 1; }
 message EnterSceneInfo { EntityAppear player_ent = 2; }
 
-message InvItem { ModuleAttrs mod_new_attr = 13; }
+message InvItem {
+  int32 config_id = 2;
+  ModuleAttrs mod_new_attr = 13;
+}
 
 message InvBags { map<int32, InvBag> packages = 1; }
 
@@ -132,7 +159,29 @@ message SocialRequest { SocialBody data = 1; }
 
 message InvBag { map<int64, InvItem> items = 4; }
 
-message ClassState { int32 cur_profession_id = 1; }
+// プロフェッション（職業）状態。ログイン時の SyncContainerData(0x15) に載るため、発動に
+// 依存せず自キャラの装備イマジンが分かる（実機確認済 2026-07-10）:
+// - aoyi_skill_info_map: 習得済み奥義/絶技（＝バトルイマジン）の全コレクション。
+//   key=skill_id（canonical 39xx）、value に凸数(remodel_level)。装備中とは限らない。
+// - profession_list[cur_profession_id].slot_skill_info_map: 現在職業の装備スロット→skill_id。
+//   このうち skill_id が aoyi_skill_info_map に載っているものが装備中バトルイマジン。
+message ClassState {
+  int32 cur_profession_id = 1;
+  map<int32, ProfessionInfo> profession_list = 4;
+  map<int32, ProfessionSkillInfo> aoyi_skill_info_map = 7;
+}
+
+message ProfessionInfo {
+  int32 profession_id = 1;
+  map<int32, int32> slot_skill_info_map = 7;
+}
+
+// 装備スキル1枠分（remodel_level=イマジンレベル/凸数）。
+message ProfessionSkillInfo {
+  int32 skill_id = 1;
+  int32 level = 2;
+  int32 remodel_level = 4;
+}
 
 message WorldLocation {
   uint32 level_map_id = 6;

@@ -2295,15 +2295,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let uid_candidates = Rc::new(VecModel::<UidCandidate>::default());
     main.set_uid_candidates(uid_candidates.clone().into());
 
-    // バトルイマジン名メンテ一覧（設定パネルopen時／編集時のみ再構築。戦闘ポーリングでは触らない）。
+    // バトルイマジン名メンテ一覧（別ウィンドウを開く時／編集時のみ再構築。戦闘ポーリングでは触らない）。
     // 開発者モード(BPSR_DEV=1)のときだけイマジン名列の編集・GitHub反映ボタンをUIに出す。
     let imagine_dev_mode = std::env::var("BPSR_DEV").is_ok_and(|v| v == "1");
-    main.set_imagine_dev_mode(imagine_dev_mode);
     let imagine_rows_model = Rc::new(VecModel::<ImagineNameRowUi>::default());
-    main.set_imagine_rows(imagine_rows_model.clone().into());
     let imagine_expanded: Rc<RefCell<std::collections::HashSet<String>>> =
         Rc::new(RefCell::new(std::collections::HashSet::new()));
     let imagine_filter: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
+    // バトルイマジン名メンテ窓（通常の OS タイトルバー付き。MainWindow/オーバーレイと違い
+    // no-frame にせず always-on-top にもしない。×閉じは Slint 既定で hide のみ＝プロセス継続）。
+    let imagine_window = ImagineNamesWindow::new()?;
+    imagine_window.set_imagine_dev_mode(imagine_dev_mode);
+    imagine_window.set_imagine_rows(imagine_rows_model.clone().into());
+    // 初回 show() 直後にのみ既定サイズを強制する（以後はユーザーのリサイズを尊重）。
+    // Slint の preferred-width/height は winit のデフォルト初期サイズ(800x600)に負けることが
+    // あるため、MainWindow/オーバーレイと同じ window_state::enforce_size(winit 直叩き)で確実に適用する。
+    let imagine_window_sized = Rc::new(Cell::new(false));
 
     // ステータス窓の表示項目トグル一覧（設定の有効集合から生成・トグルで再生成）。
     // 設定パネルでは2列表示するため、グループ境界で左右へ分割した2モデルを持つ。
@@ -2682,42 +2689,63 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
-    // 設定パネルの開閉。開く瞬間にテンプレ入力欄・自キャラUID欄・イマジン名一覧へ最新値を push。
-    // 設定パネルは `if root.settings-open` で開閉毎に作り直されるため、イマジン名一覧も
-    // 開くたびに rebuild すれば十分（閉じている間の編集クロバー懸念は無い）。
+    // 設定パネルの開閉。開く瞬間にテンプレ入力欄・自キャラUID欄へ最新値を push。
     {
         let w = main.as_weak();
         let cfg_ts = cfg.clone();
         let enc_ts = enc.clone();
         let cands_ts = uid_candidates.clone();
-        let imagine_rows_ts = imagine_rows_model.clone();
-        let imagine_expanded_ts = imagine_expanded.clone();
-        let imagine_filter_ts = imagine_filter.clone();
         main.on_toggle_settings(move || {
             if let Some(m) = w.upgrade() {
                 let opening = !m.get_settings_open();
                 if opening {
                     refresh_templates(&m, &cfg_ts.borrow());
                     refresh_selected_uid(&m, &enc_ts, &cands_ts);
-                    m.set_imagine_filter_value(imagine_filter_ts.borrow().clone().into());
-                    // 前回の反映結果を再開時まで残すと紛らわしいためクリアする。
-                    m.set_imagine_push_status("".into());
-                    rebuild_imagine_rows(
-                        &imagine_rows_ts,
-                        &imagine_expanded_ts.borrow(),
-                        &imagine_filter_ts.borrow(),
-                    );
                 }
                 m.set_settings_open(opening);
             }
         });
     }
-    // イマジン名一覧: 展開/表示名/IGNORE/リセット/フィルタ（誰でも）＋devリネーム/DB反映（devのみ）。
+    // 「別ウィンドウで開く」ボタン→ イマジン名メンテ窓の絞り込み値/一覧を最新化して表示する。
+    {
+        let iw = imagine_window.as_weak();
+        let imagine_rows_ow = imagine_rows_model.clone();
+        let imagine_expanded_ow = imagine_expanded.clone();
+        let imagine_filter_ow = imagine_filter.clone();
+        let imagine_window_sized_ow = imagine_window_sized.clone();
+        main.on_imagine_open_window(move || {
+            if let Some(w) = iw.upgrade() {
+                w.set_imagine_filter_value(imagine_filter_ow.borrow().clone().into());
+                // 前回の反映結果を再開時まで残すと紛らわしいためクリアする。
+                w.set_imagine_push_status("".into());
+                rebuild_imagine_rows(
+                    &imagine_rows_ow,
+                    &imagine_expanded_ow.borrow(),
+                    &imagine_filter_ow.borrow(),
+                );
+                let _ = w.show();
+                if !imagine_window_sized_ow.get() {
+                    window_state::enforce_size(
+                        w.window(),
+                        &window_state::WinRect {
+                            x: 0,
+                            y: 0,
+                            w: 620,
+                            h: 520,
+                        },
+                    );
+                    imagine_window_sized_ow.set(true);
+                }
+            }
+        });
+    }
+    // イマジン名一覧（イマジン名メンテ窓）: 展開/表示名/IGNORE/リセット/フィルタ（誰でも）
+    // ＋devリネーム/DB反映（devのみ）。
     {
         let imagine_rows_ie = imagine_rows_model.clone();
         let imagine_expanded_ie = imagine_expanded.clone();
         let imagine_filter_ie = imagine_filter.clone();
-        main.on_imagine_toggle_expand(move |canonical| {
+        imagine_window.on_imagine_toggle_expand(move |canonical| {
             {
                 let mut set = imagine_expanded_ie.borrow_mut();
                 if !set.remove(canonical.as_str()) {
@@ -2734,7 +2762,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         // 表示名の編集は永続化のみ行いモデルを rebuild しない（TemplateField と同じ方針。
         // TextInput の text: バインドを編集の都度再送するとカーソル位置がクロバーされるため）。
-        main.on_imagine_set_display(move |canonical, val| {
+        imagine_window.on_imagine_set_display(move |canonical, val| {
             let display = (!val.is_empty()).then(|| val.to_string());
             engine::imagine_overrides::set_display(canonical.as_str(), display);
         });
@@ -2743,7 +2771,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let imagine_rows_ii = imagine_rows_model.clone();
         let imagine_expanded_ii = imagine_expanded.clone();
         let imagine_filter_ii = imagine_filter.clone();
-        main.on_imagine_toggle_ignore(move |canonical| {
+        imagine_window.on_imagine_toggle_ignore(move |canonical| {
             let current =
                 engine::imagine_overrides::get(canonical.as_str()).is_some_and(|o| o.ignored);
             engine::imagine_overrides::set_ignored(canonical.as_str(), !current);
@@ -2758,7 +2786,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let imagine_rows_ir = imagine_rows_model.clone();
         let imagine_expanded_ir = imagine_expanded.clone();
         let imagine_filter_ir = imagine_filter.clone();
-        main.on_imagine_reset(move |canonical| {
+        imagine_window.on_imagine_reset(move |canonical| {
             engine::imagine_overrides::clear(canonical.as_str());
             rebuild_imagine_rows(
                 &imagine_rows_ir,
@@ -2773,7 +2801,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let imagine_rows_in = imagine_rows_model.clone();
         let imagine_expanded_in = imagine_expanded.clone();
         let imagine_filter_in = imagine_filter.clone();
-        main.on_imagine_set_name(move |canonical, val| {
+        imagine_window.on_imagine_set_name(move |canonical, val| {
             if !imagine_dev_mode {
                 return;
             }
@@ -2796,9 +2824,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // devのみ有効。git push は資格情報プロンプト/低速回線/pre-pushフックでブロックし得る
         // ネットワークI/O（他のローカルgit操作と違いUIスレッドで同期実行すると凍結し得る）ため、
         // 別スレッドで実行し、結果は invoke_from_event_loop 経由でUIスレッドへ反映する。
-        // Weak<MainWindow> は Send のためスレッドへ move できる。
-        let w = main.as_weak();
-        main.on_imagine_push_db(move || {
+        // Weak<ImagineNamesWindow> は Send のためスレッドへ move できる。
+        let w = imagine_window.as_weak();
+        imagine_window.on_imagine_push_db(move || {
             if !imagine_dev_mode {
                 return;
             }
@@ -2820,7 +2848,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let imagine_rows_if = imagine_rows_model.clone();
         let imagine_expanded_if = imagine_expanded.clone();
         let imagine_filter_if = imagine_filter.clone();
-        main.on_imagine_set_filter(move |val| {
+        imagine_window.on_imagine_set_filter(move |val| {
             *imagine_filter_if.borrow_mut() = val.to_string();
             rebuild_imagine_rows(
                 &imagine_rows_if,

@@ -438,3 +438,13 @@ msgstr "No matching imagines"
 
 msgid "非表示"
 msgstr "Hide"
+
+# イマジン名メンテ（別ウィンドウ）の起動セクション・窓タイトル
+msgid "バトルイマジンの表示名を編集する専用ウィンドウを開きます。"
+msgstr "Opens a dedicated window for editing Battle Imagine display names."
+
+msgid "別ウィンドウで開く"
+msgstr "Open in New Window"
+
+msgid "イマジン名のメンテナンス"
+msgstr "Imagine Name Maintenance"

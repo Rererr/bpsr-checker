@@ -54,3 +54,17 @@ node scripts/gen-names.mjs --zdps <path>
 ```
 
 ゲーム更新で BPSR-ZDPS が更新されたら再実行する。
+
+## S3 更新（2026-07-17）
+
+日本版シーズン3（Echoes of Ember・新クラス「ツインストライカー」）対応で辞書を一括更新した。
+
+- **ソース**: (1) BPSR-ZDPS の 2026-07-06 版テーブル（MIT） (2) 所有 JA ビルド（S3 更新済み
+  `m0.pkg`）から `tools/extract-ja-names.mjs buildlang` で再抽出した多言語 loc
+  （ja 128,884 / en 73,555 件・gitignore）。
+- **JA 補完の手法**: EN 名 → en loc の一意一致 → 同 locId の ja（曖昧・0件はスキップ＝EN
+  フォールバック維持）。中国語残骸は zh-Hans loc の値逆引きを優先鍵に是正。
+- **更新内容**: イマジン names_ja 欠落29件補完＋召喚ID再生成 / スキル EN +208・JA +21・
+  残骸是正65件（ツインストライカーのコンボは公式基本名＋段数で統一） / ボス名 151件追加
+  （211→362） / 食事・シロップ ID 集合を BPSR-ZDPS の `Icon` prefix 由来へ切替
+  （旧: resonance-logs-cn 由来。AGPL 依存の解消）。

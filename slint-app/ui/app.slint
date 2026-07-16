@@ -189,6 +189,22 @@ struct ResultSkillRowUi {
     selected: bool,
 }
 
+// バトルイマジン名メンテ（設定パネル・全幅セクション）の1行。
+// スキル名(main-skill/clone-skills)は Rust が skill_names 経由で解決した表示言語追従の文字列。
+// imagine-name は Git DB(ImagineSkillNames.json) の正典名（devモードのみ編集可）、
+// display-name はユーザーのローカル表示名上書き（空=未設定）。canonical はグループの識別キー
+// （＝現在の imagine-name と同値。上書き/展開状態の参照キーにも使う）。
+struct ImagineNameRowUi {
+    canonical: string,
+    imagine-name: string,
+    main-skill: string,
+    display-name: string,
+    ignored: bool,
+    has-clones: bool,
+    expanded: bool,
+    clone-skills: [string],
+}
+
 // アクセントカラーテーマ。設定の accent-theme プリセットに応じて Rust が起動時/変更時に set する。
 // accent=文字・枠・選択ハイライト系 / accent-strong=塗りつぶし系（タブ・チェック・スライダー）。
 export global Theme {
@@ -1744,6 +1760,206 @@ component HistorySection inherits SectionCard {
     ToggleRow { label: @tr("自分のグラフを表示"); checked: root.cfg.graph-for-local; toggled => { root.set-bool("graph-for-local", !root.cfg.graph-for-local); } }
 }
 
+// バトルイマジン名メンテ（常に全幅・「ウィンドウ」「テンプレート」と同じ並びに配置）。
+// スキル名列＝ゲームのスキル名（メイン＋分身をアコーディオンで束ねる。編集不可）。
+// イマジン名列＝Git DB(ImagineSkillNames.json)の正典名（開発者モード限定で編集可）。
+// 表示名列＝ユーザーのローカル上書き（空ならイマジン名にフォールバック。IGNOREで非表示）。
+//
+// 入力中クロバー回避: TemplateField と同じ方針で、イマジン名/表示名 TextInput の `text:` は
+// 各行モデルの当該フィールドへバインドするが、Rust 側は「編集の都度」再送しない
+// （set-display/set-name コールバックは永続化のみ行い rebuild しない）。展開/IGNORE/リセット/
+// フィルタ等の非タイプ操作のみモデルを再構築する。
+component ImagineNamesSection inherits SectionCard {
+    in property <[ImagineNameRowUi]> rows;
+    in property <bool> dev-mode;
+    in property <string> push-status;
+    in property <string> filter-value;
+    callback toggle-expand(string);
+    callback set-display(string, string);
+    callback toggle-ignore(string);
+    callback reset(string);
+    callback set-name(string, string);
+    callback push-db();
+    callback set-filter(string);
+    title: @tr("イマジン名");
+    // 絞り込み＋（開発者モードのみ）GitHubへ反映
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 6px;
+        Rectangle {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            height: 26px;
+            background: SettingsStyle.control-bg;
+            border-width: 1px;
+            border-color: filter-ti.has-focus ? Theme.accent : #ffffff26;
+            border-radius: SettingsStyle.radius;
+            if filter-ti.text == "": Text {
+                x: 6px;
+                text: @tr("絞り込み（名前で検索）");
+                color: SettingsStyle.hint;
+                font-size: 11px;
+                vertical-alignment: center;
+            }
+            filter-ti := TextInput {
+                x: 5px;
+                width: parent.width - 10px;
+                height: 100%;
+                vertical-alignment: center;
+                single-line: true;
+                color: #ddd;
+                font-size: 11px;
+                text: root.filter-value;
+                edited => { root.set-filter(self.text); }
+            }
+        }
+        if root.dev-mode: push-btn := TouchArea {
+            width: 96px;
+            clicked => { root.push-db(); }
+            Rectangle {
+                background: push-btn.has-hover ? SettingsStyle.control-bg-hover : SettingsStyle.control-bg;
+                animate background { duration: 100ms; easing: ease-out; }
+                border-radius: SettingsStyle.radius;
+                Text { text: @tr("GitHubへ反映"); color: #cdd; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; }
+            }
+        }
+    }
+    if root.dev-mode && root.push-status != "": HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        Text {
+            text: root.push-status;
+            color: SettingsStyle.hint;
+            font-size: SettingsStyle.hint-size;
+            wrap: word-wrap;
+        }
+    }
+    // 列見出し
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 6px;
+        Text { text: @tr("スキル名"); color: SettingsStyle.group-head; font-size: SettingsStyle.group-head-size; horizontal-stretch: 1; min-width: 0px; }
+        Text { text: @tr("イマジン名"); color: SettingsStyle.group-head; font-size: SettingsStyle.group-head-size; width: 110px; }
+        Text { text: @tr("表示名"); color: SettingsStyle.group-head; font-size: SettingsStyle.group-head-size; horizontal-stretch: 1; min-width: 0px; }
+        Text { text: ""; width: 50px; }
+        Text { text: ""; width: 50px; }
+    }
+    if root.rows.length == 0: HorizontalLayout {
+        padding-left: 10px;
+        Text {
+            text: @tr("該当するイマジンがありません");
+            color: SettingsStyle.hint;
+            font-size: SettingsStyle.hint-size;
+        }
+    }
+    for row in root.rows: VerticalLayout {
+        spacing: 0px;
+        Rectangle {
+            height: SettingsStyle.row-height;
+            background: row-ta.has-hover ? SettingsStyle.row-hover : transparent;
+            animate background { duration: 100ms; easing: ease-out; }
+            opacity: row.ignored ? 0.45 : 1.0;
+            // 行全体のホバー表示のみ（クリックは各セルの TouchArea/TextInput が個別に捕捉する）。
+            row-ta := TouchArea {}
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 6px;
+                expand-ta := TouchArea {
+                    horizontal-stretch: 1;
+                    min-width: 0px;
+                    enabled: row.has-clones;
+                    clicked => { root.toggle-expand(row.canonical); }
+                    HorizontalLayout {
+                        spacing: 4px;
+                        if row.has-clones: Path {
+                            width: 8px;
+                            height: 8px;
+                            viewbox-width: 10;
+                            viewbox-height: 10;
+                            commands: row.expanded ? "M 1 3 L 5 7 L 9 3" : "M 3 1 L 7 5 L 3 9";
+                            stroke: #999;
+                            stroke-width: 1.6px;
+                            fill: transparent;
+                        }
+                        Text {
+                            text: row.main-skill;
+                            color: SettingsStyle.row-label;
+                            font-size: SettingsStyle.row-label-size;
+                            vertical-alignment: center;
+                            overflow: elide;
+                            horizontal-stretch: 1;
+                            min-width: 0px;
+                        }
+                    }
+                }
+                // イマジン名（開発者モードのみ編集可。通常は読み取り専用テキスト）
+                Rectangle {
+                    width: 110px;
+                    height: 22px;
+                    if root.dev-mode: name-ti := TextInput {
+                        width: 100%;
+                        height: 100%;
+                        vertical-alignment: center;
+                        single-line: true;
+                        color: #ddd;
+                        font-size: 11px;
+                        text: row.imagine-name;
+                        // Enter確定のみ（editedにすると1キー毎にcanonicalが変わり再ソート→
+                        // in-place同期でフォーカス行に別イマジンのデータが入り、次のキーで
+                        // 無関係イマジンを誤リネームし得るため。UID入力欄(選択UID確定)と同型）。
+                        accepted => { root.set-name(row.canonical, self.text); }
+                    }
+                    if !root.dev-mode: Text {
+                        text: row.imagine-name;
+                        color: SettingsStyle.row-label;
+                        font-size: SettingsStyle.row-label-size;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
+                // 表示名（ユーザー上書き。空欄はイマジン名をプレースホルダ表示）
+                Rectangle {
+                    horizontal-stretch: 1;
+                    min-width: 0px;
+                    height: 22px;
+                    if disp-ti.text == "": Text {
+                        text: row.canonical;
+                        color: SettingsStyle.hint;
+                        font-size: 11px;
+                        vertical-alignment: center;
+                    }
+                    disp-ti := TextInput {
+                        width: 100%;
+                        height: 100%;
+                        vertical-alignment: center;
+                        single-line: true;
+                        color: #ddd;
+                        font-size: 11px;
+                        text: row.display-name;
+                        edited => { root.set-display(row.canonical, self.text); }
+                    }
+                }
+                SegButton { label: @tr("非表示"); active: row.ignored; clicked => { root.toggle-ignore(row.canonical); } }
+                SegButton { label: @tr("リセット"); clicked => { root.reset(row.canonical); } }
+            }
+        }
+        if row.expanded: VerticalLayout {
+            padding-left: 24px;
+            padding-right: 10px;
+            spacing: 1px;
+            for c in row.clone-skills: Text {
+                text: c;
+                color: SettingsStyle.hint;
+                font-size: SettingsStyle.hint-size;
+                overflow: elide;
+            }
+        }
+    }
+}
+
 // no-frame 窓の縁/角リサイズ用ハンドル。
 component ResizeHandle inherits TouchArea {
     in property <int> dir;
@@ -1841,6 +2057,10 @@ export component MainWindow inherits Window {
     in property <bool> result-img-copied;    // 画像コピー直後の一時フィードバック
     in property <bool> result-is-new-record;    // 自キャラの自己ベスト更新（計測確定時のみ判定）
     in property <string> result-best-dps-text;  // 自己ベストDPSの表示用整形済み文字列（自キャラ不在/記録無しは空）
+    in property <[ImagineNameRowUi]> imagine-rows;    // イマジン名メンテ一覧（設定パネルopen/編集時のみ再構築）
+    in property <bool> imagine-dev-mode;              // BPSR_DEV=1 のときだけ true（イマジン名列の編集・GitHub反映を出す）
+    in property <string> imagine-push-status;         // GitHubへ反映ボタンの結果（成功/失敗要点）
+    in property <string> imagine-filter-value;        // 絞り込み欄の初期値（open時のみpush。以後は編集をクロバーしない）
     callback quit();
     callback minimize();
     callback start-drag();
@@ -1873,6 +2093,13 @@ export component MainWindow inherits Window {
     callback restart-measure();
     callback select-result-player(string);
     callback select-result-skill(string);
+    callback imagine-toggle-expand(string);
+    callback imagine-set-display(string, string);
+    callback imagine-toggle-ignore(string);
+    callback imagine-reset(string);
+    callback imagine-set-name(string, string);       // 開発者モードのみ意味を持つ（イマジン名=ja名の書き換え）
+    callback imagine-push-db();                       // 開発者モードのみ意味を持つ（DB書き戻し→git add/commit/push）
+    callback imagine-set-filter(string);
 
     // ヘッダの固定幅合計（タブ＋ボタン）が収まらない幅ではアイコン/短縮ラベル表示に切り替える。
     // root.width への直接バインディングはヘッダ文字列経由で layoutinfo と循環するため、
@@ -2495,6 +2722,20 @@ export component MainWindow inherits Window {
                             changed(t) => { root.set-str("copy-template", t); }
                             reset => { root.reset-str("copy-template"); }
                         }
+                    }
+                    // ── バトルイマジン名メンテ（常に全幅）──
+                    ImagineNamesSection {
+                        rows: root.imagine-rows;
+                        dev-mode: root.imagine-dev-mode;
+                        push-status: root.imagine-push-status;
+                        filter-value: root.imagine-filter-value;
+                        toggle-expand(c) => { root.imagine-toggle-expand(c); }
+                        set-display(c, v) => { root.imagine-set-display(c, v); }
+                        toggle-ignore(c) => { root.imagine-toggle-ignore(c); }
+                        reset(c) => { root.imagine-reset(c); }
+                        set-name(c, v) => { root.imagine-set-name(c, v); }
+                        push-db => { root.imagine-push-db(); }
+                        set-filter(v) => { root.imagine-set-filter(v); }
                     }
                     // ── バージョン情報（設定パネル最下部）──
                     Text {

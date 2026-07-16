@@ -3,12 +3,18 @@
 pub enum Class {
     Stormblade,
     FrostMage,
+    TwinStriker,
     WindKnight,
     VerdantOracle,
     HeavyGuardian,
     Marksman,
     ShieldKnight,
     BeatPerformer,
+    /// S3 CN 先行実装のハンドキャノン職（JP 未実装・公式 JA 名未確定）。
+    Dorothy,
+    /// Fairy Tail コラボの変身クラス（S3）。
+    Lucy,
+    Natsu,
     Unimplemented,
     #[default]
     Unknown,
@@ -19,12 +25,16 @@ impl From<i32> for Class {
         match class_id {
             1 => Class::Stormblade,
             2 => Class::FrostMage,
+            3 => Class::TwinStriker,
             4 => Class::WindKnight,
             5 => Class::VerdantOracle,
+            8 => Class::Dorothy,
             9 => Class::HeavyGuardian,
             11 => Class::Marksman,
             12 => Class::ShieldKnight,
             13 => Class::BeatPerformer,
+            14 => Class::Lucy,
+            15 => Class::Natsu,
             _ => Class::Unimplemented,
         }
     }
@@ -35,12 +45,16 @@ impl Class {
         match self {
             Class::Stormblade => "Stormblade",
             Class::FrostMage => "Frost Mage",
+            Class::TwinStriker => "Twin Striker",
             Class::WindKnight => "Wind Knight",
             Class::VerdantOracle => "Verdant Oracle",
             Class::HeavyGuardian => "Heavy Guardian",
             Class::Marksman => "Marksman",
             Class::ShieldKnight => "Shield Knight",
             Class::BeatPerformer => "Beat Performer",
+            Class::Dorothy => "Dorothy",
+            Class::Lucy => "Lucy",
+            Class::Natsu => "Natsu",
             Class::Unknown => "Unknown Class",
             Class::Unimplemented => "Unimplemented Class",
         }
@@ -50,12 +64,16 @@ impl Class {
         match self {
             Class::Stormblade => "ストームブレイド",
             Class::FrostMage => "フロストメイジ",
+            Class::TwinStriker => "ツインストライカー",
             Class::WindKnight => "ゲイルランサー",
             Class::VerdantOracle => "ヴァーダントオラクル",
             Class::HeavyGuardian => "ヘヴィガーディアン",
             Class::Marksman => "ディバインアーチャー",
             Class::ShieldKnight => "シールドファイター",
             Class::BeatPerformer => "ビートパフォーマー",
+            Class::Dorothy => "ドロシー",
+            Class::Lucy => "ルーシィ",
+            Class::Natsu => "ナツ",
             Class::Unknown => "不明",
             Class::Unimplemented => "未実装クラス",
         }
@@ -70,6 +88,9 @@ pub enum ClassSpec {
     // Frost Mage
     Icicle,
     Frostbeam,
+    // Twin Striker
+    Formless,
+    Crimson,
     // Wind Knight
     Vanguard,
     Skyward,
@@ -99,6 +120,8 @@ impl ClassSpec {
             ClassSpec::Moonstrike => "Moonstrike",
             ClassSpec::Icicle => "Icicle",
             ClassSpec::Frostbeam => "Frostbeam",
+            ClassSpec::Formless => "Formless",
+            ClassSpec::Crimson => "Crimson",
             ClassSpec::Vanguard => "Vanguard",
             ClassSpec::Skyward => "Skyward",
             ClassSpec::Smite => "Smite",
@@ -121,6 +144,8 @@ impl ClassSpec {
             ClassSpec::Moonstrike => "月影型",
             ClassSpec::Icicle => "氷牙型",
             ClassSpec::Frostbeam => "霜天型",
+            ClassSpec::Formless => "双炎型",
+            ClassSpec::Crimson => "炎舞型",
             ClassSpec::Vanguard => "烈風型",
             ClassSpec::Skyward => "乱風型",
             ClassSpec::Smite => "威咲型",
@@ -144,6 +169,8 @@ pub fn get_class_spec_from_skill_id(skill_id: i32) -> ClassSpec {
         44701 | 179906 => ClassSpec::Moonstrike,
         120901 | 120902 => ClassSpec::Icicle,
         1241 => ClassSpec::Frostbeam,
+        160102 | 2208181 | 2208172 => ClassSpec::Formless,
+        1606 | 1621 | 1622 | 35104 => ClassSpec::Crimson,
         1405 | 1418 => ClassSpec::Vanguard,
         1419 => ClassSpec::Skyward,
         1518 | 1541 | 21402 => ClassSpec::Smite,
@@ -164,6 +191,7 @@ pub fn get_class_from_spec(class_spec: ClassSpec) -> Class {
     match class_spec {
         ClassSpec::Iaido | ClassSpec::Moonstrike => Class::Stormblade,
         ClassSpec::Icicle | ClassSpec::Frostbeam => Class::FrostMage,
+        ClassSpec::Formless | ClassSpec::Crimson => Class::TwinStriker,
         ClassSpec::Vanguard | ClassSpec::Skyward => Class::WindKnight,
         ClassSpec::Smite | ClassSpec::Lifebind => Class::VerdantOracle,
         ClassSpec::Earthfort | ClassSpec::Block => Class::HeavyGuardian,

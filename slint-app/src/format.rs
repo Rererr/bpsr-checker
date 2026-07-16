@@ -39,6 +39,9 @@ pub fn class_color(class_name: &str) -> Color {
     let hex: u32 = match class_name {
         "ストームブレイド" | "Stormblade" => 0xfd7cff,
         "フロストメイジ" | "Frost Mage" => 0x3498db,
+        "ツインストライカー" | "Twin Striker" => 0xe67e22,
+        "ルーシィ" | "Lucy" => 0xf1c40f,
+        "ナツ" | "Natsu" => 0xe74c3c,
         "ゲイルランサー" | "Wind Knight" => 0xc6ffd8,
         "ヴァーダントオラクル" | "Verdant Oracle" => 0x139348,
         "ヘヴィガーディアン" | "Heavy Guardian" => 0x724d2d,

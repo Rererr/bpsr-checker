@@ -416,3 +416,25 @@ msgstr "Self Stats"
 
 msgid "表示項目なし"
 msgstr "No items shown"
+
+# バトルイマジン名メンテ（設定パネル・全幅セクション）
+msgid "イマジン名"
+msgstr "Imagine Names"
+
+msgid "絞り込み（名前で検索）"
+msgstr "Filter (search by name)"
+
+msgid "GitHubへ反映"
+msgstr "Push to GitHub"
+
+msgid "スキル名"
+msgstr "Skill name"
+
+msgid "表示名"
+msgstr "Display name"
+
+msgid "該当するイマジンがありません"
+msgstr "No matching imagines"
+
+msgid "非表示"
+msgstr "Hide"

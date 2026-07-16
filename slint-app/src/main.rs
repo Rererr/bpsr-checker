@@ -1318,6 +1318,164 @@ fn refresh_templates(m: &MainWindow, c: &settings::Settings) {
     m.set_copy_preview(cp);
 }
 
+/// バトルイマジン名メンテ一覧の1行を構築する（filter は小文字化して部分一致・非空時のみ絞り込む）。
+/// スキル名は表示言語追従（skill_names::get_skill_name）。expanded はUIローカル状態（main.rs 側の
+/// HashSet）を反映するだけで、モデル自体には永続しない。
+fn build_imagine_rows(
+    expanded: &std::collections::HashSet<String>,
+    filter: &str,
+) -> Vec<ImagineNameRowUi> {
+    let filter_lower = filter.trim().to_lowercase();
+    engine::imagine_skills::imagine_entries()
+        .into_iter()
+        .filter_map(|entry| {
+            let main_skill = engine::skill_names::get_skill_name(entry.main_skill_id);
+            let clone_skills: Vec<String> = entry
+                .clone_skill_ids
+                .iter()
+                .map(|id| engine::skill_names::get_skill_name(*id))
+                .collect();
+            let ov = engine::imagine_overrides::get(&entry.canonical);
+            let display_name = ov
+                .as_ref()
+                .and_then(|o| o.display_name.clone())
+                .unwrap_or_default();
+            let ignored = ov.as_ref().is_some_and(|o| o.ignored);
+
+            if !filter_lower.is_empty() {
+                let haystack = format!(
+                    "{} {} {} {}",
+                    entry.canonical,
+                    main_skill,
+                    clone_skills.join(" "),
+                    display_name
+                )
+                .to_lowercase();
+                if !haystack.contains(&filter_lower) {
+                    return None;
+                }
+            }
+
+            let has_clones = !clone_skills.is_empty();
+            let is_expanded = expanded.contains(&entry.canonical);
+            Some(ImagineNameRowUi {
+                canonical: entry.canonical.clone().into(),
+                imagine_name: entry.canonical.into(),
+                main_skill: main_skill.into(),
+                display_name: display_name.into(),
+                ignored,
+                has_clones,
+                expanded: is_expanded,
+                clone_skills: slint::ModelRc::new(VecModel::from(
+                    clone_skills
+                        .into_iter()
+                        .map(slint::SharedString::from)
+                        .collect::<Vec<_>>(),
+                )),
+            })
+        })
+        .collect()
+}
+
+/// 行数が同じなら in-place 更新（sync_rows と同じ理由＝編集中のTextInputのフォーカス/カーソル保持）。
+fn sync_imagine_rows(model: &slint::VecModel<ImagineNameRowUi>, data: Vec<ImagineNameRowUi>) {
+    if model.row_count() == data.len() {
+        for (i, r) in data.into_iter().enumerate() {
+            model.set_row_data(i, r);
+        }
+    } else {
+        model.set_vec(data);
+    }
+}
+
+/// イマジン名一覧モデルを再構築する。呼ぶのは設定パネルopen時と、展開/IGNORE/リセット/フィルタ/
+/// devリネームなどの「非タイプ操作」のみ。表示名の TextInput 編集（`edited` 毎）では呼ばない
+/// （TemplateField と同じ方針＝編集中に text: バインドを再送してクロバーしないため。詳細は
+/// ImagineNamesSection の doc コメント参照）。
+fn rebuild_imagine_rows(
+    model: &slint::VecModel<ImagineNameRowUi>,
+    expanded: &std::collections::HashSet<String>,
+    filter: &str,
+) {
+    sync_imagine_rows(model, build_imagine_rows(expanded, filter));
+}
+
+/// devモード「GitHubへ反映」: イマジン名DBをワークツリーへ書き戻し→ git add/commit/push。
+/// 他の未コミット変更を巻き込まないよう、add 対象は ImagineSkillNames.json のみに絞る。
+/// commit で差分無し（nothing to commit）は成功として扱い push まで進める。各段の失敗は
+/// 握り潰さず要点（stderr優先・無ければstdout）をステータス文字列として返す。
+fn push_imagine_db() -> String {
+    if let Err(e) = engine::imagine_skills::dev_save_to_working_tree() {
+        log::warn!("イマジン名DB書き戻しに失敗: {e}");
+        return if is_ja() {
+            format!("書き戻しに失敗: {e}")
+        } else {
+            format!("Failed to write DB: {e}")
+        };
+    }
+    // CARGO_MANIFEST_DIR は slint-app（bpsr-app crate）なので、親＝ワークスペースroot。
+    let Some(workspace_root) = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent() else {
+        return if is_ja() {
+            "ワークツリーの検出に失敗".to_string()
+        } else {
+            "Failed to locate working tree".to_string()
+        };
+    };
+    const REL_PATH: &str = "core/data/json/ImagineSkillNames.json";
+
+    let run_git = |args: &[&str]| -> Result<(), String> {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(workspace_root)
+            .output()
+            .map_err(|e| e.to_string())?;
+        if output.status.success() {
+            return Ok(());
+        }
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if !stderr.is_empty() {
+            return Err(stderr);
+        }
+        // 「nothing to commit」等は stdout 側に出るため、stderr が空ならこちらを使う。
+        Err(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    };
+
+    if let Err(e) = run_git(&["add", REL_PATH]) {
+        log::warn!("git add に失敗: {e}");
+        return if is_ja() {
+            format!("git add に失敗: {e}")
+        } else {
+            format!("git add failed: {e}")
+        };
+    }
+    // commit も pathspec で対象を限定する（pathspec無しはインデックス全体をコミットするため、
+    // dev が別途 git add 済みの他ファイルが git add 一発では絞れていても巻き込まれてしまう）。
+    if let Err(e) = run_git(&["commit", "-m", "chore: イマジン名DB更新", "--", REL_PATH]) {
+        if !e.contains("nothing to commit") {
+            log::warn!("git commit に失敗: {e}");
+            return if is_ja() {
+                format!("git commit に失敗: {e}")
+            } else {
+                format!("git commit failed: {e}")
+            };
+        }
+    }
+    if let Err(e) = run_git(&["push"]) {
+        log::warn!("git push に失敗: {e}");
+        return if is_ja() {
+            format!("git push に失敗: {e}")
+        } else {
+            format!("git push failed: {e}")
+        };
+    }
+
+    if is_ja() {
+        "GitHubへ反映しました".to_string()
+    } else {
+        "Pushed to GitHub".to_string()
+    }
+}
+
 /// SelfStatusEntry 群を UI 行へ変換（BuffIconCell 相当）。
 fn build_status_entries(entries: &[bpsr_core::models::SelfStatusEntry]) -> Vec<StatusEntryUi> {
     entries
@@ -2031,6 +2189,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     engine::name_cache::init(dir.join("name_cache.json"));
     engine::selected_uid::init(dir.join("selected_uid.json"));
     engine::consumables::init(dir.join("consumables.json"));
+    engine::imagine_overrides::init(dir.join("imagine_overrides.json"));
 
     // 共有エンカウンター＋パケット観測スレッド
     // BPSR_DEMO=1 のときは観測の代わりに合成データを流す（撮影・UI確認用）
@@ -2135,6 +2294,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 自キャラUID 候補モデル
     let uid_candidates = Rc::new(VecModel::<UidCandidate>::default());
     main.set_uid_candidates(uid_candidates.clone().into());
+
+    // バトルイマジン名メンテ一覧（設定パネルopen時／編集時のみ再構築。戦闘ポーリングでは触らない）。
+    // 開発者モード(BPSR_DEV=1)のときだけイマジン名列の編集・GitHub反映ボタンをUIに出す。
+    let imagine_dev_mode = std::env::var("BPSR_DEV").is_ok_and(|v| v == "1");
+    main.set_imagine_dev_mode(imagine_dev_mode);
+    let imagine_rows_model = Rc::new(VecModel::<ImagineNameRowUi>::default());
+    main.set_imagine_rows(imagine_rows_model.clone().into());
+    let imagine_expanded: Rc<RefCell<std::collections::HashSet<String>>> =
+        Rc::new(RefCell::new(std::collections::HashSet::new()));
+    let imagine_filter: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
 
     // ステータス窓の表示項目トグル一覧（設定の有効集合から生成・トグルで再生成）。
     // 設定パネルでは2列表示するため、グループ境界で左右へ分割した2モデルを持つ。
@@ -2513,21 +2682,151 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
-    // 設定パネルの開閉。開く瞬間にテンプレ入力欄・自キャラUID欄へ最新値を push。
+    // 設定パネルの開閉。開く瞬間にテンプレ入力欄・自キャラUID欄・イマジン名一覧へ最新値を push。
+    // 設定パネルは `if root.settings-open` で開閉毎に作り直されるため、イマジン名一覧も
+    // 開くたびに rebuild すれば十分（閉じている間の編集クロバー懸念は無い）。
     {
         let w = main.as_weak();
         let cfg_ts = cfg.clone();
         let enc_ts = enc.clone();
         let cands_ts = uid_candidates.clone();
+        let imagine_rows_ts = imagine_rows_model.clone();
+        let imagine_expanded_ts = imagine_expanded.clone();
+        let imagine_filter_ts = imagine_filter.clone();
         main.on_toggle_settings(move || {
             if let Some(m) = w.upgrade() {
                 let opening = !m.get_settings_open();
                 if opening {
                     refresh_templates(&m, &cfg_ts.borrow());
                     refresh_selected_uid(&m, &enc_ts, &cands_ts);
+                    m.set_imagine_filter_value(imagine_filter_ts.borrow().clone().into());
+                    // 前回の反映結果を再開時まで残すと紛らわしいためクリアする。
+                    m.set_imagine_push_status("".into());
+                    rebuild_imagine_rows(
+                        &imagine_rows_ts,
+                        &imagine_expanded_ts.borrow(),
+                        &imagine_filter_ts.borrow(),
+                    );
                 }
                 m.set_settings_open(opening);
             }
+        });
+    }
+    // イマジン名一覧: 展開/表示名/IGNORE/リセット/フィルタ（誰でも）＋devリネーム/DB反映（devのみ）。
+    {
+        let imagine_rows_ie = imagine_rows_model.clone();
+        let imagine_expanded_ie = imagine_expanded.clone();
+        let imagine_filter_ie = imagine_filter.clone();
+        main.on_imagine_toggle_expand(move |canonical| {
+            {
+                let mut set = imagine_expanded_ie.borrow_mut();
+                if !set.remove(canonical.as_str()) {
+                    set.insert(canonical.to_string());
+                }
+            }
+            rebuild_imagine_rows(
+                &imagine_rows_ie,
+                &imagine_expanded_ie.borrow(),
+                &imagine_filter_ie.borrow(),
+            );
+        });
+    }
+    {
+        // 表示名の編集は永続化のみ行いモデルを rebuild しない（TemplateField と同じ方針。
+        // TextInput の text: バインドを編集の都度再送するとカーソル位置がクロバーされるため）。
+        main.on_imagine_set_display(move |canonical, val| {
+            let display = (!val.is_empty()).then(|| val.to_string());
+            engine::imagine_overrides::set_display(canonical.as_str(), display);
+        });
+    }
+    {
+        let imagine_rows_ii = imagine_rows_model.clone();
+        let imagine_expanded_ii = imagine_expanded.clone();
+        let imagine_filter_ii = imagine_filter.clone();
+        main.on_imagine_toggle_ignore(move |canonical| {
+            let current =
+                engine::imagine_overrides::get(canonical.as_str()).is_some_and(|o| o.ignored);
+            engine::imagine_overrides::set_ignored(canonical.as_str(), !current);
+            rebuild_imagine_rows(
+                &imagine_rows_ii,
+                &imagine_expanded_ii.borrow(),
+                &imagine_filter_ii.borrow(),
+            );
+        });
+    }
+    {
+        let imagine_rows_ir = imagine_rows_model.clone();
+        let imagine_expanded_ir = imagine_expanded.clone();
+        let imagine_filter_ir = imagine_filter.clone();
+        main.on_imagine_reset(move |canonical| {
+            engine::imagine_overrides::clear(canonical.as_str());
+            rebuild_imagine_rows(
+                &imagine_rows_ir,
+                &imagine_expanded_ir.borrow(),
+                &imagine_filter_ir.borrow(),
+            );
+        });
+    }
+    {
+        // devのみ有効。イマジン名(ja)の書き換えは canonical(=グループの識別キー)を変えるため、
+        // rebuild で一覧・展開状態キーを追随させる（旧canonicalの展開状態は新canonicalへ引き継ぐ）。
+        let imagine_rows_in = imagine_rows_model.clone();
+        let imagine_expanded_in = imagine_expanded.clone();
+        let imagine_filter_in = imagine_filter.clone();
+        main.on_imagine_set_name(move |canonical, val| {
+            if !imagine_dev_mode {
+                return;
+            }
+            let new_name_ja = (!val.is_empty()).then(|| val.to_string());
+            engine::imagine_skills::dev_rename_entry(canonical.as_str(), new_name_ja.clone(), None);
+            if let Some(new_canonical) = new_name_ja {
+                let mut set = imagine_expanded_in.borrow_mut();
+                if set.remove(canonical.as_str()) {
+                    set.insert(new_canonical);
+                }
+            }
+            rebuild_imagine_rows(
+                &imagine_rows_in,
+                &imagine_expanded_in.borrow(),
+                &imagine_filter_in.borrow(),
+            );
+        });
+    }
+    {
+        // devのみ有効。git push は資格情報プロンプト/低速回線/pre-pushフックでブロックし得る
+        // ネットワークI/O（他のローカルgit操作と違いUIスレッドで同期実行すると凍結し得る）ため、
+        // 別スレッドで実行し、結果は invoke_from_event_loop 経由でUIスレッドへ反映する。
+        // Weak<MainWindow> は Send のためスレッドへ move できる。
+        let w = main.as_weak();
+        main.on_imagine_push_db(move || {
+            if !imagine_dev_mode {
+                return;
+            }
+            if let Some(m) = w.upgrade() {
+                m.set_imagine_push_status(if is_ja() { "反映中…" } else { "Pushing…" }.into());
+            }
+            let w_bg = w.clone();
+            std::thread::spawn(move || {
+                let status = push_imagine_db();
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(m) = w_bg.upgrade() {
+                        m.set_imagine_push_status(status.into());
+                    }
+                });
+            });
+        });
+    }
+    {
+        let imagine_rows_if = imagine_rows_model.clone();
+        let imagine_expanded_if = imagine_expanded.clone();
+        let imagine_filter_if = imagine_filter.clone();
+        main.on_imagine_set_filter(move |val| {
+            *imagine_filter_if.borrow_mut() = val.to_string();
+            rebuild_imagine_rows(
+                &imagine_rows_if,
+                &imagine_expanded_if.borrow(),
+                &imagine_filter_if.borrow(),
+            );
         });
     }
     // 設定トグル変更 → cfg 更新・即適用・保存

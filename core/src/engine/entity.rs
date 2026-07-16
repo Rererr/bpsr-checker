@@ -128,18 +128,83 @@ impl Entity {
         self.imagines.iter().map(|s| s.tier).collect()
     }
 
-    /// 表示用のイマジンラベル一覧。凸数が判明していれば「名前(N)」、未判明なら名前のみ。
-    /// compute/UI の表示はこちらを読む。
+    /// 表示用のイマジンラベル一覧。ユーザー上書き（`imagine_overrides`）を解決した上で、
+    /// 凸数が判明していれば「名前(N)」、未判明なら名前のみ。IGNORE設定の枠は結果から除外する。
+    /// compute/UI の表示はこちらを読む。canonical名の一致判定・永続化には上書き非適用の
+    /// [`Entity::imagine_display_names`] / [`Entity::imagine_tiers`] を使う。
     pub fn imagine_display_labels(&self) -> Vec<String> {
         self.imagines
             .iter()
-            .map(|s| {
-                if s.tier > 0 {
-                    format!("{}({})", s.name, s.tier)
+            .filter_map(|s| {
+                let display = crate::engine::imagine_overrides::resolve_display(&s.name)?;
+                Some(if s.tier > 0 {
+                    format!("{}({})", display, s.tier)
                 } else {
-                    s.name.clone()
-                }
+                    display
+                })
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::imagine_overrides;
+
+    fn slot(name: &str, tier: i32) -> ImagineSlot {
+        ImagineSlot {
+            name: name.to_string(),
+            last_seen: 0,
+            tier,
+            pending_hits: 0,
+        }
+    }
+
+    #[test]
+    fn imagine_display_labels_uses_canonical_when_no_override() {
+        let _guard = crate::engine::imagine_test_support::guard();
+        let canonical = "__entity_test_no_override__";
+        imagine_overrides::clear(canonical);
+        let entity = Entity {
+            imagines: vec![slot(canonical, 0)],
+            ..Default::default()
+        };
+        assert_eq!(entity.imagine_display_labels(), vec![canonical.to_string()]);
+    }
+
+    #[test]
+    fn imagine_display_labels_applies_display_override_and_keeps_tier_suffix() {
+        let _guard = crate::engine::imagine_test_support::guard();
+        let canonical = "__entity_test_display__";
+        imagine_overrides::set_display(canonical, Some("表示上書き".to_string()));
+        let entity = Entity {
+            imagines: vec![slot(canonical, 3)],
+            ..Default::default()
+        };
+        assert_eq!(
+            entity.imagine_display_labels(),
+            vec!["表示上書き(3)".to_string()]
+        );
+        // canonical名を返す系（一致判定・永続化用）は上書き非適用のまま。
+        assert_eq!(entity.imagine_display_names(), vec![canonical.to_string()]);
+        imagine_overrides::clear(canonical);
+    }
+
+    #[test]
+    fn imagine_display_labels_hides_ignored_slot_but_keeps_sibling() {
+        let _guard = crate::engine::imagine_test_support::guard();
+        let canonical = "__entity_test_ignored__";
+        let sibling = "__entity_test_ignored_sibling__";
+        imagine_overrides::clear(sibling);
+        imagine_overrides::set_ignored(canonical, true);
+        let entity = Entity {
+            imagines: vec![slot(canonical, 0), slot(sibling, 0)],
+            ..Default::default()
+        };
+        assert_eq!(entity.imagine_display_labels(), vec![sibling.to_string()]);
+        // imagine_display_names は上書き非適用なので ignored でも両方残る。
+        assert_eq!(entity.imagine_display_names().len(), 2);
+        imagine_overrides::clear(canonical);
     }
 }

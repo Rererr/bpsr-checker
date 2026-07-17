@@ -1760,8 +1760,10 @@ component HistorySection inherits SectionCard {
     ToggleRow { label: @tr("自分のグラフを表示"); checked: root.cfg.graph-for-local; toggled => { root.set-bool("graph-for-local", !root.cfg.graph-for-local); } }
 }
 
-// イマジン名メンテ窓のテーブル列幅。ヘッダー行と各データ行が同じ値を参照することで、
-// 別々の HorizontalLayout でも縦の列区切り（罫線）の位置が一致する。
+// イマジン名メンテ窓のテーブル列幅（固定2列ぶん）。可変2列(スキル名/表示名)の幅は
+// ImagineNamesWindow.col-flex-w（root.width から算出・全行/ヘッダー共通）を参照する。
+// horizontal-stretch による自動配分は行ごとの文字列長で preferred-width が変わり縦線がズレる
+// ため使わない（v1.18.0 で実機報告・修正）。
 global ImagineTableCols {
     out property <length> imagine-name-col: 110px;
     out property <length> action-col: 50px; // SegButton の既定幅(50px、fill未指定)と一致させる
@@ -1842,6 +1844,28 @@ export component ImagineNamesWindow inherits Window {
     min-width: 420px;
     min-height: 280px;
 
+    // スキル名/表示名列の幅（Window 自身の width から算出）。ヘッダーと全行がこの1つの値を
+    // 参照することで、テキスト長や devモード列有無に関わらず縦の列境界を完全に一致させる
+    // （horizontal-stretch による自動配分は行ごとの内容量で min-width/preferred が変わり縦線が
+    // ズレるため使わない）。root.width への直接バインディングは自身の layoutinfo と循環する
+    // ため（MainWindow の narrow-header/col-level と同じ理由）、changed width で値として
+    // 代入してループを断つ。
+    property <length> outer-pad: 10px; // 下の最外周 VerticalLayout の padding と同じ値
+    property <length> row-pad: 10px;   // 行/ヘッダーの左右パディング（下の HorizontalLayout と同じ値）
+    property <length> col-gap: 8px;    // 列間の余白（下の HorizontalLayout の spacing と同じ値）
+    property <length> col-flex-w: 150px;
+    changed width => {
+        // 行(ヘッダーも同型)は5セル(スキル名/イマジン名/表示名/非表示/リセット)+区切り線4本の
+        // 計9要素を spacing で並べるため、間隙は 5+4-1=8 箇所ぶん生じる（区切り線1本につき
+        // 前後2箇所ずつ）。ここを 4 箇所と誤算すると列が広がりすぎて右端がはみ出す
+        // （v1.18.0 リリース後の実機報告で発覚。罫線自体は列幅一致で通貫していたが、
+        // はみ出しにより最右列が窓の外へ出て見えていた）。
+        root.col-flex-w = max(40px, (root.width - 2 * root.outer-pad - 2 * root.row-pad
+            - ImagineTableCols.imagine-name-col
+            - 2 * ImagineTableCols.action-col
+            - 8 * root.col-gap) / 2);
+    }
+
     VerticalLayout {
         padding: 10px;
         spacing: 8px;
@@ -1906,14 +1930,14 @@ export component ImagineNamesWindow inherits Window {
                     height: 28px;
                     background: #1c1c2a;
                     HorizontalLayout {
-                        padding-left: 10px;
-                        padding-right: 10px;
-                        spacing: 8px;
-                        Text { text: @tr("スキル名"); color: SettingsStyle.sub-label; font-size: 11px; font-weight: 600; horizontal-stretch: 1; min-width: 0px; vertical-alignment: center; }
+                        padding-left: root.row-pad;
+                        padding-right: root.row-pad;
+                        spacing: root.col-gap;
+                        Text { text: @tr("スキル名"); color: SettingsStyle.sub-label; font-size: 11px; font-weight: 600; width: root.col-flex-w; vertical-alignment: center; }
                         ImagineColDivider {}
                         Text { text: @tr("イマジン名"); color: SettingsStyle.sub-label; font-size: 11px; font-weight: 600; width: ImagineTableCols.imagine-name-col; vertical-alignment: center; }
                         ImagineColDivider {}
-                        Text { text: @tr("表示名"); color: SettingsStyle.sub-label; font-size: 11px; font-weight: 600; horizontal-stretch: 1; min-width: 0px; vertical-alignment: center; }
+                        Text { text: @tr("表示名"); color: SettingsStyle.sub-label; font-size: 11px; font-weight: 600; width: root.col-flex-w; vertical-alignment: center; }
                         ImagineColDivider {}
                         Text { text: @tr("非表示"); color: SettingsStyle.sub-label; font-size: 11px; font-weight: 600; width: ImagineTableCols.action-col; horizontal-alignment: center; vertical-alignment: center; }
                         ImagineColDivider {}
@@ -1951,12 +1975,11 @@ export component ImagineNamesWindow inherits Window {
                                     // 行全体のホバー表示のみ（クリックは各セルの TouchArea/TextInput が個別に捕捉する）。
                                     row-ta := TouchArea {}
                                     HorizontalLayout {
-                                        padding-left: 10px;
-                                        padding-right: 10px;
-                                        spacing: 8px;
+                                        padding-left: root.row-pad;
+                                        padding-right: root.row-pad;
+                                        spacing: root.col-gap;
                                         expand-ta := TouchArea {
-                                            horizontal-stretch: 1;
-                                            min-width: 0px;
+                                            width: root.col-flex-w;
                                             enabled: row.has-clones;
                                             clicked => { root.imagine-toggle-expand(row.canonical); }
                                             HorizontalLayout {
@@ -2011,8 +2034,7 @@ export component ImagineNamesWindow inherits Window {
                                         ImagineColDivider {}
                                         // 表示名（ユーザー上書き。空欄はイマジン名をプレースホルダ表示）
                                         Rectangle {
-                                            horizontal-stretch: 1;
-                                            min-width: 0px;
+                                            width: root.col-flex-w;
                                             height: 22px;
                                             if disp-ti.text == "": Text {
                                                 text: row.canonical;

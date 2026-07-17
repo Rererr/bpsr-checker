@@ -48,7 +48,7 @@ cargo check --workspace
 cargo run -p bpsr-app
 
 # 配布物生成（release exe→bpsr-checker.exe＋WinDivert同梱→zip、makensis があればインストーラも）
-pwsh scripts/package-slint.ps1
+powershell -File scripts/package-slint.ps1
 ```
 
 ## 重要な制約
@@ -74,7 +74,7 @@ pwsh scripts/package-slint.ps1
   `IncompatibleVersion (654)` で失敗する。`windivert`(0.6)/`windivert-sys`(0.10) は
   `bpsr-module-optimizer` と**同一に保つ**。バージョンを上げる場合は両アプリ同時に行う。
 - **dev の `.sys` ロック**: 駆動中は `target/**/WinDivert64.sys` がロックされ次回ビルドの再コピーが
-  失敗する。rebuild 前に `pwsh scripts/reset-windivert.ps1`（要管理者）で停止して解放する
+  失敗する。rebuild 前に `powershell -File scripts/reset-windivert.ps1`（要管理者）で停止して解放する
   （Slint 本体に終了フックが無いため。optimizer は終了時に debug 限定 STOP で自動解放）。
 
 ### ローカルテスト（Windows 開発環境）
@@ -84,7 +84,7 @@ Slint femtovg はブラウザ（旧 WebView2）と描画特性が異なる（Cle
 
 ### MCP 経由の UI 検査・操作（Slint 埋め込み MCP サーバー）
 Slint テストバックエンド同梱の MCP サーバーで、起動中の UI を Claude Code 等から検査/操作できる
-（UIツリー探索・スクショ・クリック・入力）。`pwsh scripts/run-mcp.ps1` で起動（既定 8080・デモモード）。
+（UIツリー探索・スクショ・クリック・入力）。`powershell -File scripts/run-mcp.ps1` で起動（既定 8080・デモモード）。
 内部的には slint-app の opt-in feature `mcp`（`set_platform` 後に `mcp_server::init()` を自前呼出）+
 `SLINT_EMIT_DEBUG_INFO=1`（内省メタ埋め込み・ビルド時必須）+ `SLINT_MCP_PORT`（設定時のみ起動）。
 エンドポイントは `http://127.0.0.1:<port>/mcp`（localhost 限定）。
@@ -100,7 +100,7 @@ Slint テストバックエンド同梱の MCP サーバーで、起動中の UI
 #### セッション再起動せずに使う（推奨・現セッションでそのまま観測する手順）
 セッション途中でアプリを起動した等で `slint-ui` ツールが当セッションに無くても、**セッション再起動は不要**。
 MCP サーバーは素の HTTP JSON-RPC なので Bash/PowerShell から直接叩ける（クライアント登録不要・2026-06-20 実証）。
-1. `pwsh scripts/run-mcp.ps1` でアプリ起動（既定 8080・デモ）。`http://127.0.0.1:8080/mcp` を待受け。
+1. `powershell -File scripts/run-mcp.ps1` でアプリ起動（既定 8080・デモ）。`http://127.0.0.1:8080/mcp` を待受け。
 2. `POST http://127.0.0.1:8080/mcp` に順に投げる: (1) `initialize`（ヘッダ `Accept: application/json, text/event-stream`、
    **ステートレス＝`Mcp-Session-Id` 不要**） (2) `notifications/initialized` (3) `tools/call`。
 3. レスポンスが SSE のときは `data:` 行を結合して JSON 化。`take_screenshot` は base64 PNG →

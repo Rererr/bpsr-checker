@@ -307,6 +307,239 @@ static DICT: LazyLock<HashMap<i32, BuffMeta>> = LazyLock::new(|| {
         (3200024, BuffMeta::new(Buff,     High)),   // 嵐の祝福
         (3210071, BuffMeta::new(Buff,     High)),   // スペシャリスト
         (3210111, BuffMeta::new(Buff,     Normal)), // 暗霧剣士のマスタリー
+
+        // ── S3 追加分（BPSR-ZDPS BuffTable の S2→S3 差分から機械生成: BuffType→category,
+        //    BuffPriority→priority。名前は公式 loc 突合の JA、無ければ EN） ──────────
+        (510544, BuffMeta::new(Debuff, Alert)), // 静止
+        (683118, BuffMeta::new(Buff, High)), // 団結の力
+        (683331, BuffMeta::new(Buff, High)), // 団結の力
+        (683858, BuffMeta::new(Buff, High)), // 贈るッポ！
+        (683859, BuffMeta::new(Buff, High)), // 贈るッポ！
+        (683861, BuffMeta::new(Buff, High)), // ナイトワルツ
+        (702003, BuffMeta::new(Buff, Normal)), // 激高の楽章
+        (702004, BuffMeta::new(Buff, Normal)), // 激高の楽章
+        (702005, BuffMeta::new(Buff, Normal)), // 激高の楽章
+        (702015, BuffMeta::new(Buff, Normal)), // 不調和結晶
+        (705104, BuffMeta::new(Debuff, Normal)), // 威嚇の怒号
+        (705105, BuffMeta::new(Buff, Normal)), // 威嚇の怒号
+        (821060, BuffMeta::new(Buff, High)), // 幻花晶の庇護
+        (821074, BuffMeta::new(Debuff, High)), // 幻覚
+        (821078, BuffMeta::new(Debuff, High)), // 幻覚の侵蝕
+        (829121, BuffMeta::new(Debuff, High)), // 弱体化
+        (829124, BuffMeta::new(Debuff, Normal)), // Bleed
+        (829129, BuffMeta::new(Debuff, High)), // シンギュラリティの傷痕
+        (829130, BuffMeta::new(Debuff, High)), // 傷口の残留
+        (829201, BuffMeta::new(Debuff, Alert)), // 時間延長レールガン
+        (829210, BuffMeta::new(Debuff, Alert)), // 巨大時間延長レールガン
+        (829224, BuffMeta::new(Debuff, High)), // 機械の契約
+        (829243, BuffMeta::new(Debuff, Low)), // エングラム制限
+        (829265, BuffMeta::new(Debuff, High)), // Slow
+        (829324, BuffMeta::new(Debuff, Alert)), // 累刑宣告
+        (829352, BuffMeta::new(Buff, Low)), // 悖逆の機骸・始の弱点研究-ノーマル
+        (829353, BuffMeta::new(Buff, Low)), // 悖逆の機骸・始の弱点研究-ハード
+        (829354, BuffMeta::new(Buff, Low)), // 悖逆の機骸・始の弱点研究-ナイトメア
+        (829355, BuffMeta::new(Buff, Low)), // 悖逆の機骸・継の弱点研究-ノーマル
+        (829356, BuffMeta::new(Buff, Low)), // 悖逆の機骸・継の弱点研究-ハード
+        (829357, BuffMeta::new(Buff, Low)), // 悖逆の機骸・継の弱点研究-ナイトメア
+        (829358, BuffMeta::new(Buff, Low)), // 悖逆の機骸・終の弱点研究-ノーマル
+        (829359, BuffMeta::new(Buff, Low)), // 悖逆の機骸・終の弱点研究-ハード
+        (829360, BuffMeta::new(Buff, Low)), // 悖逆の機骸・終の弱点研究-ナイトメア
+        (829370, BuffMeta::new(Buff, High)), // 連戦の決意
+        (829372, BuffMeta::new(Debuff, Alert)), // マーク1
+        (829373, BuffMeta::new(Debuff, Alert)), // マーク2
+        (829374, BuffMeta::new(Debuff, Alert)), // マーク3
+        (829375, BuffMeta::new(Debuff, Alert)), // マーク4
+        (841519, BuffMeta::new(Debuff, High)), // 虚蝕束縛
+        (841520, BuffMeta::new(Buff, High)), // 怒り
+        (841522, BuffMeta::new(Debuff, High)), // 被抑圧
+        (841526, BuffMeta::new(Debuff, High)), // 虚蝕裂傷
+        (842304, BuffMeta::new(Buff, High)), // 決意
+        (873605, BuffMeta::new(Debuff, High)), // イタズラ爆弾
+        (873607, BuffMeta::new(Debuff, High)), // 虚蝕の残影
+        (873610, BuffMeta::new(Debuff, Normal)), // 蝕体の刻印
+        (873618, BuffMeta::new(Debuff, High)), // 衰弱
+        (873631, BuffMeta::new(Debuff, Normal)), // 重傷
+        (883315, BuffMeta::new(Buff, Normal)), // オーバーヒート
+        (883342, BuffMeta::new(Debuff, Normal)), // 炎ダメージ悪化
+        (883344, BuffMeta::new(Debuff, High)), // Slow
+        (883373, BuffMeta::new(Debuff, High)), // 重荷状態
+        (883399, BuffMeta::new(Debuff, Normal)), // 灼熱の煉獄
+        (883602, BuffMeta::new(Buff, Alert)), // 双響・氷
+        (883603, BuffMeta::new(Buff, Alert)), // 双響・水
+        (883615, BuffMeta::new(Debuff, High)), // ナッポのイタズラ
+        (883650, BuffMeta::new(Debuff, High)), // 破綻の音律
+        (883702, BuffMeta::new(Debuff, High)), // 導電
+        (883705, BuffMeta::new(Debuff, Normal)), // 縛糸
+        (883721, BuffMeta::new(Buff, Low)), // 潮汐の加護
+        (883803, BuffMeta::new(Debuff, High)), // 裂傷
+        (883804, BuffMeta::new(Debuff, High)), // あばら骨折
+        (883805, BuffMeta::new(Debuff, High)), // 呼吸困難
+        (883811, BuffMeta::new(Debuff, High)), // ひっかき傷
+        (883819, BuffMeta::new(Debuff, High)), // 気流交錯
+        (883826, BuffMeta::new(Debuff, High)), // 風隠の庇護
+        (883830, BuffMeta::new(Debuff, High)), // 乱気流
+        (883831, BuffMeta::new(Debuff, High)), // 裂傷
+        (883833, BuffMeta::new(Buff, Low)), // 加速
+        (884114, BuffMeta::new(Debuff, High)), // プロトコル崩壊
+        (884140, BuffMeta::new(Debuff, Alert)), // 錯乱の烙印
+        (972049, BuffMeta::new(Buff, High)), // ナツ・火の契約
+        (972050, BuffMeta::new(Buff, High)), // ルーシィ・星霊契約
+        (974318, BuffMeta::new(Buff, Low)), // 滅竜の力
+        (974322, BuffMeta::new(Debuff, Normal)), // 落石
+        (974342, BuffMeta::new(Buff, Normal)), // 毒霧拡散
+        (974343, BuffMeta::new(Debuff, Normal)), // 滅竜の力
+        (974344, BuffMeta::new(Debuff, Normal)), // 滅竜の力
+        (974345, BuffMeta::new(Debuff, High)), // 汚染
+        (974346, BuffMeta::new(Debuff, High)), // 汚染
+        (990204, BuffMeta::new(Debuff, High)), // Frozen
+        (995179, BuffMeta::new(Debuff, High)), // スタン
+        (995186, BuffMeta::new(Debuff, Normal)), // Lightning Strike
+        (995187, BuffMeta::new(Debuff, Normal)), // 風の守護
+        (995191, BuffMeta::new(Buff, Normal)), // 力の封印
+        (997330, BuffMeta::new(Buff, Normal)), // 巨像の余威
+        (997382, BuffMeta::new(Debuff, Normal)), // スタン
+        (997397, BuffMeta::new(Debuff, High)), // 迷妄状態
+        (2032211, BuffMeta::new(Buff, Low)), // 料理
+        (2032212, BuffMeta::new(Buff, Low)), // 料理
+        (2032213, BuffMeta::new(Buff, Low)), // 料理
+        (2032214, BuffMeta::new(Buff, Low)), // 料理
+        (2032215, BuffMeta::new(Buff, Low)), // 料理
+        (2032216, BuffMeta::new(Buff, Low)), // 料理
+        (2032221, BuffMeta::new(Buff, Low)), // 料理
+        (2032222, BuffMeta::new(Buff, Low)), // 料理
+        (2032223, BuffMeta::new(Buff, Low)), // 料理
+        (2032224, BuffMeta::new(Buff, Low)), // 料理
+        (2032225, BuffMeta::new(Buff, Low)), // 料理
+        (2032226, BuffMeta::new(Buff, Low)), // 料理
+        (2032231, BuffMeta::new(Buff, Low)), // 料理
+        (2032232, BuffMeta::new(Buff, Low)), // 料理
+        (2032233, BuffMeta::new(Buff, Low)), // 料理
+        (2032234, BuffMeta::new(Buff, Low)), // 料理
+        (2032235, BuffMeta::new(Buff, Low)), // 料理
+        (2032236, BuffMeta::new(Buff, Low)), // 料理
+        (2032241, BuffMeta::new(Buff, Low)), // 料理
+        (2032242, BuffMeta::new(Buff, Low)), // 料理
+        (2032243, BuffMeta::new(Buff, Low)), // 料理
+        (2032244, BuffMeta::new(Buff, Low)), // 料理
+        (2032245, BuffMeta::new(Buff, Low)), // 料理
+        (2032246, BuffMeta::new(Buff, Low)), // 料理
+        (2032251, BuffMeta::new(Buff, Low)), // 料理
+        (2032252, BuffMeta::new(Buff, Low)), // 料理
+        (2032253, BuffMeta::new(Buff, Low)), // 料理
+        (2032254, BuffMeta::new(Buff, Low)), // 料理
+        (2032255, BuffMeta::new(Buff, Low)), // 料理
+        (2032256, BuffMeta::new(Buff, Low)), // 料理
+        (2032261, BuffMeta::new(Buff, Low)), // 料理
+        (2032262, BuffMeta::new(Buff, Low)), // 料理
+        (2032263, BuffMeta::new(Buff, Low)), // 料理
+        (2032264, BuffMeta::new(Buff, Low)), // 料理
+        (2032271, BuffMeta::new(Buff, Low)), // 料理
+        (2032272, BuffMeta::new(Buff, Low)), // 料理
+        (2032273, BuffMeta::new(Buff, Low)), // 料理
+        (2032274, BuffMeta::new(Buff, Low)), // 料理
+        (2032281, BuffMeta::new(Buff, Low)), // 料理
+        (2032282, BuffMeta::new(Buff, Low)), // 料理
+        (2032283, BuffMeta::new(Buff, Low)), // 料理
+        (2032284, BuffMeta::new(Buff, Low)), // 料理
+        (2033017, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033018, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033019, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033027, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033028, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033029, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033037, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033038, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033039, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033047, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033048, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033049, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033057, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033058, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033059, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033067, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033068, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033069, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033077, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033078, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033079, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033087, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033088, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033089, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033097, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033098, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033099, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033107, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033108, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033109, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033117, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033118, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033119, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033127, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033128, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033129, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033137, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033138, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033139, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033147, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033148, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033149, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033157, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033158, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033159, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033167, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033168, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033169, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033177, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033178, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033179, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033187, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033188, BuffMeta::new(Buff, Low)), // 薬剤
+        (2033189, BuffMeta::new(Buff, Low)), // 薬剤
+        (2110049, BuffMeta::new(Debuff, Normal)), // 機械の故障
+        (2110137, BuffMeta::new(Buff, High)), // 虚蝕の力
+        (2110138, BuffMeta::new(Buff, High)), // 風雷の力
+        (2110139, BuffMeta::new(Buff, High)), // ナッポの祝福
+        (2110140, BuffMeta::new(Buff, High)), // 機械の力
+        (2110141, BuffMeta::new(Buff, High)), // 器用さの王
+        (2110142, BuffMeta::new(Buff, High)), // 高速連斬
+        (2110143, BuffMeta::new(Buff, High)), // 機能強化
+        (2110144, BuffMeta::new(Buff, High)), // たくましき肉体
+        (2110145, BuffMeta::new(Buff, High)), // 致命のコンボ
+        (2110149, BuffMeta::new(Buff, High)), // トロールの力
+        (2110161, BuffMeta::new(Buff, High)), // Celestial Spirit Mage!
+        (2110162, BuffMeta::new(Buff, High)), // Fire Dragon Slayer!
+        (2110164, BuffMeta::new(Buff, High)), // 竜の力
+        (2110165, BuffMeta::new(Buff, High)), // 火竜の咆哮
+        (2110167, BuffMeta::new(Debuff, Normal)), // 闘志薄弱
+        (2110171, BuffMeta::new(Buff, High)), // ルーシィ・イミテーション
+        (2110172, BuffMeta::new(Buff, High)), // ナツ・イミテーション
+        (2110305, BuffMeta::new(Debuff, Normal)), // 回復禁止
+        (2110306, BuffMeta::new(Buff, Normal)), // Electro Shield
+        (2110307, BuffMeta::new(Buff, Normal)), // 聖盾防護
+        (2208621, BuffMeta::new(Buff, High)), // Flame Dance
+        (2208651, BuffMeta::new(Buff, High)), // 炎舞血脈
+        (2409071, BuffMeta::new(Buff, Normal)), // 激怒全開
+        (2409081, BuffMeta::new(Buff, Normal)), // 双炎型
+        (3050441, BuffMeta::new(Buff, High)), // Lucky Moonblade
+        (3051431, BuffMeta::new(Buff, High)), // 特殊攻撃強化
+        (3053411, BuffMeta::new(Buff, High)), // Photon Energy Enhancement
+        (3053412, BuffMeta::new(Buff, High)), // Photon Energy Enhancement
+        (3056411, BuffMeta::new(Buff, High)), // 蒼月の慰め
+        (3057411, BuffMeta::new(Buff, High)), // Harmonic Anthem Enhancement
+        (3060141, BuffMeta::new(Buff, Normal)), // Crimson Lotus Awakening
+        (3060191, BuffMeta::new(Buff, Normal)), // Explosive Strike
+        (3060241, BuffMeta::new(Buff, Normal)), // Blazing Element
+        (3060401, BuffMeta::new(Buff, Normal)), // Flame Soul Recovery
+        (3060411, BuffMeta::new(Buff, High)), // Axe Wind Hunt
+        (3060421, BuffMeta::new(Buff, High)), // Formless Illusion
+        (3060441, BuffMeta::new(Buff, High)), // Peerless Flame Dance
+        (3210181, BuffMeta::new(Buff, High)), // Wind Thunder Combo
+        (3210191, BuffMeta::new(Buff, High)), // Arachnocrab Power
+        (3210201, BuffMeta::new(Buff, High)), // All-Out Assault
+        (3210202, BuffMeta::new(Buff, Normal)), // Elemental Smackdown
+        (3210211, BuffMeta::new(Buff, Normal)), // Eye Power
+        (3210221, BuffMeta::new(Buff, High)), // Invigorated
+        (3210222, BuffMeta::new(Buff, High)), // 絶境逢生
     ]
     .into_iter()
     .collect()

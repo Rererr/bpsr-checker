@@ -73,7 +73,7 @@
 対処:
 - WinDivert ドライバ (`WinDivert.dll`, `WinDivert64.sys`) およびインストールフォルダをウイルス対策ソフトの除外設定に追加してください。
 - 不安な場合は[ソースコード](https://github.com/Rererr/bpsr-checker)を確認し、自分で[ビルド](#ソースからのビルド)することも可能です (GPL-3.0)。
-- すべてのリリースは VirusTotal でスキャンしています（最新リリースの結果: [インストーラ](https://www.virustotal.com/gui/file/700a15a21ea40e5f3f0e049e64bb5aeb77babbd25fca12231b11861d0eea7c83/detection) ・ [ポータブル](https://www.virustotal.com/gui/file/d00bb08180bb694be71d146c140c51b03efcfe0df516f060408e7690b0087777/detection)）。
+- すべてのリリースは VirusTotal でスキャンしています（最新リリースの結果: [インストーラ](https://www.virustotal.com/gui/file/8f9ef290eab60caace310fd52fb1399aa2a5db49fc329c2145b9e03c31adcba0/detection) ・ [ポータブル](https://www.virustotal.com/gui/file/f4ca9f4ab11758c84a87231bfdff09025ae23c2f7f7bde7fe3c6115a8d6bfab4/detection)）。
 
 ### Chrome で「ウイルスを検出しました」と表示されダウンロードできません
 

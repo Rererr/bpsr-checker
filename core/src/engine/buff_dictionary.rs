@@ -308,7 +308,7 @@ static DICT: LazyLock<HashMap<i32, BuffMeta>> = LazyLock::new(|| {
         (3210071, BuffMeta::new(Buff,     High)),   // スペシャリスト
         (3210111, BuffMeta::new(Buff,     Normal)), // 暗霧剣士のマスタリー
 
-        // ── S3 追加分（BPSR-ZDPS BuffTable の S2→S3 差分から機械生成: BuffType→category,
+        // ── S3 追加分（BuffTable の S2→S3 差分から機械生成: BuffType→category,
         //    BuffPriority→priority。名前は公式 loc 突合の JA、無ければ EN） ──────────
         (510544, BuffMeta::new(Debuff, Alert)), // 静止
         (683118, BuffMeta::new(Buff, High)), // 団結の力

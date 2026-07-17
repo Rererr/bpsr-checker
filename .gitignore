@@ -22,6 +22,11 @@ tools/_*.json
 # 生成物の名前辞書 JSON のみ同梱する）
 tools/*.mjs
 tools/*.ps1
+tools/*.py
+
+# 名前辞書の派生生成スクリプト（手法はローカル管理・非コミット。生成物のみ同梱する）
+scripts/gen-names.mjs
+scripts/gen-consumable-names.py
 docs/i18n-game-extraction.md
 docs/buff-investigation.md
 docs/global-metadata-investigation.md

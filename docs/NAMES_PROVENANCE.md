@@ -1,70 +1,21 @@
-# 名前辞書の出自（多言語名データ）
+# 名前辞書の出自（Third-party notices）
 
-スキル/モンスター/バフの英語表示名は **BPSR-ZDPS**（MIT ライセンス）の抽出テーブルを
-ローカルで派生して生成している。元ファイルはコピーせず、`scripts/gen-names.mjs` が
-bpsr-checker の id 空間に合わせた薄い `id → 名前` 辞書を出力する。
-
-## ソース
+本リポジトリが同梱する名前辞書データ（下記ファイル）には、**BPSR-ZDPS**（MIT ライセンス）の
+テーブルからローカルで派生したデータが含まれる。
 
 - **BPSR-ZDPS** — https://github.com/Blue-Protocol-Source/BPSR-ZDPS
   - License: MIT — Copyright (c) 2025 Blue-Protocol-Source
-  - 使用テーブル: `BPSR-ZDPS/Data/{SkillTable,SkillOverrides.en,BuffTable,BuffOverrides.en,MonsterTable}.json`
 
-> AGPL-3 の姉妹リポ（StarResonanceDps / resonance-logs-cn）は本プロジェクト（GPL-3.0-only）
-> へ取り込めないため、名前データの派生ソースには**使用しない**。
+## 派生データを含む同梱ファイル
 
-- **JA スキル名** — `core/data/json/SkillName.ja.json`（包括的な日本語辞書・約 1.5 万件）。
-  出自はゲーム内日本語名称（CN→JA 変換 / upstream 同期由来）で、公式 loc からの一意抽出ではない。
-  > 当初は公式 loc から一意確定した 1084 件のみへ絞ったが、JA 表示で大半が EN へ落ち日英混在となったため、
-  > 旧 `SkillName.json` 由来の包括辞書を JA 用に復元した。さらに復元辞書には未翻訳の英語・中国語・"copy"
-  > 残骸が残っていたため、公式 loc から high 信頼で一意抽出した JA 名 **373 件**を上書き適用し是正済み
-  > （英語/中国語/copy 残骸＋漢字のみの中国語残骸。段階派生技の「基本名＋段数」と公式 loc 実在の確定 JA は温存）。
-  > 抽出は override 名＋生 `SkillTable.Name` の二刀流＋アンカー補間（`tools/match-skill-ja2.mjs`・gitignore）。
-  > 完全な公式名（残りの曖昧分）は別 pkg 探索による後続タスク（`docs/i18n-game-extraction.md`）。
+- `core/data/json/SkillName.json` / `SkillName.ja.json`（一部）
+- `core/data/json/MonsterNameBoss.en.json`
+- `core/data/json/ImagineSkillNames.json`（召喚/分身 id の紐付け）
+- `core/data/json/ConsumableBuffIds.json`
+- `slint-app/data/BuffName.en.json`
+- `slint-app/data/ConsumableBuffNames.ja.json`
 
-## 生成物と言語カバレッジ
-
-| ファイル | 言語 | 由来 |
-|---|---|---|
-| `core/data/json/SkillName.json` | EN（基準辞書） | `SkillOverrides.en.Name` > `SkillTable.Name`、未収録 id は従来値を保持 |
-| `core/data/json/SkillName.ja.json` | JA（包括・復元） | 旧 `SkillName.json` 由来の包括日本語辞書を復元。JA 表示時に優先 |
-| `core/data/json/MonsterNameBoss.json` | JA（既存・手当て） | 本リポ既存（変更しない） |
-| `core/data/json/MonsterNameBoss.en.json` | EN | `MonsterTable.Name` |
-| `slint-app/data/BuffName.ja.json` | JA（既存・手当て） | 本リポ既存（変更しない） |
-| `slint-app/data/BuffName.en.json` | EN | `BuffOverrides.en.Name` > `BuffTable.Name` |
-
-### MIT のみ制約による限界
-
-BPSR-ZDPS は実質 **EN フォーク**で、我々の表示 id 集合では各テーブルの `Name` は英語
-（簡体字は内部コードネーム id のみ）。よって **clean な簡体字（CN）/ 公式日本語（JP）の
-ゲーム名ソースは存在しない**。表示言語ごとの解決は次のフォールバックで行う:
-
-- **ja**: ja（既存 curated）→ en → id
-- **en**: en → ja → id
-- **zh**: en → ja → id （簡体字ゲーム名が無いため英語ゲーム名を使用。UI 文字列のみ中国語）
-
-スキル名は EN を基準辞書（`SkillName.json`）とし、JA 表示時のみ `SkillName.ja.json`（包括日本語辞書）
-を優先する（未収録 id・en/zh は EN）。これにより JA 表示は実スキル名がすべて日本語になる。
-
-## 再生成
-
-```bash
-node scripts/gen-names.mjs            # 既定: ../BPSR-ZDPS/BPSR-ZDPS/Data を参照
-node scripts/gen-names.mjs --zdps <path>
-```
-
-ゲーム更新で BPSR-ZDPS が更新されたら再実行する。
-
-## S3 更新（2026-07-17）
-
-日本版シーズン3（Echoes of Ember・新クラス「ツインストライカー」）対応で辞書を一括更新した。
-
-- **ソース**: (1) BPSR-ZDPS の 2026-07-06 版テーブル（MIT） (2) 所有 JA ビルド（S3 更新済み
-  `m0.pkg`）から `tools/extract-ja-names.mjs buildlang` で再抽出した多言語 loc
-  （ja 128,884 / en 73,555 件・gitignore）。
-- **JA 補完の手法**: EN 名 → en loc の一意一致 → 同 locId の ja（曖昧・0件はスキップ＝EN
-  フォールバック維持）。中国語残骸は zh-Hans loc の値逆引きを優先鍵に是正。
-- **更新内容**: イマジン names_ja 欠落29件補完＋召喚ID再生成 / スキル EN +208・JA +21・
-  残骸是正65件（ツインストライカーのコンボは公式基本名＋段数で統一） / ボス名 151件追加
-  （211→362） / 食事・シロップ ID 集合を BPSR-ZDPS の `Icon` prefix 由来へ切替
-  （旧: resonance-logs-cn 由来。AGPL 依存の解消）。
+元ファイルはコピーせず、bpsr-checker の id 空間に合わせた薄い `id → 名前` 辞書として
+ローカル管理の生成スクリプトで導出している。日本語名は自前環境のゲームクライアントに
+由来する。AGPL-3 の類似プロジェクトは本プロジェクト（GPL-3.0-only）へ取り込めないため、
+派生ソースには使用していない。

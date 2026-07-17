@@ -174,6 +174,8 @@ pub struct Settings {
     /// 小さい文字（ステータス行 10px 等）では 1px の影が文字を二重化し黒く汚れて見えるため既定 false。
     /// 透明 HUD で更に視認性を上げたい場合のみ任意で ON。
     pub overlay_shadow: bool,
+    /// メイン窓最下部のフッター（お問い合わせ／GitHub報告リンク）を表示するか（既定 true）。
+    pub show_footer: bool,
 }
 
 impl Default for Settings {
@@ -237,6 +239,7 @@ impl Default for Settings {
             imagine_compact_rows: false,
             overlay_outline: true,
             overlay_shadow: false,
+            show_footer: true,
         }
     }
 }

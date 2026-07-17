@@ -258,6 +258,9 @@ msgstr "紧凑分栏"
 msgid "タスクバーに常駐"
 msgstr "显示在任务栏"
 
+msgid "フッターを表示"
+msgstr "显示页脚"
+
 msgid "フォントサイズ"
 msgstr "字号"
 
@@ -380,3 +383,10 @@ msgstr "承伤"
 
 msgid "Log"
 msgstr "日志"
+
+# フッター（メイン窓最下部・お問い合わせ／GitHub報告リンク）
+msgid "GitHubで報告"
+msgstr "在GitHub反馈"
+
+msgid "お問い合わせ"
+msgstr "联系开发者"

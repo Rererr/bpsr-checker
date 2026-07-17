@@ -294,6 +294,9 @@ msgstr "Compact split"
 msgid "タスクバーに常駐"
 msgstr "Show in taskbar"
 
+msgid "フッターを表示"
+msgstr "Show footer"
+
 msgid "フォントサイズ"
 msgstr "Font size"
 
@@ -448,3 +451,10 @@ msgstr "Open in New Window"
 
 msgid "イマジン名のメンテナンス"
 msgstr "Imagine Name Maintenance"
+
+# フッター（メイン窓最下部・お問い合わせ／GitHub報告リンク）
+msgid "GitHubで報告"
+msgstr "Report on GitHub"
+
+msgid "お問い合わせ"
+msgstr "Contact"

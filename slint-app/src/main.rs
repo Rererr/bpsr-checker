@@ -143,6 +143,37 @@ fn already_running() -> bool {
     false
 }
 
+/// 既定ブラウザで URL を開く（フッターの「お問い合わせ」「GitHubで報告」用）。
+/// 失敗しても UI は落とさず warn ログのみ出す。
+#[cfg(windows)]
+fn open_url(url: &str) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    use windows::core::PCWSTR;
+    let op: Vec<u16> = "open\0".encode_utf16().collect();
+    let file: Vec<u16> = format!("{url}\0").encode_utf16().collect();
+    unsafe {
+        let result = ShellExecuteW(
+            HWND(0),
+            PCWSTR(op.as_ptr()),
+            PCWSTR(file.as_ptr()),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        );
+        // ShellExecute は成功時 32 より大きい値（HINSTANCE 相当）を返す。
+        if result.0 <= 32 {
+            log::warn!("open_url failed: {url} (code {})", result.0);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn open_url(url: &str) {
+    log::warn!("open_url not supported on this platform: {url}");
+}
+
 fn data_dir() -> std::path::PathBuf {
     let base = std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string());
     std::path::PathBuf::from(base).join("bpsr-checker")
@@ -1117,6 +1148,7 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         imagine_compact_rows: c.imagine_compact_rows,
         overlay_outline: c.overlay_outline,
         overlay_shadow: c.overlay_shadow,
+        show_footer: c.show_footer,
     });
     // 文字色HSVピッカーの初期/同期位置（現在の文字色を HSV へ変換して反映）。
     {
@@ -2943,6 +2975,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "imagine-overlay-font-bold" => c.imagine_overlay_font_bold = val,
                     "overlay-outline" => c.overlay_outline = val,
                     "overlay-shadow" => c.overlay_shadow = val,
+                    "show-footer" => c.show_footer = val,
                     other => log::warn!("unknown setting key: {other}"),
                 }
             }
@@ -3553,6 +3586,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
+    // フッターのリンク（既定ブラウザで開く。URL は固定＋バージョン埋め込みのみで状態非依存）。
+    main.on_open_contact(move || {
+        open_url(&format!(
+            "https://rererr-portfolio.pages.dev/?from=bpsr-checker&v={}#contact",
+            env!("CARGO_PKG_VERSION")
+        ));
+    });
+    main.on_open_github_issue(move || {
+        open_url("https://github.com/Rererr/bpsr-checker/issues/new");
+    });
 
     main.show()?;
     if cfg.borrow().show_self_status_overlay {

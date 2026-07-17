@@ -82,6 +82,7 @@ struct SettingsUi {
     imagine-compact-rows: bool,        // イマジンタイマー 密表示（行を詰める）
     overlay-outline: bool,             // オーバーレイ文字の縁取り（stroke）
     overlay-shadow: bool,              // オーバーレイ文字の影（ドロップシャドウ）
+    show-footer: bool,                 // メイン窓最下部のフッター（お問い合わせ／GitHub報告リンク）
 }
 
 // 数値設定の表示用（Rust が cfg から整形して set）。ステッパーで増減する。
@@ -1430,6 +1431,7 @@ component DisplaySection inherits SectionCard {
     ToggleRow { label: @tr("名前マスク"); checked: root.cfg.privacy-mask; toggled => { root.set-bool("privacy-mask", !root.cfg.privacy-mask); } }
     ToggleRow { label: @tr("軽量分割表示"); checked: root.cfg.compact-split; toggled => { root.set-bool("compact-split", !root.cfg.compact-split); } }
     ToggleRow { label: @tr("タスクバーに常駐"); checked: root.cfg.show-in-taskbar; toggled => { root.set-bool("show-in-taskbar", !root.cfg.show-in-taskbar); } }
+    ToggleRow { label: @tr("フッターを表示"); checked: root.cfg.show-footer; toggled => { root.set-bool("show-footer", !root.cfg.show-footer); } }
     // メイン窓の文字サイズ・フォント（バフ/デバフ オーバーレイもこれに追随する）。
     FontControls {
         size-text: root.nums.font-size;
@@ -2210,6 +2212,8 @@ export component MainWindow inherits Window {
     callback select-result-player(string);
     callback select-result-skill(string);
     callback imagine-open-window();                   // 「別ウィンドウで開く」ボタン→ ImagineNamesWindow を show()
+    callback open-contact();                           // フッター「お問い合わせ」→ 既定ブラウザでポートフォリオサイトを開く
+    callback open-github-issue();                       // フッター「GitHubで報告」→ 既定ブラウザでissue作成画面を開く
 
     // ヘッダの固定幅合計（タブ＋ボタン）が収まらない幅ではアイコン/短縮ラベル表示に切り替える。
     // root.width への直接バインディングはヘッダ文字列経由で layoutinfo と循環するため、
@@ -2866,6 +2870,40 @@ export component MainWindow inherits Window {
                         stroke: #ffffffaa;
                         stroke-width: 1.4px;
                         fill: transparent;
+                    }
+                }
+            }
+        }
+
+        // ── フッター（お問い合わせ／GitHub報告。全ビュー共通で最下部に固定・50%透過）──
+        if root.cfg-ui.show-footer: Rectangle {
+            height: 20px;
+            opacity: 0.5;
+            HorizontalLayout {
+                padding-left: 8px;
+                padding-right: 8px;
+                spacing: 10px;
+                Rectangle { horizontal-stretch: 1; }
+                issue-link := TouchArea {
+                    width: issue-text.preferred-width;
+                    mouse-cursor: pointer;
+                    clicked => { root.open-github-issue(); }
+                    issue-text := Text {
+                        text: @tr("GitHubで報告");
+                        color: issue-link.has-hover ? #cccccc : #888888;
+                        font-size: 10px * root.font-scale;
+                        vertical-alignment: center;
+                    }
+                }
+                contact-link := TouchArea {
+                    width: contact-text.preferred-width;
+                    mouse-cursor: pointer;
+                    clicked => { root.open-contact(); }
+                    contact-text := Text {
+                        text: @tr("お問い合わせ");
+                        color: contact-link.has-hover ? #cccccc : #888888;
+                        font-size: 10px * root.font-scale;
+                        vertical-alignment: center;
                     }
                 }
             }

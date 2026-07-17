@@ -74,6 +74,12 @@ def main() -> None:
     for sid, v in skills.items():
         if sid in canon_ja or sid in canon_en:
             continue  # canonical はそのまま
+        # 装備枠(7/8)以外へスロットされ得るスキルは展開しない。S3 の図鑑ロールスキル
+        # (SlotPositionId 21-24)等が NameDesign 一致で紛れると、ロールスキル起動の召喚を
+        # 「装備イマジン」と誤認するため（内部変種は SlotPositionId が [] か [0]）。
+        slots = v.get("SlotPositionId") or []
+        if any(s not in (0, 7, 8) for s in slots):
+            continue
         key = norm(v.get("NameDesign"))
         if not key:
             continue

@@ -218,17 +218,53 @@
   "510543": {
     "name": "Rooted"
   },
+  "510544": {
+    "name": "Rooted"
+  },
   "510571": {
     "name": "Wound"
   },
   "683115": {
     "name": "Power of Unity"
   },
+  "683118": {
+    "name": "Power of Unity"
+  },
   "683311": {
     "name": "Armor Break"
   },
+  "683331": {
+    "name": "Power of Unity"
+  },
   "683624": {
     "name": "HP Regen"
+  },
+  "683858": {
+    "name": "Leisurely Gift"
+  },
+  "683859": {
+    "name": "Leisurely Gift"
+  },
+  "683861": {
+    "name": "Night Phantom Waltz"
+  },
+  "702003": {
+    "name": "Exaltation Anthem"
+  },
+  "702004": {
+    "name": "Exaltation Anthem"
+  },
+  "702005": {
+    "name": "Exaltation Anthem"
+  },
+  "702015": {
+    "name": "Dissonant Crystal"
+  },
+  "705104": {
+    "name": "Deterring Roar"
+  },
+  "705105": {
+    "name": "Deterring Roar"
   },
   "800010": {
     "name": "Twin's Fire Seed"
@@ -248,6 +284,111 @@
   "821051": {
     "name": "Magnetized wound"
   },
+  "821060": {
+    "name": "Illusory Bloom's Shelter"
+  },
+  "821074": {
+    "name": "Hallucination"
+  },
+  "821078": {
+    "name": "Hallucination Corrosion"
+  },
+  "829121": {
+    "name": "Weakened"
+  },
+  "829129": {
+    "name": "Singularity Scar"
+  },
+  "829130": {
+    "name": "Lingering Wound"
+  },
+  "829201": {
+    "name": "Delayed Railgun"
+  },
+  "829210": {
+    "name": "Mega Delayed Railgun"
+  },
+  "829224": {
+    "name": "Mechanical Pact"
+  },
+  "829243": {
+    "name": "Engram Restriction"
+  },
+  "829324": {
+    "name": "Cumulative Sentence"
+  },
+  "829352": {
+    "name": "Paradox-Calamity Remnant - Origin Weakness Research - Normal"
+  },
+  "829353": {
+    "name": "Paradox-Calamity Remnant - Origin Weakness Research - Hard"
+  },
+  "829354": {
+    "name": "Paradox-Calamity Remnant - Origin Weakness Research - Nightmare"
+  },
+  "829355": {
+    "name": "Paradox-Calamity Remnant - Continuation Weakness Research - Normal"
+  },
+  "829356": {
+    "name": "Paradox-Calamity Remnant - Continuation Weakness Research - Hard"
+  },
+  "829357": {
+    "name": "Paradox-Calamity Remnant - Continuation Weakness Research - Nightmare"
+  },
+  "829358": {
+    "name": "Paradox-Calamity Remnant - Final Weakness Research - Normal"
+  },
+  "829359": {
+    "name": "Paradox-Calamity Remnant - Final Weakness Research - Hard"
+  },
+  "829360": {
+    "name": "Paradox-Calamity Remnant - Final Weakness Research - Nightmare"
+  },
+  "829370": {
+    "name": "Resolve of Consecutive Battles"
+  },
+  "829372": {
+    "name": "Marker 1"
+  },
+  "829373": {
+    "name": "Marker 2"
+  },
+  "829374": {
+    "name": "Marker 3"
+  },
+  "829375": {
+    "name": "Marker 4"
+  },
+  "841519": {
+    "name": "Void Corruption Binding"
+  },
+  "841520": {
+    "name": "Rage"
+  },
+  "841522": {
+    "name": "Suppressed"
+  },
+  "841526": {
+    "name": "Void Corruption Laceration"
+  },
+  "842304": {
+    "name": "Resolve"
+  },
+  "873605": {
+    "name": "Prank Bomb"
+  },
+  "873607": {
+    "name": "Void Corruption Afterimage"
+  },
+  "873610": {
+    "name": "Void Imprint"
+  },
+  "873618": {
+    "name": "Wither"
+  },
+  "873631": {
+    "name": "Wound"
+  },
   "881076": {
     "name": "<Soul> About to Split"
   },
@@ -256,6 +397,108 @@
   },
   "881547": {
     "name": "Electric brand"
+  },
+  "883315": {
+    "name": "Overheated"
+  },
+  "883342": {
+    "name": "Increased Fire DMG Taken"
+  },
+  "883373": {
+    "name": "Encumbered"
+  },
+  "883399": {
+    "name": "Scorching Purgatory"
+  },
+  "883602": {
+    "name": "Double Echo - Ice"
+  },
+  "883603": {
+    "name": "Double Echo - Water"
+  },
+  "883615": {
+    "name": "Nappo's Prank"
+  },
+  "883650": {
+    "name": "Melodic Flaw"
+  },
+  "883702": {
+    "name": "Conductive"
+  },
+  "883705": {
+    "name": "Binding Thread"
+  },
+  "883721": {
+    "name": "Tidal Sanctuary"
+  },
+  "883803": {
+    "name": "Wound Rend"
+  },
+  "883804": {
+    "name": "Rib Fracture"
+  },
+  "883805": {
+    "name": "Disrupted Breath"
+  },
+  "883811": {
+    "name": "Scratch"
+  },
+  "883819": {
+    "name": "Airflow Bind"
+  },
+  "883826": {
+    "name": "Wind Veil"
+  },
+  "883830": {
+    "name": "Turbulence"
+  },
+  "883831": {
+    "name": "Wound Rend"
+  },
+  "883833": {
+    "name": "Acceleration"
+  },
+  "884114": {
+    "name": "Protocol Collapse"
+  },
+  "884140": {
+    "name": "Chaotic Brand"
+  },
+  "972049": {
+    "name": "Natsu - Blazing Contract"
+  },
+  "972050": {
+    "name": "Lucy - Celestial Spirit Contract"
+  },
+  "974318": {
+    "name": "Dragon Slayer Power"
+  },
+  "974322": {
+    "name": "Falling Rocks"
+  },
+  "974342": {
+    "name": "Toxic Mist Spreading"
+  },
+  "974343": {
+    "name": "Dragon Slayer Power"
+  },
+  "974344": {
+    "name": "Dragon Slayer Power"
+  },
+  "974345": {
+    "name": "Malice"
+  },
+  "974346": {
+    "name": "Malice"
+  },
+  "995179": {
+    "name": "Stun"
+  },
+  "995187": {
+    "name": "Wind Defense"
+  },
+  "995191": {
+    "name": "Power Seal"
   },
   "997020": {
     "name": "Main attribute"
@@ -274,6 +517,303 @@
   },
   "997025": {
     "name": "Luck"
+  },
+  "997330": {
+    "name": "Colossus Aura"
+  },
+  "997382": {
+    "name": "Stun"
+  },
+  "997397": {
+    "name": "Illusion-Shroud State"
+  },
+  "2032211": {
+    "name": "Cuisine"
+  },
+  "2032212": {
+    "name": "Cuisine"
+  },
+  "2032213": {
+    "name": "Cuisine"
+  },
+  "2032214": {
+    "name": "Cuisine"
+  },
+  "2032215": {
+    "name": "Cuisine"
+  },
+  "2032216": {
+    "name": "Cuisine"
+  },
+  "2032221": {
+    "name": "Cuisine"
+  },
+  "2032222": {
+    "name": "Cuisine"
+  },
+  "2032223": {
+    "name": "Cuisine"
+  },
+  "2032224": {
+    "name": "Cuisine"
+  },
+  "2032225": {
+    "name": "Cuisine"
+  },
+  "2032226": {
+    "name": "Cuisine"
+  },
+  "2032231": {
+    "name": "Cuisine"
+  },
+  "2032232": {
+    "name": "Cuisine"
+  },
+  "2032233": {
+    "name": "Cuisine"
+  },
+  "2032234": {
+    "name": "Cuisine"
+  },
+  "2032235": {
+    "name": "Cuisine"
+  },
+  "2032236": {
+    "name": "Cuisine"
+  },
+  "2032241": {
+    "name": "Cuisine"
+  },
+  "2032242": {
+    "name": "Cuisine"
+  },
+  "2032243": {
+    "name": "Cuisine"
+  },
+  "2032244": {
+    "name": "Cuisine"
+  },
+  "2032245": {
+    "name": "Cuisine"
+  },
+  "2032246": {
+    "name": "Cuisine"
+  },
+  "2032251": {
+    "name": "Cuisine"
+  },
+  "2032252": {
+    "name": "Cuisine"
+  },
+  "2032253": {
+    "name": "Cuisine"
+  },
+  "2032254": {
+    "name": "Cuisine"
+  },
+  "2032255": {
+    "name": "Cuisine"
+  },
+  "2032256": {
+    "name": "Cuisine"
+  },
+  "2032261": {
+    "name": "Cuisine"
+  },
+  "2032262": {
+    "name": "Cuisine"
+  },
+  "2032263": {
+    "name": "Cuisine"
+  },
+  "2032264": {
+    "name": "Cuisine"
+  },
+  "2032271": {
+    "name": "Cuisine"
+  },
+  "2032272": {
+    "name": "Cuisine"
+  },
+  "2032273": {
+    "name": "Cuisine"
+  },
+  "2032274": {
+    "name": "Cuisine"
+  },
+  "2032281": {
+    "name": "Cuisine"
+  },
+  "2032282": {
+    "name": "Cuisine"
+  },
+  "2032283": {
+    "name": "Cuisine"
+  },
+  "2032284": {
+    "name": "Cuisine"
+  },
+  "2033017": {
+    "name": "Potion"
+  },
+  "2033018": {
+    "name": "Potion"
+  },
+  "2033019": {
+    "name": "Potion"
+  },
+  "2033027": {
+    "name": "Potion"
+  },
+  "2033028": {
+    "name": "Potion"
+  },
+  "2033029": {
+    "name": "Potion"
+  },
+  "2033037": {
+    "name": "Potion"
+  },
+  "2033038": {
+    "name": "Potion"
+  },
+  "2033039": {
+    "name": "Potion"
+  },
+  "2033047": {
+    "name": "Potion"
+  },
+  "2033048": {
+    "name": "Potion"
+  },
+  "2033049": {
+    "name": "Potion"
+  },
+  "2033057": {
+    "name": "Potion"
+  },
+  "2033058": {
+    "name": "Potion"
+  },
+  "2033059": {
+    "name": "Potion"
+  },
+  "2033067": {
+    "name": "Potion"
+  },
+  "2033068": {
+    "name": "Potion"
+  },
+  "2033069": {
+    "name": "Potion"
+  },
+  "2033077": {
+    "name": "Potion"
+  },
+  "2033078": {
+    "name": "Potion"
+  },
+  "2033079": {
+    "name": "Potion"
+  },
+  "2033087": {
+    "name": "Potion"
+  },
+  "2033088": {
+    "name": "Potion"
+  },
+  "2033089": {
+    "name": "Potion"
+  },
+  "2033097": {
+    "name": "Potion"
+  },
+  "2033098": {
+    "name": "Potion"
+  },
+  "2033099": {
+    "name": "Potion"
+  },
+  "2033107": {
+    "name": "Potion"
+  },
+  "2033108": {
+    "name": "Potion"
+  },
+  "2033109": {
+    "name": "Potion"
+  },
+  "2033117": {
+    "name": "Potion"
+  },
+  "2033118": {
+    "name": "Potion"
+  },
+  "2033119": {
+    "name": "Potion"
+  },
+  "2033127": {
+    "name": "Potion"
+  },
+  "2033128": {
+    "name": "Potion"
+  },
+  "2033129": {
+    "name": "Potion"
+  },
+  "2033137": {
+    "name": "Potion"
+  },
+  "2033138": {
+    "name": "Potion"
+  },
+  "2033139": {
+    "name": "Potion"
+  },
+  "2033147": {
+    "name": "Potion"
+  },
+  "2033148": {
+    "name": "Potion"
+  },
+  "2033149": {
+    "name": "Potion"
+  },
+  "2033157": {
+    "name": "Potion"
+  },
+  "2033158": {
+    "name": "Potion"
+  },
+  "2033159": {
+    "name": "Potion"
+  },
+  "2033167": {
+    "name": "Potion"
+  },
+  "2033168": {
+    "name": "Potion"
+  },
+  "2033169": {
+    "name": "Potion"
+  },
+  "2033177": {
+    "name": "Potion"
+  },
+  "2033178": {
+    "name": "Potion"
+  },
+  "2033179": {
+    "name": "Potion"
+  },
+  "2033187": {
+    "name": "Potion"
+  },
+  "2033188": {
+    "name": "Potion"
+  },
+  "2033189": {
+    "name": "Potion"
   },
   "2100002": {
     "name": "Falling Star"
@@ -313,6 +853,9 @@
   },
   "2110042": {
     "name": "Haste"
+  },
+  "2110049": {
+    "name": "Mechanical Failure"
   },
   "2110050": {
     "name": "Element Stasis"
@@ -397,6 +940,57 @@
   },
   "2110111": {
     "name": "Enchantment"
+  },
+  "2110137": {
+    "name": "Void Corruption Power"
+  },
+  "2110138": {
+    "name": "Thunderwind Power"
+  },
+  "2110139": {
+    "name": "Nappo's Blessing"
+  },
+  "2110140": {
+    "name": "Mechanical Power"
+  },
+  "2110141": {
+    "name": "Mastery King"
+  },
+  "2110142": {
+    "name": "Rapid Slash Combo"
+  },
+  "2110143": {
+    "name": "Functional Amp"
+  },
+  "2110144": {
+    "name": "Strong Physique"
+  },
+  "2110145": {
+    "name": "Lethal Combo"
+  },
+  "2110149": {
+    "name": "Power of the Mighty Colossus"
+  },
+  "2110164": {
+    "name": "Dragon Force"
+  },
+  "2110165": {
+    "name": "Fire Dragon's Roar"
+  },
+  "2110167": {
+    "name": "Morale Reduction"
+  },
+  "2110171": {
+    "name": "Lucy - Morph"
+  },
+  "2110172": {
+    "name": "Natsu - Morph"
+  },
+  "2110305": {
+    "name": "Healing Prohibition"
+  },
+  "2110307": {
+    "name": "Caprahorn Shield"
   },
   "2200051": {
     "name": "Overdrive"
@@ -626,6 +1220,21 @@
   "2207521": {
     "name": "Resonant Soundwave"
   },
+  "2208651": {
+    "name": "Crimson Bloodline"
+  },
+  "2409071": {
+    "name": "Rage Unleashed"
+  },
+  "2409081": {
+    "name": "Formless Expertise"
+  },
+  "3051431": {
+    "name": "Enhanced Special Attack"
+  },
+  "3056411": {
+    "name": "Moonlight Solace"
+  },
   "3200010": {
     "name": "Swordsman Specialization"
   },
@@ -643,5 +1252,8 @@
   },
   "3210111": {
     "name": "Dark Mist Swordsman Mastery"
+  },
+  "3210222": {
+    "name": "Survival Instinct"
   }
 }

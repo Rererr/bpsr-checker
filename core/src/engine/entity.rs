@@ -8,6 +8,11 @@ use std::collections::{HashMap, VecDeque};
 /// バトルイマジンは最大この数。`imagines`（確定・表示用）の上限として processor/compute が共有する。
 pub const MAX_IMAGINE_NAMES: usize = 2;
 
+/// ロールスキル(簡易版バトルイマジン、S3で追加された職業ユーティリティ枠)の装備枠数
+/// （SlotPositionId 21-24）。プレイヤーが同時に装備・表示できるロールスキルは最大この数。
+/// `role_skill_imagines`（確定・表示用）の上限として processor/compute が共有する。
+pub const MAX_ROLE_SKILL_IMAGINES: usize = 4;
+
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SkillMeta {
     pub property: u8,
@@ -102,6 +107,17 @@ pub struct Entity {
     /// 破棄される（保留状態はグループ境界を跨がない）。
     pub pending_imagine: Option<ImagineSlot>,
 
+    /// ロールスキル(簡易版バトルイマジン、S3で追加された職業ユーティリティ枠)の検知結果
+    /// （最大 [`MAX_ROLE_SKILL_IMAGINES`] 件、SlotPositionId 21-24）。実イマジン2枠
+    /// （`imagines`/`pending_imagine`）とは完全に独立した別枠であり、ロールスキルの対象は
+    /// 装備中の実イマジン2枠のいずれかである必要が無い。権威的に更新されるのは
+    /// `apply_skill_list_imagines`（フル装備スキルリスト attr116）からのみで、召喚ベースの
+    /// ヒューリスティック（`try_attribute_summon_imagine`）から直接セットされることはない
+    /// （同一の召喚シグナルが実イマジンとロールスキル両方から発生し得るため、真偽の判定は
+    /// attr116 の権威的スナップショットにのみ委ねる）。`pending_hits` は未使用（`ImagineSlot`
+    /// 再利用のため常に0のまま無視してよい）。
+    pub role_skill_imagines: Vec<ImagineSlot>,
+
     // Monsters（curr_hp / max_hp は自キャラの HP にも流用する）
     pub monster_id: Option<u32>,
     pub curr_hp: Option<u64>,
@@ -134,6 +150,38 @@ impl Entity {
     /// [`Entity::imagine_display_names`] / [`Entity::imagine_tiers`] を使う。
     pub fn imagine_display_labels(&self) -> Vec<String> {
         self.imagines
+            .iter()
+            .filter_map(|s| {
+                let display = crate::engine::imagine_overrides::resolve_display(&s.name)?;
+                Some(if s.tier > 0 {
+                    format!("{}({})", display, s.tier)
+                } else {
+                    display
+                })
+            })
+            .collect()
+    }
+
+    /// ロールスキル(簡易版バトルイマジン)の検知名一覧（挿入順で安定）。名前のみ（凸数なし）。
+    /// 検知ロジックの一致判定・name_cache 永続化はこちらを使う（`imagine_display_names` の
+    /// ロールスキル版）。
+    pub fn role_skill_imagine_names(&self) -> Vec<String> {
+        self.role_skill_imagines.iter().map(|s| s.name.clone()).collect()
+    }
+
+    /// ロールスキルの凸数一覧（`role_skill_imagine_names` と同順の並列配列）。name_cache 永続化用
+    /// （`imagine_tiers` のロールスキル版）。
+    pub fn role_skill_imagine_tiers(&self) -> Vec<i32> {
+        self.role_skill_imagines.iter().map(|s| s.tier).collect()
+    }
+
+    /// ロールスキル(簡易版バトルイマジン)の表示ラベル一覧（"名前(N)"形式）。imagine_display_labels
+    /// と全く同じパターンでユーザー上書き(imagine_overrides)を解決し、IGNORE設定の枠は結果から
+    /// 除外する。未検知（`role_skill_imagines` が空）なら空 Vec。表示件数の [`MAX_ROLE_SKILL_IMAGINES`]
+    /// への丸めは `imagine_display_labels` 同様ここでは行わない（表示層の `format_imagine_suffix`
+    /// が保険としてそちらを担う）。
+    pub fn role_skill_imagine_labels(&self) -> Vec<String> {
+        self.role_skill_imagines
             .iter()
             .filter_map(|s| {
                 let display = crate::engine::imagine_overrides::resolve_display(&s.name)?;
@@ -206,5 +254,84 @@ mod tests {
         // imagine_display_names は上書き非適用なので ignored でも両方残る。
         assert_eq!(entity.imagine_display_names().len(), 2);
         imagine_overrides::clear(canonical);
+    }
+
+    #[test]
+    fn role_skill_imagine_labels_uses_canonical_when_no_override() {
+        let _guard = crate::engine::imagine_test_support::guard();
+        let canonical = "__entity_test_role_skill_no_override__";
+        imagine_overrides::clear(canonical);
+        let entity = Entity {
+            role_skill_imagines: vec![slot(canonical, 0)],
+            ..Default::default()
+        };
+        assert_eq!(
+            entity.role_skill_imagine_labels(),
+            vec![canonical.to_string()]
+        );
+    }
+
+    #[test]
+    fn role_skill_imagine_labels_applies_display_override_and_keeps_tier_suffix() {
+        let _guard = crate::engine::imagine_test_support::guard();
+        let canonical = "__entity_test_role_skill_display__";
+        imagine_overrides::set_display(canonical, Some("表示上書き".to_string()));
+        let entity = Entity {
+            role_skill_imagines: vec![slot(canonical, 3)],
+            ..Default::default()
+        };
+        assert_eq!(
+            entity.role_skill_imagine_labels(),
+            vec!["表示上書き(3)".to_string()]
+        );
+        imagine_overrides::clear(canonical);
+    }
+
+    #[test]
+    fn role_skill_imagine_labels_hides_ignored_slot_but_keeps_sibling() {
+        let _guard = crate::engine::imagine_test_support::guard();
+        let canonical = "__entity_test_role_skill_ignored__";
+        let sibling = "__entity_test_role_skill_ignored_sibling__";
+        imagine_overrides::clear(sibling);
+        imagine_overrides::set_ignored(canonical, true);
+        let entity = Entity {
+            role_skill_imagines: vec![slot(canonical, 0), slot(sibling, 0)],
+            ..Default::default()
+        };
+        assert_eq!(entity.role_skill_imagine_labels(), vec![sibling.to_string()]);
+        imagine_overrides::clear(canonical);
+    }
+
+    #[test]
+    fn role_skill_imagine_labels_is_empty_when_undetected() {
+        let entity = Entity::default();
+        assert!(entity.role_skill_imagine_labels().is_empty());
+    }
+
+    // ロールスキルは最大4枠(SlotPositionId 21-24)を同時装備できる。3〜4件同時に検知しても
+    // 全件が欠落なく解決・表示されることを確認する（実イマジン2枠側の複数件テストと同じ形）。
+    #[test]
+    fn role_skill_imagine_labels_resolves_all_simultaneous_slots() {
+        let _guard = crate::engine::imagine_test_support::guard();
+        let a = "__entity_test_role_skill_multi_a__";
+        let b = "__entity_test_role_skill_multi_b__";
+        let c = "__entity_test_role_skill_multi_c__";
+        let d = "__entity_test_role_skill_multi_d__";
+        for name in [a, b, c, d] {
+            imagine_overrides::clear(name);
+        }
+        let entity = Entity {
+            role_skill_imagines: vec![slot(a, 1), slot(b, 0), slot(c, 5), slot(d, 0)],
+            ..Default::default()
+        };
+        assert_eq!(
+            entity.role_skill_imagine_labels(),
+            vec![
+                format!("{a}(1)"),
+                b.to_string(),
+                format!("{c}(5)"),
+                d.to_string(),
+            ]
+        );
     }
 }

@@ -27,6 +27,15 @@ pub struct CachedPlayer {
     /// 長さが `imagine_names` と食い違う場合、読み手は不足分を 0 として扱う。
     #[serde(default)]
     pub imagine_tiers: Vec<i32>,
+    /// ロールスキル(簡易版バトルイマジン、最大4枠)の検知名一覧。実イマジン2枠
+    /// （`imagine_names`/`imagine_tiers`）とは独立して永続化する。旧バージョンのキャッシュには
+    /// 無いフィールドのため default（空）で前方/後方互換。
+    #[serde(default)]
+    pub role_skill_imagine_names: Vec<String>,
+    /// `role_skill_imagine_names` と同順のイマジンレベル（凸数）並列配列。0=未判明。
+    /// 長さが `role_skill_imagine_names` と食い違う場合、読み手は不足分を 0 として扱う。
+    #[serde(default)]
+    pub role_skill_imagine_tiers: Vec<i32>,
     #[serde(default)]
     pub last_seen_ms: u64,
 }
@@ -150,6 +159,26 @@ pub fn update_imagine(uid: i64, imagine_names: &[String], imagine_tiers: &[i32])
     if entry.imagine_names != imagine_names || entry.imagine_tiers != imagine_tiers {
         entry.imagine_names = imagine_names.to_vec();
         entry.imagine_tiers = imagine_tiers.to_vec();
+        entry.last_seen_ms = now_ms();
+        save_locked(&guard);
+    }
+}
+
+/// Record the displayed Role Skill (簡易版バトルイマジン, up to 4 slots) names and tiers
+/// (凸数, 0=unknown) for a player. `role_skill_imagine_tiers` is a parallel array to
+/// `role_skill_imagine_names`. Persists on change only (same discipline as `update_imagine`).
+/// Empty `names` clears the entry.
+pub fn update_role_skill_imagines(uid: i64, names: &[String], tiers: &[i32]) {
+    if uid == 0 {
+        return;
+    }
+    let Ok(mut guard) = cache().lock() else {
+        return;
+    };
+    let entry = guard.entries.entry(uid).or_default();
+    if entry.role_skill_imagine_names != names || entry.role_skill_imagine_tiers != tiers {
+        entry.role_skill_imagine_names = names.to_vec();
+        entry.role_skill_imagine_tiers = tiers.to_vec();
         entry.last_seen_ms = now_ms();
         save_locked(&guard);
     }

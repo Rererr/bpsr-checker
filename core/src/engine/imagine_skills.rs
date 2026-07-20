@@ -79,6 +79,33 @@ pub fn imagine_name(skill_id: i32) -> Option<String> {
     resolve_id(&table, skill_id)
 }
 
+#[derive(serde::Deserialize)]
+struct RoleSkillIds {
+    role_skill_to_canonical: HashMap<String, i32>,
+}
+
+/// S3で追加された装備枠「ロールスキル」に登録できるバトルイマジン簡易版の発動スキルID→
+/// 対応する装備イマジン(canonical)側スキルIDの対応表。dev編集の対象外（配布データのみ）
+/// のため `NAMES` と異なり `RwLock` は使わない（プロセス生存中不変）。
+static ROLE_SKILL_TO_CANONICAL: LazyLock<HashMap<i32, i32>> = LazyLock::new(|| {
+    let data = include_str!("../../data/json/RoleSkillImagineIds.json");
+    let parsed: RoleSkillIds =
+        serde_json::from_str(data).expect("invalid RoleSkillImagineIds.json");
+    parsed
+        .role_skill_to_canonical
+        .into_iter()
+        .filter_map(|(k, canonical)| k.parse::<i32>().ok().map(|id| (id, canonical)))
+        .collect()
+});
+
+/// `skill_id` がロールスキル(簡易版バトルイマジン)の発動スキルIDなら、対応する装備イマジンの
+/// 表示名を解決する（未登録なら None）。名前文字列自体は持たず、対応する canonical id を
+/// [`imagine_name`] へ委譲するため、devモードでの canonical リネームが自動的に反映される。
+pub fn role_skill_imagine_name(skill_id: i32) -> Option<String> {
+    let canonical_id = *ROLE_SKILL_TO_CANONICAL.get(&skill_id)?;
+    imagine_name(canonical_id)
+}
+
 /// スキルIDを解決名（＝canonical）でグループ化した1件。
 /// `main_skill_id` は 3900〜3999 の canonical 範囲内の最小id（無ければ全体の最小id）、
 /// `clone_skill_ids` はそれ以外を昇順で並べたもの（分身/召喚スキルID）。
@@ -238,6 +265,14 @@ mod tests {
         assert_eq!(imagine_name(1007741), Some("ヴェノミーンの巣".to_string()));
         assert_eq!(imagine_name(3909), Some("Void Foxen".to_string())); // ja未登録・enのみ
         assert_eq!(imagine_name(-1), None); // 完全未登録
+    }
+
+    #[test]
+    fn role_skill_imagine_name_resolves_via_canonical() {
+        let _guard = crate::engine::imagine_test_support::guard();
+        // 3021 = サンダーオーガのロールスキル(簡易版)発動ID。canonical(3902)経由で解決される。
+        assert_eq!(role_skill_imagine_name(3021), Some("サンダーオーガ".to_string()));
+        assert_eq!(role_skill_imagine_name(-1), None); // 完全未登録
     }
 
     #[test]

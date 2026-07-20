@@ -1,7 +1,7 @@
 use crate::engine::buff_source::BuffSourceKind;
 use crate::engine::class::{Class, ClassSpec};
 use crate::engine::combat_stats::CombatStats;
-use crate::engine::entity::MAX_IMAGINE_NAMES;
+use crate::engine::entity::{MAX_IMAGINE_NAMES, MAX_ROLE_SKILL_IMAGINES};
 use crate::engine::runtime_settings::{self, Lang};
 use crate::engine::encounter::{Encounter, EncounterMutex};
 use crate::engine::name_cache;
@@ -224,7 +224,10 @@ pub fn get_dmg_taken_attackers(
         elapsed_secs,
         &player.time_series,
         ConsumableTimes::default(), // inspected_player 見出しは食事/シロップ非表示
-        format_imagine_suffix(&player.imagine_display_labels()), // 見出しは使用イマジンを強制表示
+        format_imagine_suffix(
+            &player.imagine_display_labels(),
+            &player.role_skill_imagine_labels(),
+        ), // 見出しは使用イマジンを強制表示
     );
 
     let mut top_value = 0.0_f64;
@@ -293,7 +296,10 @@ pub fn get_dmg_taken_skills(
         elapsed_secs,
         &player.time_series,
         ConsumableTimes::default(), // inspected_player 見出しは食事/シロップ非表示
-        format_imagine_suffix(&player.imagine_display_labels()), // 見出しは使用イマジンを強制表示
+        format_imagine_suffix(
+            &player.imagine_display_labels(),
+            &player.role_skill_imagine_labels(),
+        ), // 見出しは使用イマジンを強制表示
     );
 
     let attacker_total_i64 = attacker_total as i64;
@@ -430,7 +436,10 @@ fn build_players_window_unsorted(
             elapsed_secs,
             &entity.time_series,
             consumable,
-            format_imagine_suffix(&entity.imagine_display_labels()),
+            format_imagine_suffix(
+                &entity.imagine_display_labels(),
+                &entity.role_skill_imagine_labels(),
+            ),
         );
         window.player_rows.push(row);
     }
@@ -453,12 +462,31 @@ struct ConsumableTimes {
 /// 未装備なら空文字（テンプレート展開・見出し強制表示のいずれも自然に何も付かない）。
 /// 装備枠は2つ（[`MAX_IMAGINE_NAMES`]）なので、万一それ以上溜まっていても表示は先頭 MAX 件に丸める
 /// （検知/キャッシュ側で既に丸めているが、表示層でも保険をかけて「3つ以上」を出さない）。
-fn format_imagine_suffix(imagine_names: &[String]) -> String {
-    if imagine_names.is_empty() {
-        return String::new();
+///
+/// `role_skill_labels` が非空なら、ロールスキル(簡易版バトルイマジン、最大 [`MAX_ROLE_SKILL_IMAGINES`]
+/// 件)の表示ラベルを "/" 区切りで結合し " (R:名前1/名前2/…)" 形式で追記する（実イマジン部が空なら
+/// 先頭スペース無しの "(R:名前1/名前2/…)" のみ）。これにより装備中の実イマジン2枠とロールスキルの
+/// 対象が視覚的に区別される（例: "-ゴーストカニクモ/ティナ (R:アルーナ(3)/ファルファラ)"）。
+/// 実イマジン側と同様、万一それ以上溜まっていても表示は先頭 MAX 件に丸める（検知/キャッシュ側で
+/// 既に丸めているが、表示層でも保険をかける）。
+fn format_imagine_suffix(imagine_names: &[String], role_skill_labels: &[String]) -> String {
+    let base = if imagine_names.is_empty() {
+        String::new()
+    } else {
+        let shown = &imagine_names[..imagine_names.len().min(MAX_IMAGINE_NAMES)];
+        format!("-{}", shown.join("/"))
+    };
+    if role_skill_labels.is_empty() {
+        return base;
     }
-    let shown = &imagine_names[..imagine_names.len().min(MAX_IMAGINE_NAMES)];
-    format!("-{}", shown.join("/"))
+    let shown_role_skill =
+        &role_skill_labels[..role_skill_labels.len().min(MAX_ROLE_SKILL_IMAGINES)];
+    let role_skill_joined = shown_role_skill.join("/");
+    if base.is_empty() {
+        format!("(R:{role_skill_joined})")
+    } else {
+        format!("{base} (R:{role_skill_joined})")
+    }
 }
 
 fn make_player_row(
@@ -564,7 +592,10 @@ pub fn get_skills(
         elapsed_secs,
         &player.time_series,
         ConsumableTimes::default(), // inspected_player 見出しは食事/シロップ非表示
-        format_imagine_suffix(&player.imagine_display_labels()), // 見出しは使用イマジンを強制表示
+        format_imagine_suffix(
+            &player.imagine_display_labels(),
+            &player.role_skill_imagine_labels(),
+        ), // 見出しは使用イマジンを強制表示
     );
 
     let mut skill_window = SkillsWindow {
@@ -1278,5 +1309,82 @@ mod tests {
         // 昇格後は最新2件（ヴェノミーンの巣/ロローラ）に丸められ、ロローラが実ゲーム版の
         // 召喚ID(2900840)で解決されて表示される＝「3つ以上出さない」「ロローラが表示される」を満たす。
         assert_eq!(row.imagine_suffix, "-ヴェノミーンの巣/ロローラ");
+    }
+
+    // DPSランキング表示(get_dps_players)の imagine_suffix に、実イマジン2枠とは別枠の
+    // ロールスキル(簡易版バトルイマジン)が " (R:名前)" 形式で視覚的に区別して追記されること。
+    #[test]
+    fn dps_ranking_imagine_suffix_appends_role_skill_label() {
+        use crate::engine::entity::{Entity, ImagineSlot};
+        use crate::protocol::pb::EntityKind;
+
+        const SELF_UID: i64 = 43;
+        let enc: EncounterMutex = std::sync::Mutex::new(Encounter::default());
+        {
+            let mut e = enc.lock().unwrap();
+            let mut p = Entity { entity_type: EntityKind::Player, ..Default::default() };
+            p.name = Some("ソラ".to_string());
+            p.dmg_stats.total = 1000; // ランキングに載せるためダメージ実績を持たせる
+            p.imagines = vec![
+                ImagineSlot { name: "ゴーストカニクモ".to_string(), last_seen: 0, tier: 0, pending_hits: 0 },
+                ImagineSlot { name: "ティナ".to_string(), last_seen: 1, tier: 0, pending_hits: 0 },
+            ];
+            p.role_skill_imagines = vec![ImagineSlot {
+                name: "アルーナ".to_string(),
+                last_seen: 2,
+                tier: 3,
+                pending_hits: 0,
+            }];
+            e.entities.insert(SELF_UID, p);
+        }
+
+        let window = get_dps_players(&enc);
+        let row = window
+            .player_rows
+            .iter()
+            .find(|r| r.uid as i64 == SELF_UID)
+            .expect("SELF row present in DPS ranking");
+        assert_eq!(row.imagine_suffix, "-ゴーストカニクモ/ティナ (R:アルーナ(3))");
+    }
+
+    // ロールスキルは最大4枠(SlotPositionId 21-24)を同時装備できる。DPSランキング表示の
+    // imagine_suffix が3〜4件を欠落なく "/" 区切りで結合表示することを確認する
+    // （ユーザー指摘の「1件目以降が黙って消える」ケースの直接の回帰テスト）。
+    #[test]
+    fn dps_ranking_imagine_suffix_shows_all_simultaneous_role_skill_labels() {
+        use crate::engine::entity::{Entity, ImagineSlot};
+        use crate::protocol::pb::EntityKind;
+
+        const SELF_UID: i64 = 44;
+        let enc: EncounterMutex = std::sync::Mutex::new(Encounter::default());
+        {
+            let mut e = enc.lock().unwrap();
+            let mut p = Entity { entity_type: EntityKind::Player, ..Default::default() };
+            p.name = Some("ソラ".to_string());
+            p.dmg_stats.total = 1000; // ランキングに載せるためダメージ実績を持たせる
+            p.imagines = vec![
+                ImagineSlot { name: "ゴーストカニクモ".to_string(), last_seen: 0, tier: 0, pending_hits: 0 },
+                ImagineSlot { name: "ティナ".to_string(), last_seen: 1, tier: 0, pending_hits: 0 },
+            ];
+            p.role_skill_imagines = vec![
+                ImagineSlot { name: "アルーナ".to_string(), last_seen: 2, tier: 3, pending_hits: 0 },
+                ImagineSlot { name: "ファルファラ".to_string(), last_seen: 3, tier: 0, pending_hits: 0 },
+                ImagineSlot { name: "鉄牙".to_string(), last_seen: 4, tier: 1, pending_hits: 0 },
+                ImagineSlot { name: "ムークボス".to_string(), last_seen: 5, tier: 0, pending_hits: 0 },
+            ];
+            e.entities.insert(SELF_UID, p);
+        }
+
+        let window = get_dps_players(&enc);
+        let row = window
+            .player_rows
+            .iter()
+            .find(|r| r.uid as i64 == SELF_UID)
+            .expect("SELF row present in DPS ranking");
+        assert_eq!(
+            row.imagine_suffix,
+            "-ゴーストカニクモ/ティナ (R:アルーナ(3)/ファルファラ/鉄牙(1)/ムークボス)",
+            "all 4 simultaneous role skill labels must be shown, none silently dropped"
+        );
     }
 }

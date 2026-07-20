@@ -2,7 +2,9 @@ use crate::capture::server::Server;
 use crate::engine::class::{Class, ClassSpec, get_class_from_spec, get_class_spec_from_skill_id};
 use crate::engine::combat_stats::process_stats;
 use crate::engine::encounter::{Encounter, EncounterMutex};
-use crate::engine::entity::{Entity, ImagineSlot, MAX_IMAGINE_NAMES, SkillMeta};
+use crate::engine::entity::{
+    Entity, ImagineSlot, MAX_IMAGINE_NAMES, MAX_ROLE_SKILL_IMAGINES, SkillMeta,
+};
 use crate::engine::monster_names::MONSTER_NAMES_BOSS;
 use crate::engine::name_cache;
 use crate::engine::selected_uid;
@@ -111,8 +113,25 @@ fn get_or_create_entity(
                     .collect();
                 // 旧バージョンのキャッシュはセッションを跨いで累積し MAX_IMAGINE_NAMES を超え得るため、
                 // 復元時にも最新 MAX 件へ丸める（cap_imagine_names はこのキャッシュ復元専用）。
-                cap_imagine_names(&mut entity.imagines);
+                cap_imagine_names(&mut entity.imagines, MAX_IMAGINE_NAMES);
                 // pending は復元しない（常に None スタート。保留状態はグループ境界を跨がない）。
+            }
+            if !cached.role_skill_imagine_names.is_empty() {
+                // ロールスキル(簡易版バトルイマジン、最大4枠)も同様に直前セッションの検知結果を
+                // 即表示用に復元（imagines の復元処理と同じパターン）。
+                let tiers = cached.role_skill_imagine_tiers;
+                entity.role_skill_imagines = cached
+                    .role_skill_imagine_names
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, name)| ImagineSlot {
+                        name,
+                        last_seen: next_imagine_seq(),
+                        tier: tiers.get(i).copied().unwrap_or(0),
+                        pending_hits: 0,
+                    })
+                    .collect();
+                cap_imagine_names(&mut entity.role_skill_imagines, MAX_ROLE_SKILL_IMAGINES);
             }
         }
     }
@@ -236,6 +255,29 @@ fn try_attribute_summon_imagine(encounter: &mut Encounter, attrs: &[pb::RawAttr]
         return;
     }
 
+    // ロールスキル(簡易版バトルイマジン、最大4枠)のエコー吸収。ロールスキルの簡易発動は実イマジンの
+    // 召喚シグナル(AttrSkillId)と protocol レベルで同一の形になり得るため、
+    // apply_skill_list_imagines（attr116 の権威的スナップショット）が既にロールスキル枠として
+    // この名前を確定させている場合、以後この召喚検知経路からは imagines/pending_imagine に
+    // 一切触れさせず、ここで吸収する。これをしないと、短いクールタイムで連発されるロールスキルの
+    // 発動ノイズが定員一杯の pending/確定スワップ判定（rule1〜5）へ繰り返し流れ込み、実イマジン
+    // 2枠との間で確定表示がフラッピングする（本バグの直接原因）。
+    if owner.role_skill_imagines.iter().any(|s| s.name == name) {
+        if let Some(slot) = owner.role_skill_imagines.iter_mut().find(|s| s.name == name) {
+            slot.last_seen = seq;
+            let tier_changed = tier > 0 && slot.tier != tier;
+            if tier_changed {
+                slot.tier = tier;
+                name_cache::update_role_skill_imagines(
+                    owner_uid,
+                    &owner.role_skill_imagine_names(),
+                    &owner.role_skill_imagine_tiers(),
+                );
+            }
+        }
+        return;
+    }
+
     // rule2: pending 自身の再検知 → 通常は鮮度だけ更新し confirmed は触らない。ただし
     // PENDING_PROMOTE_HITS 回に達したら自己修復（旧確定ペアを両方破棄し、確証のある pending
     // 名だけを単独確定にする）。相方が休眠イマジンで rule5 の条件を満たせない場合の救済。
@@ -312,13 +354,14 @@ fn try_attribute_summon_imagine(encounter: &mut Encounter, attrs: &[pb::RawAttr]
     }
 }
 
-/// バトルイマジンの装備枠は2つ（SlotPositionId 7/8）。**この関数はライブ検知経路からは呼ばれない**
-/// （ライブ検知の追い出し判断は `try_attribute_summon_imagine` の rule1/5 が pending 方式で明示的に
-/// 行うため、鮮度最小を機械的に追い出す処理は不要になった）。`get_or_create_entity` のキャッシュ
-/// 復元専用: 旧バージョンでセッションを跨いで累積し `MAX_IMAGINE_NAMES` を超えた古いキャッシュを、
-/// 復元時にも最新 MAX 件へ丸める（最も長く再検知されていない＝`last_seen` が最小のものから落とす）。
-fn cap_imagine_names(names: &mut Vec<ImagineSlot>) {
-    while names.len() > MAX_IMAGINE_NAMES {
+/// バトルイマジン(定員 `MAX_IMAGINE_NAMES`=2)・ロールスキル(定員 `MAX_ROLE_SKILL_IMAGINES`=4)の
+/// いずれも `get_or_create_entity` のキャッシュ復元専用に使う共通処理。**ライブ検知経路からは
+/// 呼ばれない**（ライブ検知の追い出し判断は `try_attribute_summon_imagine` の rule1/5 が pending
+/// 方式で明示的に行うため、鮮度最小を機械的に追い出す処理は不要になった）。旧バージョンで
+/// セッションを跨いで累積し `cap` を超えた古いキャッシュを、復元時にも最新 `cap` 件へ丸める
+/// （最も長く再検知されていない＝`last_seen` が最小のものから落とす）。
+fn cap_imagine_names(names: &mut Vec<ImagineSlot>, cap: usize) {
+    while names.len() > cap {
         let Some((idx, _)) = names
             .iter()
             .enumerate()
@@ -403,7 +446,31 @@ fn apply_skill_list_imagines(
         return;
     }
     let mut slots: Vec<ImagineSlot> = Vec::new();
+    let mut role_skill_candidates: Vec<ImagineSlot> = Vec::new();
     for info in infos {
+        // ロールスキル(簡易版バトルイマジン、最大 MAX_ROLE_SKILL_IMAGINES 枠)は実イマジンとは
+        // 別枠のIDを持つ。先にこちらを判定して continue することで、role-skill id が万一
+        // imagine_name() 側でも解決できてしまっても実イマジンの2枠(slots)へは絶対に混入させない
+        // （多重防御）。dedup/上限cap は下の実イマジン側(slots)と同じ方針。
+        if let Some(name) = crate::engine::imagine_skills::role_skill_imagine_name(info.skill_id) {
+            if role_skill_candidates.iter().any(|s| s.name == name) {
+                continue;
+            }
+            if role_skill_candidates.len() >= MAX_ROLE_SKILL_IMAGINES {
+                warn!(
+                    "skill list imagines: uid={uid} more than {MAX_ROLE_SKILL_IMAGINES} role skill entries; extra id={} name={name} ignored",
+                    info.skill_id
+                );
+                continue;
+            }
+            role_skill_candidates.push(ImagineSlot {
+                name,
+                last_seen: next_imagine_seq(),
+                tier: info.remodel_level.max(0),
+                pending_hits: 0,
+            });
+            continue;
+        }
         let Some(name) = crate::engine::imagine_skills::imagine_name(info.skill_id) else {
             continue;
         };
@@ -424,7 +491,68 @@ fn apply_skill_list_imagines(
             pending_hits: 0,
         });
     }
+
+    // ロールスキル枠の権威的更新（実イマジンの slots 判定とは独立。slots が空でも行う）。
+    // 両辺とも同一のフルスナップショットの決定的な走査順から作られるため、順序込みの比較でよい
+    // （imagines/slots の全置換比較と同じ前提）。
+    let role_skill_changed = player_entity.role_skill_imagines.len() != role_skill_candidates.len()
+        || player_entity
+            .role_skill_imagines
+            .iter()
+            .zip(&role_skill_candidates)
+            .any(|(a, b)| a.name != b.name || a.tier != b.tier);
+    if role_skill_changed {
+        if role_skill_candidates.is_empty() {
+            info!("role skill imagine cleared (skill list [{src}]): uid={uid}");
+        } else {
+            info!(
+                "role skill imagine confirmed (skill list [{src}]): uid={uid} {}",
+                role_skill_candidates
+                    .iter()
+                    .map(|s| format!("{}({})", s.name, s.tier))
+                    .collect::<Vec<_>>()
+                    .join("/")
+            );
+        }
+        player_entity.role_skill_imagines = role_skill_candidates;
+        name_cache::update_role_skill_imagines(
+            uid,
+            &player_entity.role_skill_imagine_names(),
+            &player_entity.role_skill_imagine_tiers(),
+        );
+    }
+
     if slots.is_empty() {
+        // 今回のフルリストに実イマジンの canonical id が1件も無かった場合、確定済みの
+        // role-skill 候補（複数件）と同名の陳腐化した imagines エントリがあれば全て除去する。
+        // 実イマジン（SlotPositionId 7/8）が装備されていれば、このフルリスト（attr116）に必ず
+        // canonical id として現れるはず（apply_skill_list_imagines のトップコメント参照）なので、
+        // ここに現れないことは「未確定」ではなく「実イマジンではない」ことの確証になる。
+        // role_skill_imagines が空だった間（初回スナップショット到達前）に summon ヒューリスティックが
+        // 誤って実イマジンとして確定させてしまった残骸（rule3）を、この確証で救済する。
+        if !player_entity.role_skill_imagines.is_empty() {
+            let role_skill_names = player_entity.role_skill_imagine_names();
+            let before_len = player_entity.imagines.len();
+            player_entity.imagines.retain(|s| !role_skill_names.contains(&s.name));
+            if player_entity
+                .pending_imagine
+                .as_ref()
+                .is_some_and(|p| role_skill_names.contains(&p.name))
+            {
+                player_entity.pending_imagine = None;
+            }
+            if player_entity.imagines.len() != before_len {
+                info!(
+                    "battle imagine evicted (misattributed role skill echo, skill list [{src}]): uid={uid} names=[{}]",
+                    role_skill_names.join("/")
+                );
+                name_cache::update_imagine(
+                    uid,
+                    &player_entity.imagine_display_names(),
+                    &player_entity.imagine_tiers(),
+                );
+            }
+        }
         return;
     }
     // 名前と凸数が現状と同一なら何もしない（鮮度・キャッシュの無駄な更新を避ける）。
@@ -2140,6 +2268,258 @@ mod tests {
         assert_eq!(
             enc.entities[&uid].imagine_display_names(),
             vec!["サンダーオーガ".to_string(), "フロストオーガ".to_string()]
+        );
+    }
+
+    // ロールスキル(簡易版バトルイマジン)は実イマジンの2枠(slots)とは別枠として確定し、対応する
+    // canonicalの表示名を role_skill_imagines に反映する。imagines には一切混入しない
+    // （3021→サンダーオーガのロールスキルIDを、実イマジン2件(3906/3910)と混ぜたフルリストで確認）。
+    #[test]
+    fn full_skill_list_sets_role_skill_imagine_without_polluting_real_slots() {
+        let mut enc = Encounter::default();
+        let uid = 990_005; // name_cache はプロセス共有のため専用 uid を使う
+        enc.entities.insert(uid, player());
+
+        process_scene_delta(&mut enc, skill_list_delta(uid, &[(3906, 1), (3910, 0), (3021, 4)]));
+
+        assert_eq!(
+            enc.entities[&uid].imagine_display_labels(),
+            vec!["フロストオーガ(1)".to_string(), "虚蝕オーガ".to_string()],
+            "role skill id must not appear in the real 2-slot imagines array"
+        );
+        assert_eq!(
+            enc.entities[&uid].role_skill_imagine_labels(),
+            vec!["サンダーオーガ(4)".to_string()]
+        );
+
+        let cached = name_cache::lookup(uid).expect("cache entry should exist");
+        assert_eq!(cached.role_skill_imagine_names, vec!["サンダーオーガ".to_string()]);
+        assert_eq!(cached.role_skill_imagine_tiers, vec![4]);
+    }
+
+    // エンドツーエンド回帰テスト: ロールスキルの4枠(SlotPositionId 21-24)を同時装備しているケース。
+    // フル attr116 スナップショットで4件を検出→role_skill_imagines へ確定、続けてそれぞれの
+    // canonical id(3902/3901/3908/3943)で召喚エコーが来ても imagines/pending_imagine には一切
+    // 触れず吸収され、最終的に role_skill_imagine_labels() が4件とも欠落なく表示されることを確認する
+    // （ユーザー指摘の「4枠同時装備で3件目以降が黙って消える/フラッピングが再発する」ケースの直接検証）。
+    #[test]
+    fn full_skill_list_and_summon_echoes_handle_four_simultaneous_role_skills() {
+        let mut enc = Encounter::default();
+        let uid = 990_012; // name_cache 専用 uid
+        enc.entities.insert(uid, player());
+
+        // フルリスト: 実イマジン2枠(3906/3910) + ロールスキル4枠(3021/3022/3023/3024)。
+        process_scene_delta(
+            &mut enc,
+            skill_list_delta(
+                uid,
+                &[(3906, 1), (3910, 0), (3021, 4), (3022, 2), (3023, 0), (3024, 3)],
+            ),
+        );
+
+        let expected_labels = vec![
+            "サンダーオーガ(4)".to_string(),
+            "フレイムオーガ(2)".to_string(),
+            "ムークボス".to_string(),
+            "鉄牙(3)".to_string(),
+        ];
+        assert_eq!(
+            enc.entities[&uid].role_skill_imagine_labels(),
+            expected_labels,
+            "all 4 simultaneous role skill slots must resolve without dropping any"
+        );
+        assert_eq!(
+            enc.entities[&uid].imagine_display_labels(),
+            vec!["フロストオーガ(1)".to_string(), "虚蝕オーガ".to_string()],
+            "role skill ids must never pollute the real 2-slot imagines array"
+        );
+
+        // 各ロールスキルの召喚エコー(canonical id)が来ても imagines/pending には一切触れない。
+        for skill_id in [3902, 3901, 3908, 3943] {
+            process_scene_delta(&mut enc, summon_spawn_delta(uid, skill_id));
+        }
+
+        assert_eq!(
+            enc.entities[&uid].imagine_display_labels(),
+            vec!["フロストオーガ(1)".to_string(), "虚蝕オーガ".to_string()],
+            "summon echoes of all 4 role skills must not disturb the confirmed real imagine pair"
+        );
+        assert!(enc.entities[&uid].pending_imagine.is_none());
+        assert_eq!(
+            enc.entities[&uid].role_skill_imagine_labels(),
+            expected_labels,
+            "role skill labels must remain intact after echo absorption for all 4 slots"
+        );
+
+        let cached = name_cache::lookup(uid).expect("cache entry should exist");
+        assert_eq!(
+            cached.role_skill_imagine_names,
+            vec![
+                "サンダーオーガ".to_string(),
+                "フレイムオーガ".to_string(),
+                "ムークボス".to_string(),
+                "鉄牙".to_string(),
+            ]
+        );
+        assert_eq!(cached.role_skill_imagine_tiers, vec![4, 2, 0, 3]);
+    }
+
+    // 回帰テスト: ロールスキルのみを持つプレイヤー（実イマジン0枠）。role_skill_imagine が
+    // まだ未確定（None）の間に、ロールスキルの簡易発動がプロトコル上は実イマジンと同一の
+    // 召喚シグナル(AttrSkillId=canonical id)を出すため、summon ヒューリスティック(rule3)が
+    // それを誤って imagines へ確定させてしまう。後続のフル attr116 スナップショットに
+    // ロールスキルIDのみ（canonical idは0件）が載っていれば、この陳腐化した imagines
+    // エントリを除去し role_skill_imagine を正しく設定できることを確認する。
+    #[test]
+    fn full_skill_list_evicts_stale_imagine_misattributed_before_role_skill_known() {
+        let mut enc = Encounter::default();
+        let uid = 990_010; // name_cache 専用 uid
+        enc.entities.insert(uid, player());
+
+        // role_skill_imagine 未確定のため、召喚エコー(canonical id=3902→サンダーオーガ)が
+        // rule3(定員未満)で誤って実イマジンとして確定してしまう。
+        process_scene_delta(&mut enc, summon_spawn_delta(uid, 3902));
+        assert_eq!(
+            enc.entities[&uid].imagine_display_names(),
+            vec!["サンダーオーガ".to_string()],
+            "precondition: summon echo must be misattributed to imagines before role_skill_imagine is known"
+        );
+
+        // フルリスト到達（ロールスキルID(3021→サンダーオーガ)のみ・canonical idは0件）。
+        process_scene_delta(&mut enc, skill_list_delta(uid, &[(3021, 4)]));
+
+        assert!(
+            enc.entities[&uid].imagine_display_names().is_empty(),
+            "stale misattributed imagines entry must be evicted once the full snapshot proves it's not a real slot"
+        );
+        assert_eq!(
+            enc.entities[&uid].role_skill_imagine_labels(),
+            vec!["サンダーオーガ(4)".to_string()]
+        );
+
+        let cached = name_cache::lookup(uid).expect("cache entry should exist");
+        assert!(cached.imagine_names.is_empty());
+        assert_eq!(cached.role_skill_imagine_names, vec!["サンダーオーガ".to_string()]);
+        assert_eq!(cached.role_skill_imagine_tiers, vec![4]);
+    }
+
+    // 直前にロールスキルが確定していた状態で、次のフルリストに対象IDが含まれなければ
+    // role_skill_imagine をクリアする（ロールスキル未装備化・対象変更等の反映）。
+    #[test]
+    fn full_skill_list_clears_role_skill_imagine_when_absent() {
+        let mut enc = Encounter::default();
+        let uid = 990_006; // name_cache 専用 uid
+        enc.entities.insert(uid, player());
+
+        process_scene_delta(&mut enc, skill_list_delta(uid, &[(3906, 1), (3910, 0), (3021, 4)]));
+        assert!(!enc.entities[&uid].role_skill_imagines.is_empty());
+
+        // 同じ実イマジン2枠のみでロールスキル対象IDを含まないフルリストが届く。
+        process_scene_delta(&mut enc, skill_list_delta(uid, &[(3906, 1), (3910, 0)]));
+        assert!(
+            enc.entities[&uid].role_skill_imagines.is_empty(),
+            "role skill imagine must be cleared when absent from a full snapshot"
+        );
+
+        let cached = name_cache::lookup(uid).expect("cache entry should exist");
+        assert!(cached.role_skill_imagine_names.is_empty());
+        assert!(cached.role_skill_imagine_tiers.is_empty());
+    }
+
+    // 回帰テスト(本バグの修正確認): ロールスキル枠に確定済みの名前と同名の召喚シグナルが
+    // 来ても、定員一杯の confirmed pair / pending には一切触れない。
+    #[test]
+    fn role_skill_echo_does_not_disturb_confirmed_imagines_or_pending() {
+        let mut enc = Encounter::default();
+        let uid = 990_007; // name_cache 専用 uid
+        enc.entities.insert(uid, player());
+
+        process_scene_delta(&mut enc, summon_spawn_delta(uid, 1_007_740)); // ヴェノミーンの巣
+        process_scene_delta(&mut enc, summon_spawn_delta(uid, 2_900_240)); // アルーナ
+        assert_eq!(
+            enc.entities[&uid].imagine_display_names(),
+            vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()]
+        );
+
+        // ロールスキル枠を「ロローラ」として既に確定済みにしておく（apply_skill_list_imagines相当）。
+        enc.entities.get_mut(&uid).unwrap().role_skill_imagines = vec![ImagineSlot {
+            name: "ロローラ".to_string(),
+            last_seen: 0,
+            tier: 0,
+            pending_hits: 0,
+        }];
+
+        // ロールスキルの簡易発動による召喚シグナル（実イマジンと同一の召喚報告ID経由=ロローラ）。
+        process_scene_delta(&mut enc, summon_spawn_delta(uid, 2_900_840));
+
+        assert_eq!(
+            enc.entities[&uid].imagine_display_names(),
+            vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()],
+            "role skill echo must not disturb the confirmed real imagine pair"
+        );
+        assert!(
+            enc.entities[&uid].pending_imagine.is_none(),
+            "role skill echo must not create a pending candidate"
+        );
+        assert_eq!(
+            enc.entities[&uid].role_skill_imagine_names(),
+            vec!["ロローラ".to_string()]
+        );
+    }
+
+    // 回帰テスト: role_skill_imagine と確定済み実イマジン枠(imagines)が偶然同じ名前を共有していても、
+    // rule1(既存確定スロットの再検知)はロールスキル短絡ブロックより先に評価されるため、通常どおり
+    // pending の昇格（単枠交換）が機能し、role_skill_imagine には一切影響しないことを確認する。
+    #[test]
+    fn shared_name_between_confirmed_imagine_and_role_skill_still_follows_rule1_single_slot_swap() {
+        let mut enc = Encounter::default();
+        let uid = 990_011; // name_cache 専用 uid
+        enc.entities.insert(uid, player());
+
+        {
+            let owner = enc.entities.get_mut(&uid).unwrap();
+            owner.imagines = vec![
+                ImagineSlot {
+                    name: "ヴェノミーンの巣".to_string(), // A
+                    last_seen: 0,
+                    tier: 0,
+                    pending_hits: 0,
+                },
+                ImagineSlot {
+                    name: "アルーナ".to_string(), // B
+                    last_seen: 1,
+                    tier: 0,
+                    pending_hits: 0,
+                },
+            ];
+            owner.pending_imagine = Some(ImagineSlot {
+                name: "ロローラ".to_string(), // P
+                last_seen: 2,
+                tier: 0,
+                pending_hits: 1,
+            });
+            owner.role_skill_imagines = vec![ImagineSlot {
+                name: "ヴェノミーンの巣".to_string(), // A と同名を role skill 側も指す
+                last_seen: 3,
+                tier: 0,
+                pending_hits: 0,
+            }];
+        }
+
+        // A(ヴェノミーンの巣)の再検知 → rule1 がロールスキル短絡ブロックより先に評価され、
+        // 通常どおり pending(P) が確定へ昇格して B を置き換える（role_skill_imagines が同名でも無関係）。
+        process_scene_delta(&mut enc, summon_spawn_delta(uid, 1_007_740));
+
+        assert_eq!(
+            enc.entities[&uid].imagine_display_names(),
+            vec!["ヴェノミーンの巣".to_string(), "ロローラ".to_string()],
+            "rule1 must still perform its normal single-slot swap even when role_skill_imagines shares A's name"
+        );
+        assert!(enc.entities[&uid].pending_imagine.is_none());
+        assert_eq!(
+            enc.entities[&uid].role_skill_imagine_names(),
+            vec!["ヴェノミーンの巣".to_string()],
+            "role_skill_imagines must be untouched by rule1"
         );
     }
 

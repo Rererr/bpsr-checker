@@ -783,15 +783,25 @@ pub fn process_opcode(enc: &EncounterMutex, env: PktEnvelope) -> AppResult<()> {
                 Pkt::BuffTick => {
                     let ts = now_ms();
 
+                    if crate::probe::enabled() {
+                        log::info!(
+                            "PROBE buff-opcode [0x3003]: raw=[{}B]{}",
+                            data.len(),
+                            data.iter().map(|b| format!("{b:02x}")).collect::<String>()
+                        );
+                    }
+
                     // BuffSnapshot と BuffTick は同一 op で届き、フィールドが全て varint で
                     // 番号も重なるため protobuf 上どちらの decode も常に成功してしまう。
                     // よって型では判別できず、両方を試す必要がある。誤った型で decode された
                     // 側は host_uuid が Player にならず apply_* 内で無視されるため害はない。
                     // ここを else-if にすると BuffTick 形式のデバフ更新が落ちる（regression 注意）。
                     if let Ok(msg) = pb::BuffSnapshot::decode(data.as_slice()) {
+                        crate::probe::log_buff_snapshot("opcode-0x3003", &data, &msg);
                         encounter.buff_tracker.apply_full_info(&msg, ts);
                     }
                     if let Ok(msg) = pb::BuffTick::decode(data.as_slice()) {
+                        crate::probe::log_buff_tick("opcode-0x3003", &data, &msg);
                         encounter.buff_tracker.apply_change(&msg, ts);
                     }
                 }
@@ -800,6 +810,9 @@ pub fn process_opcode(enc: &EncounterMutex, env: PktEnvelope) -> AppResult<()> {
                     let ts = now_ms();
                     if let Ok(msg) = pb::BuffSnapshotBundle::decode(data.as_slice()) {
                         for buff in &msg.buff_infos {
+                            if crate::probe::enabled() {
+                                crate::probe::log_buff_snapshot("bundle-0x3005", &buff.encode_to_vec(), buff);
+                            }
                             encounter.buff_tracker.apply_full_info(buff, ts);
                         }
                     }
@@ -1091,6 +1104,15 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
             for buff in &buff_list.buffs {
                 let buff_uuid = buff.buff_uuid; // BuffEffect.BuffUuid（インスタンスキー）
 
+                if crate::probe::enabled() {
+                    let decoded_payload = if buff.body_raw.is_empty() {
+                        None
+                    } else {
+                        pb::BuffPayload::decode(buff.body_raw.as_slice()).ok()
+                    };
+                    crate::probe::log_buff_event(buff, decoded_payload.as_ref());
+                }
+
                 if buff.event_type == BUFF_EVENT_REMOVE {
                     encounter.buff_tracker.remove(target_uid, buff_uuid);
                     continue;
@@ -1111,6 +1133,7 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
                         let Ok(info) = pb::BuffSnapshot::decode(body.detail_raw.as_slice()) else {
                             continue;
                         };
+                        crate::probe::log_buff_snapshot("scene-add", &body.detail_raw, &info);
                         encounter
                             .buff_tracker
                             .apply_buff_add(buff_uuid, &info, ts, target_uid);
@@ -1119,6 +1142,7 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
                         let Ok(change) = pb::BuffChange::decode(body.detail_raw.as_slice()) else {
                             continue;
                         };
+                        crate::probe::log_buff_change("scene-change", &body.detail_raw, &change);
                         encounter
                             .buff_tracker
                             .apply_buff_change(target_uid, buff_uuid, &change, ts);

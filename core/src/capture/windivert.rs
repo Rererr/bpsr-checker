@@ -5,10 +5,10 @@ use crate::protocol::opcodes::{Pkt, PktEnvelope};
 use crate::protocol::packet_parser::process_packet;
 use etherparse::NetSlice::Ipv4;
 use etherparse::SlicedPacket;
-use etherparse::TransportSlice::Tcp;
+use etherparse::TransportSlice::{Tcp, Udp};
 use log::{debug, error, info, warn};
 use std::cell::UnsafeCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock};
 use tokio::sync::watch;
 use windivert::WinDivert;
@@ -109,11 +109,29 @@ const MAX_SUBNET_CONNECTIONS: usize = 16;
 /// アプリ（既定 0 が多い）や姉妹アプリと衝突しない distinct・非0 値を使う。
 /// 姉妹アプリ bpsr-module-optimizer は -1100 を使う（両者で必ず別値にすること）。
 const CAPTURE_PRIORITY: i16 = -1000;
+// Investigation-only full transport capture. Keep disabled in distributed builds.
+// const CAPTURE_FILTER: &str = "!loopback && ip && (tcp || udp)";
 const CAPTURE_FILTER: &str = "!loopback && ip && tcp";
 /// 削除保留(ERROR_SERVICE_MARKED_FOR_DELETE = 1072)時の open リトライ設定。
 const ERROR_SERVICE_MARKED_FOR_DELETE_CODE: i32 = 1072;
 const OPEN_RETRY_MAX: u32 = 5;
 const OPEN_RETRY_DELAY_MS: u64 = 200;
+
+fn audit_udp_ports() -> &'static HashSet<u16> {
+    static PORTS: OnceLock<HashSet<u16>> = OnceLock::new();
+    PORTS.get_or_init(|| {
+        std::env::var("BPSR_AUDIT_UDP_PORTS")
+            .unwrap_or_default()
+            .split(',')
+            .filter_map(|value| value.trim().parse::<u16>().ok())
+            .collect()
+    })
+}
+
+// Used only by the investigation-only UDP raw logger above.
+// fn format_ipv4(addr: [u8; 4]) -> String {
+//     format!("{}.{}.{}.{}", addr[0], addr[1], addr[2], addr[3])
+// }
 
 fn open_handle() -> Result<WinDivert<NetworkLayer>, windivert::error::WinDivertError> {
     // sniff + recv_only = 完全パッシブ（パケットを drop も inject もしない）。
@@ -229,6 +247,7 @@ fn read_packets_blocking(
     let mut windivert_buffer = vec![0u8; 10 * 1024 * 1024];
     let mut known_server: Option<Server> = None;
     let mut tcp_reassembler = TcpReassembler::new();
+    let mut client_reassemblers: HashMap<Server, TcpReassembler> = HashMap::new();
     let mut game_subnet: Option<[u8; 2]> = None;
     let mut subnet_reassemblers: HashMap<Server, TcpReassembler> = HashMap::new();
 
@@ -240,6 +259,24 @@ fn read_packets_blocking(
         let Some(Ipv4(ip_packet)) = network_slices.net else {
             continue;
         };
+        if crate::probe::enabled() {
+            if let Some(Udp(udp_packet)) = network_slices.transport {
+                let src_port = udp_packet.source_port();
+                let dst_port = udp_packet.destination_port();
+                let ports = audit_udp_ports();
+                if ports.contains(&src_port) || ports.contains(&dst_port) {
+                    // Investigation-only raw logging. Do not enable in distributed builds.
+                    // crate::probe::log_udp(
+                    //     &format_ipv4(ip_packet.header().source()),
+                    //     src_port,
+                    //     &format_ipv4(ip_packet.header().destination()),
+                    //     dst_port,
+                    //     udp_packet.payload(),
+                    // );
+                }
+                continue;
+            }
+        }
         let Some(Tcp(tcp_packet)) = network_slices.transport else {
             continue;
         };
@@ -249,6 +286,41 @@ fn read_packets_blocking(
             ip_packet.header().destination(),
             tcp_packet.to_header().destination_port,
         );
+
+        // The normal decoder is intentionally server -> client only.  Keep the
+        // reverse stream separate so client requests cannot be mistaken for
+        // notifications, but retain both raw TCP segments and reassembled
+        // application frames for protocol investigation (probe-only; adds
+        // real cost, so gated behind crate::probe::enabled()).
+        if crate::probe::enabled() {
+            if known_server.is_some_and(|server| curr_server == server.reversed()) {
+                crate::capture::status::mark_game_packet();
+                // Investigation-only raw logging. Do not enable in distributed builds.
+                // crate::probe::log_client_tcp(
+                //     &curr_server,
+                //     tcp_packet.sequence_number(),
+                //     tcp_packet.payload(),
+                // );
+                let reassembler = client_reassemblers.entry(curr_server).or_default();
+                reassemble_and_log_client(reassembler, &tcp_packet, curr_server);
+                continue;
+            }
+
+            // Auxiliary scene connections use the same game subnet.  Their reverse
+            // streams used to be the remaining blind spot in the probe capture.
+            if game_subnet.is_some_and(|prefix| curr_server.dst_matches_subnet(&prefix)) {
+                crate::capture::status::mark_game_packet();
+                // Investigation-only raw logging. Do not enable in distributed builds.
+                // crate::probe::log_client_tcp(
+                //     &curr_server,
+                //     tcp_packet.sequence_number(),
+                //     tcp_packet.payload(),
+                // );
+                let reassembler = client_reassemblers.entry(curr_server).or_default();
+                reassemble_and_log_client(reassembler, &tcp_packet, curr_server);
+                continue;
+            }
+        }
 
         if known_server != Some(curr_server) {
             let tcp_payload = tcp_packet.payload();
@@ -298,6 +370,7 @@ fn read_packets_blocking(
                                                     ),
                                                     &mut subnet_reassemblers,
                                                 );
+                                                client_reassemblers.clear();
                                                 emit_server_handover(packet_sender);
                                                 detected = true;
                                                 break;
@@ -345,6 +418,7 @@ fn read_packets_blocking(
                             .wrapping_add(tcp_payload.len() as u32),
                         &mut subnet_reassemblers,
                     );
+                    client_reassemblers.clear();
                     emit_server_handover(packet_sender);
                     detected = true;
                 }
@@ -439,6 +513,8 @@ fn reassemble_and_process(
     if tcp_packet.payload().is_empty() {
         return;
     }
+    // Investigation-only raw logging. Do not enable in distributed builds.
+    // crate::probe::log_server_tcp(&conn, tcp_packet.sequence_number(), tcp_packet.payload());
     if reassembler.next_seq.is_none() {
         reassembler.next_seq = Some(tcp_packet.sequence_number());
     }
@@ -515,6 +591,8 @@ fn reassemble_and_process(
                 break;
             }
             let packet: Vec<u8> = reassembler.data.drain(..packet_size as usize).collect();
+            // Investigation-only raw logging. Do not enable in distributed builds.
+            // crate::probe::log_server_frame(&conn, &packet);
             process_packet(BinaryReader::from(packet), packet_sender, conn);
         }
 
@@ -533,6 +611,80 @@ fn reassemble_and_process(
         );
         reassembler.data.clear();
         reassembler.next_seq = Some(resync_seq);
+    }
+}
+
+fn reassemble_and_log_client(
+    reassembler: &mut TcpReassembler,
+    tcp_packet: &etherparse::TcpSlice<'_>,
+    conn: Server,
+) {
+    if tcp_packet.payload().is_empty() {
+        return;
+    }
+    if reassembler.next_seq.is_none() {
+        reassembler.next_seq = Some(tcp_packet.sequence_number());
+    }
+
+    const SEQ_FORWARD_WINDOW: u32 = 16 * 1024 * 1024;
+    const REASSEMBLY_RESYNC_BYTES: usize = 32 * 1024;
+    if let Some(next_seq) = reassembler.next_seq {
+        let pkt_seq = tcp_packet.sequence_number();
+        if pkt_seq.wrapping_sub(next_seq) < SEQ_FORWARD_WINDOW {
+            if reassembler
+                .cache
+                .insert(pkt_seq, Vec::from(tcp_packet.payload()))
+                .is_some()
+            {
+                log::info!(
+                    "PROBE tcp-audit: direction=client duplicate_seq={pkt_seq} conn={conn}"
+                );
+            }
+        } else {
+            log::warn!(
+                "PROBE tcp-audit: direction=client out_of_window_seq={pkt_seq} next_seq={next_seq} conn={conn}"
+            );
+        }
+    }
+
+    while let Some(next_seq) = reassembler.next_seq {
+        let Some(segment) = reassembler.cache.remove(&next_seq) else {
+            break;
+        };
+        reassembler.next_seq = Some(next_seq.wrapping_add(segment.len() as u32));
+        reassembler.data.extend_from_slice(&segment);
+    }
+
+    const MIN_PACKET_SIZE: u32 = 6;
+    const MAX_PACKET_SIZE: u32 = 10 * 1024 * 1024;
+    while reassembler.data.len() > 4 {
+        let packet_size = u32::from_be_bytes(reassembler.data[..4].try_into().unwrap());
+        if packet_size < MIN_PACKET_SIZE || packet_size > MAX_PACKET_SIZE {
+            log::warn!(
+                "Malformed client frame: packet_size={packet_size}, buffered={}",
+                reassembler.data.len()
+            );
+            reassembler.data.drain(0..1);
+            continue;
+        }
+        if reassembler.data.len() < packet_size as usize {
+            break;
+        }
+        let _frame: Vec<u8> = reassembler.data.drain(..packet_size as usize).collect();
+        // Investigation-only raw logging. Do not enable in distributed builds.
+        // crate::probe::log_client_frame(&conn, &_frame);
+    }
+
+    let buffered: usize = reassembler.cache.values().map(Vec::len).sum();
+    if buffered >= REASSEMBLY_RESYNC_BYTES {
+        if let Some((&resync_seq, _)) = reassembler.cache.iter().next() {
+            log::warn!(
+                "PROBE tcp-audit: direction=client gap next_seq={:?} buffered={buffered} resync_seq={resync_seq} conn={conn}",
+                reassembler.next_seq
+            );
+            reassembler.data.clear();
+            reassembler.next_seq = Some(resync_seq);
+        }
     }
 }
 

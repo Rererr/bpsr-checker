@@ -20,6 +20,61 @@ pub fn enabled() -> bool {
     *ENABLED
 }
 
+pub fn log_client_tcp(conn: &crate::capture::server::Server, seq: u32, data: &[u8]) {
+    if !enabled() || data.is_empty() {
+        return;
+    }
+    info!(
+        "PROBE client-tcp: conn={conn} seq={seq} len={} raw={}",
+        data.len(),
+        full_hex(data)
+    );
+}
+
+pub fn log_client_frame(conn: &crate::capture::server::Server, data: &[u8]) {
+    if !enabled() {
+        return;
+    }
+    info!(
+        "PROBE client-frame: conn={conn} len={} raw={}",
+        data.len(),
+        full_hex(data)
+    );
+}
+
+pub fn log_server_tcp(conn: &crate::capture::server::Server, seq: u32, data: &[u8]) {
+    if !enabled() || data.is_empty() {
+        return;
+    }
+    info!(
+        "PROBE server-tcp: conn={conn} seq={seq} len={} raw={}",
+        data.len(),
+        full_hex(data)
+    );
+}
+
+pub fn log_server_frame(conn: &crate::capture::server::Server, data: &[u8]) {
+    if !enabled() {
+        return;
+    }
+    info!(
+        "PROBE server-frame: conn={conn} len={} raw={}",
+        data.len(),
+        full_hex(data)
+    );
+}
+
+pub fn log_udp(src: &str, src_port: u16, dst: &str, dst_port: u16, data: &[u8]) {
+    if !enabled() || data.is_empty() {
+        return;
+    }
+    info!(
+        "PROBE game-udp: conn={src}:{src_port} -> {dst}:{dst_port} len={} raw={}",
+        data.len(),
+        full_hex(data)
+    );
+}
+
 /// 全 notify メソッドの到達記録（packet_parser から呼ぶ）。mapped=既知 opcode 名（未知は None）。
 pub fn log_method(service: u64, method: u32, mapped: Option<&str>, payload_len: usize) {
     if !enabled() {
@@ -90,10 +145,9 @@ fn render_value(data: &[u8]) -> String {
             }
         }
     }
-    // それ以外は長さ+先頭 hex（上限 24 バイト分）で記録する。
-    let head: String = data.iter().take(24).map(|b| format!("{b:02x}")).collect();
-    let ellipsis = if data.len() > 24 { "…" } else { "" };
-    format!("[{}B]{head}{ellipsis}", data.len())
+    // 構造化値も後から完全に再解析できるよう、長さと全バイトの hex を記録する。
+    let head: String = data.iter().map(|b| format!("{b:02x}")).collect();
+    format!("[{}B]{head}", data.len())
 }
 
 struct FieldScan {
@@ -195,6 +249,88 @@ mod tests {
         let long = vec![0xffu8; 30];
         let rendered = render_value(&long);
         assert!(rendered.starts_with("[30B]ffff"));
-        assert!(rendered.ends_with("…"));
+        assert_eq!(rendered.matches("ff").count(), 30);
     }
+}
+
+fn full_hex(data: &[u8]) -> String {
+    data.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+pub fn log_buff_snapshot(ctx: &str, raw: &[u8], info: &pb::BuffSnapshot) {
+    if !enabled() {
+        return;
+    }
+    let source = info
+        .fight_source_info
+        .map(|s| format!("{}/{}", s.fight_source_type, s.source_config_id))
+        .unwrap_or_else(|| "-".to_string());
+    info!(
+        "PROBE buff-snapshot [{ctx}]: buff_uuid={} base_id={} level={} host_uuid={} table_uuid={} create_time={} fire_uuid={} layer={} part_id={} count={} duration={} source={} raw=[{}B]{}",
+        info.buff_uuid,
+        info.base_id,
+        info.level,
+        info.host_uuid,
+        info.table_uuid,
+        info.create_time,
+        info.fire_uuid,
+        info.layer,
+        info.part_id,
+        info.count,
+        info.duration,
+        source,
+        raw.len(),
+        full_hex(raw)
+    );
+}
+
+pub fn log_buff_tick(ctx: &str, raw: &[u8], tick: &pb::BuffTick) {
+    if !enabled() {
+        return;
+    }
+    info!(
+        "PROBE buff-tick [{ctx}]: host_uuid={} buff_uuid={} base_id={} duration={} create_time={} layer={} raw=[{}B]{}",
+        tick.host_uuid,
+        tick.buff_uuid,
+        tick.base_id,
+        tick.duration,
+        tick.create_time,
+        tick.layer,
+        raw.len(),
+        full_hex(raw)
+    );
+}
+
+pub fn log_buff_event(event: &pb::BuffEvent, payload: Option<&pb::BuffPayload>) {
+    if !enabled() {
+        return;
+    }
+    let (buff_type, detail) = payload
+        .map(|p| (p.buff_type.to_string(), p.detail_raw.as_slice()))
+        .unwrap_or_else(|| ("decode-error".to_string(), &[]));
+    info!(
+        "PROBE buff-event: event_type={} buff_uuid={} host_uuid={} buff_type={} body=[{}B]{} detail=[{}B]{}",
+        event.event_type,
+        event.buff_uuid,
+        event.host_uuid,
+        buff_type,
+        event.body_raw.len(),
+        full_hex(&event.body_raw),
+        detail.len(),
+        full_hex(detail)
+    );
+}
+
+pub fn log_buff_change(ctx: &str, raw: &[u8], change: &pb::BuffChange) {
+    if !enabled() {
+        return;
+    }
+    info!(
+        "PROBE buff-change [{ctx}]: layer={} duration={} create_time={} raw=[{}B]{}",
+        change.layer,
+        change.duration,
+        change.create_time,
+        raw.len(),
+        full_hex(raw)
+    );
 }

@@ -26,8 +26,16 @@ impl Server {
         self.dst_addr
     }
 
+    pub fn reversed(&self) -> Self {
+        Self::new(self.dst_addr, self.dst_port, self.src_addr, self.src_port)
+    }
+
     pub fn src_matches_subnet(&self, prefix: &[u8; 2]) -> bool {
         self.src_addr[0..2] == prefix[..]
+    }
+
+    pub fn dst_matches_subnet(&self, prefix: &[u8; 2]) -> bool {
+        self.dst_addr[0..2] == prefix[..]
     }
 }
 

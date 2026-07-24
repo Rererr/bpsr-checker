@@ -540,6 +540,44 @@ static DICT: LazyLock<HashMap<i32, BuffMeta>> = LazyLock::new(|| {
         (3210211, BuffMeta::new(Buff, Normal)), // Eye Power
         (3210221, BuffMeta::new(Buff, High)), // Invigorated
         (3210222, BuffMeta::new(Buff, High)), // 絶境逢生
+        // ── S3 probe計測で追加(2026-07・自己バフ/イマジンアクティブ) ──
+        (2110115, BuffMeta::new(Buff, High)),   // 寒氷の力 (博伊斯イマジン・アクティブ)
+        (2110116, BuffMeta::new(Buff, High)),   // 寒氷の力-極
+        (2110123, BuffMeta::new(Buff, High)),   // 炎霊強運 (炎角イマジン・アクティブ)
+        (2110128, BuffMeta::new(Buff, High)),   // 器用さマスタリー (地狐イマジン)
+        (2110129, BuffMeta::new(Buff, High)),   // ファストマスタリー (翡翠角羊イマジン)
+        (2208031, BuffMeta::new(Buff, High)),   // 炎魂 (業火連撃カウントダウン)
+        (3210041, BuffMeta::new(Buff, High)),   // Swift Combo (斥候ムク・被動、EN表示)
+        (3210141, BuffMeta::new(Buff, High)),   // Absolute Luck (炎角・被動幸運、EN表示)
+        (35101,   BuffMeta::new(Buff, Normal)), // Surge (タータ大招、EN表示)
+        (35106,   BuffMeta::new(Buff, Normal)), // Life Steal (EN表示)
+        (2010060, BuffMeta::new(Buff, Normal)), // 超元気スイーツ (ドロップ3倍)
+        (2100402, BuffMeta::new(Buff, Normal)), // 不屈の闘志
+        (2208152, BuffMeta::new(Buff, Normal)), // 灼炎
+        (2208484, BuffMeta::new(Buff, Normal)), // クリムゾンインパクト派生
+        (3210042, BuffMeta::new(Buff, Normal)), // ムークの力 (斥候ムク被動強化)
+        (2203071, BuffMeta::new(Buff, Low)),    // 臣狼の爪
+        (2203541, BuffMeta::new(Buff, Low)),    // 集中
+        (2204111, BuffMeta::new(Buff, Low)),    // 寒風の集約
+        (2204221, BuffMeta::new(Buff, Low)),    // 氷流
+        (2205271, BuffMeta::new(Buff, Low)),    // 神隠
+        (2206331, BuffMeta::new(Buff, Low)),    // 光源援護
+        (2206571, BuffMeta::new(Buff, Low)),    // 決断の刃
+        (3002611, BuffMeta::new(Buff, Low)),    // 夢幻迷界
+        (3002813, BuffMeta::new(Buff, Low)),    // 夢幻の力
+        (3003052, BuffMeta::new(Buff, Low)),    // 環契の恩恵
+        (50049,   BuffMeta::new(Buff, High)),   // 砂塵外套 (Sandshroud)
+        (2100411, BuffMeta::new(Buff, Low)),    // ライフバリア
+        (2110121, BuffMeta::new(Buff, High)),   // 幻影の鼓舞 (赤玉地狐イマジン・アクティブ)
+        (2201591, BuffMeta::new(Buff, Low)),    // レジストの庇護
+        (2201612, BuffMeta::new(Buff, High)),   // 岩属性強化
+        (2205301, BuffMeta::new(Buff, Low)),    // Swift Blade (玄武被击、EN表示)
+        (3002231, BuffMeta::new(Buff, Low)),    // 討勢
+        (3002242, BuffMeta::new(Buff, High)),   // Time-Slit - Dream (EN表示)
+        (3002243, BuffMeta::new(Buff, High)),   // Time-Slit - Slumber (EN表示)
+        (3003411, BuffMeta::new(Buff, Low)),    // 無限思考
+        (3003431, BuffMeta::new(Buff, Low)),    // 援護
+        (3210121, BuffMeta::new(Buff, Normal)), // Pet Frenzy (赤玉地狐・被動、EN表示)
     ]
     .into_iter()
     .collect()

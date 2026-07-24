@@ -1508,6 +1508,14 @@ fn push_imagine_db() -> String {
     }
 }
 
+/// 残量割合を表示解像度以下（1/128≒0.78%≒サブピクセル）へ量子化する。
+/// バー幅・アーク円周（~78px）いずれも 1px 未満の刻みになり見た目は変わらないが、
+/// 長時間バフの毎tick微小変化を吸収して行の再描画を省ける。
+/// （粒度は 128 固定。視覚検証で粗さが見えた場合はここを調整する。）
+fn quantize_ratio(r: f32) -> f32 {
+    (r.clamp(0.0, 1.0) * 128.0).round() / 128.0
+}
+
 /// SelfStatusEntry 群を UI 行へ変換（BuffIconCell 相当）。
 fn build_status_entries(entries: &[bpsr_core::models::SelfStatusEntry]) -> Vec<StatusEntryUi> {
     entries
@@ -1532,7 +1540,7 @@ fn build_status_entries(entries: &[bpsr_core::models::SelfStatusEntry]) -> Vec<S
             StatusEntryUi {
                 name: buff_names::label(e.base_id).into(),
                 remaining_text: format::format_remaining(e.remaining_ms, e.duration_ms).into(),
-                bar_ratio: ratio,
+                bar_ratio: quantize_ratio(ratio),
                 bar_color,
                 layer_text: if e.layer > 1 {
                     format!("×{}", e.layer).into()
@@ -1723,7 +1731,7 @@ fn buff_cell(snap: Option<&bpsr_core::models::SelfBuffSnapshot>, kind_hex: u32) 
             };
             BuffCell {
                 active,
-                arc_commands: buff_arc(ratio).into(),
+                arc_commands: buff_arc(quantize_ratio(ratio)).into(),
                 color,
                 text: text.into(),
                 text_color,
@@ -1876,16 +1884,25 @@ struct PollState {
     last_buff_players: Vec<BuffPlayerRow>,
 }
 
-/// 内容が前回 push と一致する間は `set_vec` を呼ばない（VecModel 全置換による
-/// repeater 作り直し＝再描画を避ける）。変化時のみ更新し、キャッシュも差し替える。
-fn set_vec_if_changed<T>(model: &slint::VecModel<T>, last: &mut Vec<T>, next: Vec<T>)
+/// 行数一致時は前回と異なる行だけ set_row_data で更新する（Slint のプロパティ
+/// 重複排除により内容不変の行は再描画されない）。行数変化時のみ set_vec で全置換。
+/// set_vec_if_changed（全置換）と違い、変化行のみ再描画するためオーバーレイの
+/// 稼働中コストを大幅に削減できる。
+fn sync_model_if_changed<T>(model: &slint::VecModel<T>, last: &mut Vec<T>, next: Vec<T>)
 where
     T: Clone + PartialEq + 'static,
 {
-    if *last != next {
+    if model.row_count() != next.len() {
         model.set_vec(next.clone());
         *last = next;
+        return;
     }
+    for (i, item) in next.iter().enumerate() {
+        if last.get(i) != Some(item) {
+            model.set_row_data(i, item.clone());
+        }
+    }
+    *last = next;
 }
 
 /// 初回 tick: winit 実体化後にメイン窓を復元する。復元が完了した tick で true を返す
@@ -3891,8 +3908,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 o.set_font_scale(self_scale);
                 let s = compute::get_self_buff_status(&enc_poll);
                 o.set_waiting(s.local_player_uid == 0.0);
-                set_vec_if_changed(&self_buffs_poll, &mut st.last_self_buffs, build_status_entries(&s.buffs));
-                set_vec_if_changed(&self_debuffs_poll, &mut st.last_self_debuffs, build_status_entries(&s.debuffs));
+                sync_model_if_changed(&self_buffs_poll, &mut st.last_self_buffs, build_status_entries(&s.buffs));
+                sync_model_if_changed(&self_debuffs_poll, &mut st.last_self_debuffs, build_status_entries(&s.debuffs));
             }
         }
 
@@ -3903,7 +3920,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let s = compute::get_self_stats(&enc_poll);
                 o.set_waiting(s.local_player_uid == 0.0);
                 let enabled = cfg_poll.borrow().stats_enabled.clone();
-                set_vec_if_changed(&stats_rows_poll, &mut st.last_stats_rows, build_stat_entries(&s, &enabled));
+                sync_model_if_changed(&stats_rows_poll, &mut st.last_stats_rows, build_stat_entries(&s, &enabled));
             }
         }
 
@@ -3953,7 +3970,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
                 o.set_empty(display_uids.is_empty());
                 // 表示集合が空なら空行で更新（古い行が残って名前が消えない不具合を防ぐ）。
-                // いずれも set_vec_if_changed で内容不変時は再描画を省く。
+                // いずれも sync_model_if_changed で変化行のみ再描画する。
                 let privacy_mask = cfg_poll.borrow().privacy_mask_names;
                 let next_buff_rows = if !display_uids.is_empty() {
                     let uids: Vec<f64> = display_uids.iter().map(|&u| u as f64).collect();
@@ -3962,7 +3979,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else {
                     Vec::new()
                 };
-                set_vec_if_changed(&buff_players_poll, &mut st.last_buff_players, next_buff_rows);
+                sync_model_if_changed(&buff_players_poll, &mut st.last_buff_players, next_buff_rows);
             }
         }
 

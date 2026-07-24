@@ -74,7 +74,7 @@ For example, on VirusTotal, Kaspersky may report `Not-a-virus:HEUR:RiskTool.Mult
 What to do:
 - Add the WinDivert driver (`WinDivert.dll`, `WinDivert64.sys`) and the install folder to your antivirus exclusions.
 - If you are worried, you can review the [source code](https://github.com/Rererr/bpsr-checker) and [build it yourself](#building-from-source) (GPL-3.0).
-- Every release is scanned on VirusTotal: [installer](https://www.virustotal.com/gui/file/458989e1a1038839d29f6a257007190c554c97fbf482e376fe92afac5b9a5b1f/detection) · [portable](https://www.virustotal.com/gui/file/f8ffa9cd25eaf3aac6ddd338f472d88aebe258547c727399e1d59976700494a6/detection).
+- Every release is scanned on VirusTotal: [installer](https://www.virustotal.com/gui/file/7d6b227e944e473a58c6acf7d883fee7f342fd3be2c425142f75527c317ed39f/detection) · [portable](https://www.virustotal.com/gui/file/616cd99a701057376c6f9b8bab71a8db783498e0f4b3af43d4289cef742990f9/detection).
 
 ### Chrome blocks the download with "Virus detected"
 

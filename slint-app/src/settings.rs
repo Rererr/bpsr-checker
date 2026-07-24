@@ -153,9 +153,8 @@ pub struct Settings {
     /// 不透明度・文字色は3窓共通だが、文字サイズ・フォントは窓ごとに独立（下記）。
     pub overlay_text_color: String,
     /// メイン窓のフォントファミリ名（システムにある実フォント名をそのまま保持）。
-    /// バフ/デバフ オーバーレイはメイン窓のフォントサイズ(font_size)とこのフォントに追随する。
     pub main_font: String,
-    /// メイン窓フォントの太字（既定 false）。バフ/デバフ オーバーレイも追随。
+    /// メイン窓フォントの太字（既定 false）。
     pub main_font_bold: bool,
     /// ステータス オーバーレイ専用のフォントサイズ（px）・フォント・太字（メインとは独立）。
     pub stats_overlay_font_size: f64,
@@ -165,6 +164,10 @@ pub struct Settings {
     pub imagine_overlay_font_size: f64,
     pub imagine_overlay_font: String,
     pub imagine_overlay_font_bold: bool,
+    /// バフ/デバフ オーバーレイ専用のフォントサイズ（px）・フォント・太字（メインとは独立）。
+    pub buff_overlay_font_size: f64,
+    pub buff_overlay_font: String,
+    pub buff_overlay_font_bold: bool,
     /// イマジンタイマーの行を詰めて高さを下げるか（密表示）。
     pub imagine_compact_rows: bool,
     /// オーバーレイ文字の縁取り（stroke）を描くか。低不透明度・透明 HUD で文字を背景から浮かせる。
@@ -236,6 +239,9 @@ impl Default for Settings {
             imagine_overlay_font_size: 12.0,
             imagine_overlay_font: "Yu Gothic UI".to_string(),
             imagine_overlay_font_bold: false,
+            buff_overlay_font_size: 12.0,
+            buff_overlay_font: "Yu Gothic UI".to_string(),
+            buff_overlay_font_bold: false,
             imagine_compact_rows: false,
             overlay_outline: true,
             overlay_shadow: false,
@@ -251,7 +257,20 @@ fn path() -> PathBuf {
 
 pub fn load() -> Settings {
     match std::fs::read_to_string(path()) {
-        Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
+        Ok(s) => {
+            let mut cfg: Settings = serde_json::from_str(&s).unwrap_or_default();
+            // 旧設定(バフ/デバフ窓=メイン窓追随)からの移行: buffOverlayFont キーが無ければ main 値を引き継ぐ。
+            let has_buff_font = serde_json::from_str::<serde_json::Value>(&s)
+                .ok()
+                .and_then(|v| v.get("buffOverlayFont").cloned())
+                .is_some();
+            if !has_buff_font {
+                cfg.buff_overlay_font_size = cfg.font_size;
+                cfg.buff_overlay_font = cfg.main_font.clone();
+                cfg.buff_overlay_font_bold = cfg.main_font_bold;
+            }
+            cfg
+        }
         Err(_) => Settings::default(),
     }
 }

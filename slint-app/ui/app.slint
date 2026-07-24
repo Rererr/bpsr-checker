@@ -73,12 +73,14 @@ struct SettingsUi {
     show-consumable: bool,
     show-in-taskbar: bool,
     overlay-text-color: string,  // オーバーレイ共通の基準テキスト色（プリセットキー or #rrggbb）
-    main-font: string,           // メイン窓フォントファミリ（バフ/デバフ オーバーレイも追随）
-    main-font-bold: bool,        // メイン窓フォントの太字（同上）
+    main-font: string,           // メイン窓フォントファミリ
+    main-font-bold: bool,        // メイン窓フォントの太字
     stats-overlay-font: string,        // ステータス窓 専用フォントファミリ
     stats-overlay-font-bold: bool,     // ステータス窓 専用フォントの太字
     imagine-overlay-font: string,      // イマジンタイマー 専用フォントファミリ
     imagine-overlay-font-bold: bool,   // イマジンタイマー 専用フォントの太字
+    buff-overlay-font: string,         // バフ/デバフ窓 専用フォントファミリ
+    buff-overlay-font-bold: bool,      // バフ/デバフ窓 専用フォントの太字
     imagine-compact-rows: bool,        // イマジンタイマー 密表示（行を詰める）
     overlay-outline: bool,             // オーバーレイ文字の縁取り（stroke）
     overlay-shadow: bool,              // オーバーレイ文字の影（ドロップシャドウ）
@@ -94,9 +96,10 @@ struct SettingsNumUi {
     ts-interval: string,
     three-min-dur: string,
     graph-count: string,
-    font-size: string,                  // メイン窓フォントサイズ（バフ/デバフ オーバーレイも追随）
+    font-size: string,                  // メイン窓フォントサイズ
     stats-overlay-font-size: string,    // ステータス窓 専用フォントサイズ
     imagine-overlay-font-size: string,  // イマジンタイマー 専用フォントサイズ
+    buff-overlay-font-size: string,     // バフ/デバフ窓 専用フォントサイズ
 }
 
 struct SkillRowUi {
@@ -1512,8 +1515,7 @@ component OverlaySection inherits SectionCard {
     title: @tr("オーバーレイ");
     ToggleRow { label: @tr("自キャラ バフ/デバフ"); checked: root.cfg.self-status; toggled => { root.set-bool("self-status-overlay", !root.cfg.self-status); } }
     ToggleRow { label: @tr("常に最前面"); checked: root.cfg.aot; toggled => { root.set-bool("aot", !root.cfg.aot); } }
-    // ── 外観（不透明度・文字色は3窓共通。文字サイズ・フォントは窓ごとに独立：
-    //    バフ/デバフ=メイン窓に追随／ステータス・イマジンは各セクションで個別設定）──
+    // ── 外観（不透明度・文字色は3窓共通。文字サイズ・フォントは窓ごとに独立設定）──
     Text { text: @tr("外観"); color: SettingsStyle.sub-label; font-size: SettingsStyle.sub-label-size; }
     OpacityRow { value: root.overlay-opacity; changed(v) => { root.set-overlay-opacity(v); } }
     // 完全透明（不透明度0）時の警告。クリック透過になり当該オーバーレイ自体は操作不可になる。
@@ -1536,8 +1538,16 @@ component OverlaySection inherits SectionCard {
     // 文字装飾（縁取り／影）。低不透明度・透明 HUD で文字を背景から浮かせる。個別に ON/OFF 可。
     ToggleRow { label: @tr("縁取り"); checked: root.cfg.overlay-outline; toggled => { root.set-bool("overlay-outline", !root.cfg.overlay-outline); } }
     ToggleRow { label: @tr("影"); checked: root.cfg.overlay-shadow; toggled => { root.set-bool("overlay-shadow", !root.cfg.overlay-shadow); } }
-    // ※ フォントサイズ・フォント・太字はバフ/デバフ＝メイン窓設定に追随（「表示」セクション）。
-    //    ステータス／イマジンタイマーは各セクションで個別に設定する。
+    // バフ/デバフ窓 専用の文字サイズ・フォント（メイン窓とは独立）。
+    Text { text: @tr("文字"); color: SettingsStyle.sub-label; font-size: SettingsStyle.sub-label-size; }
+    FontControls {
+        size-text: root.nums.buff-overlay-font-size;
+        font: root.cfg.buff-overlay-font;
+        bold: root.cfg.buff-overlay-font-bold;
+        bump-size(d) => { root.bump-num("buff-overlay-font-size", d); }
+        set-font(f) => { root.set-str("buff-overlay-font", f); }
+        toggle-bold => { root.set-bool("buff-overlay-font-bold", !root.cfg.buff-overlay-font-bold); }
+    }
     // 文字色（白系ラベル/値のみ再着色・意味色は維持）。HSV ピッカーで任意色を選択。
     VerticalLayout {
         padding-left: 10px;

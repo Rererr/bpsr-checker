@@ -1145,6 +1145,8 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         stats_overlay_font_bold: c.stats_overlay_font_bold,
         imagine_overlay_font: c.imagine_overlay_font.clone().into(),
         imagine_overlay_font_bold: c.imagine_overlay_font_bold,
+        buff_overlay_font: c.buff_overlay_font.clone().into(),
+        buff_overlay_font_bold: c.buff_overlay_font_bold,
         imagine_compact_rows: c.imagine_compact_rows,
         overlay_outline: c.overlay_outline,
         overlay_shadow: c.overlay_shadow,
@@ -1170,6 +1172,7 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         font_size: int_str(c.font_size),
         stats_overlay_font_size: int_str(c.stats_overlay_font_size),
         imagine_overlay_font_size: int_str(c.imagine_overlay_font_size),
+        buff_overlay_font_size: int_str(c.buff_overlay_font_size),
     });
 }
 
@@ -1244,9 +1247,7 @@ fn hsv_to_hex(h: f32, s: f32, v: f32) -> String {
 }
 
 /// オーバーレイ3窓（バフ/デバフ・ステータス・イマジンタイマー）の外観を反映する。
-/// 不透明度・基準テキスト色は3窓共通。文字サイズ・フォント・太字は窓ごとに独立：
-/// バフ/デバフ=メイン窓設定(font_size/main_font/main_font_bold)に追随、
-/// ステータス・イマジンは各専用設定を使う。
+/// 不透明度・基準テキスト色は3窓共通。文字サイズ・フォント・太字は窓ごとに独立した専用設定を使う。
 /// 表示/非表示に関わらずプロパティは窓側に保持されるため、起動時と設定変更時のみ呼べばよい。
 fn apply_overlay_appearance(
     c: &settings::Settings,
@@ -1261,15 +1262,15 @@ fn apply_overlay_appearance(
     // 不透明度を0より上げると hittest が戻り操作可能に復帰する。
     // （トレイの「クリックスルー」一括切替とは別系統。不透明度変更時に本値で上書きする。）
     let pass_through = op <= 0.001;
-    // バフ/デバフ窓: メイン窓のフォントサイズ・フォント・太字に追随。
+    // バフ/デバフ窓: 専用フォント設定（メインとは独立）。
     if let Some(o) = self_o.upgrade() {
         o.set_overlay_opacity(op);
         o.set_overlay_outline(c.overlay_outline);
         o.set_overlay_shadow(c.overlay_shadow);
-        o.set_overlay_font(c.main_font.clone().into());
-        o.set_overlay_font_bold(c.main_font_bold);
+        o.set_overlay_font(c.buff_overlay_font.clone().into());
+        o.set_overlay_font_bold(c.buff_overlay_font_bold);
         o.set_text_base(text_col);
-        o.set_font_scale((c.font_size / 12.0) as f32);
+        o.set_font_scale((c.buff_overlay_font_size / 12.0) as f32);
         overlay::set_click_through(o.window(), pass_through);
     }
     // イマジンタイマー窓: 専用フォント設定。
@@ -2990,6 +2991,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "main-font-bold" => c.main_font_bold = val,
                     "stats-overlay-font-bold" => c.stats_overlay_font_bold = val,
                     "imagine-overlay-font-bold" => c.imagine_overlay_font_bold = val,
+                    "buff-overlay-font-bold" => c.buff_overlay_font_bold = val,
                     "overlay-outline" => c.overlay_outline = val,
                     "overlay-shadow" => c.overlay_shadow = val,
                     "show-footer" => c.show_footer = val,
@@ -3040,12 +3042,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 stat_catalog_left_sb.set_vec(l);
                 stat_catalog_right_sb.set_vec(r);
             }
-            // フォント太字はオーバーレイ外観へ即反映（メイン太字はバフ/デバフ窓へ波及）。
+            // フォント太字はオーバーレイ外観へ即反映。
             if matches!(
                 key.as_str(),
                 "main-font-bold"
                     | "stats-overlay-font-bold"
                     | "imagine-overlay-font-bold"
+                    | "buff-overlay-font-bold"
                     | "overlay-outline"
                     | "overlay-shadow"
             ) {
@@ -3210,6 +3213,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         c.imagine_overlay_font_size =
                             (c.imagine_overlay_font_size + d).clamp(8.0, 24.0);
                     }
+                    "buff-overlay-font-size" => {
+                        c.buff_overlay_font_size = (c.buff_overlay_font_size + d).clamp(8.0, 100.0);
+                    }
                     other => log::warn!("unknown num key: {other}"),
                 }
             }
@@ -3243,6 +3249,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "main-font" => c.main_font = val.to_string(),
                     "stats-overlay-font" => c.stats_overlay_font = val.to_string(),
                     "imagine-overlay-font" => c.imagine_overlay_font = val.to_string(),
+                    "buff-overlay-font" => c.buff_overlay_font = val.to_string(),
                     "overlay-text-color" => c.overlay_text_color = val.to_string(),
                     other => log::warn!("unknown str key: {other}"),
                 }
@@ -3891,12 +3898,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // メイン表・ヘッダは毎tick維持。設定の即時反映も最大 ~stride 分だけ遅延するが体感影響は無い。
         let refresh_overlays = st.tick % overlay_stride == 0;
 
-        // オーバーレイの文字サイズは窓ごとに独立。
-        // バフ/デバフ=メイン窓に追随、ステータス・イマジンは各専用設定。
+        // オーバーレイの文字サイズは窓ごとに独立した専用設定。
         let (self_scale, stats_scale, imagine_scale) = {
             let c = cfg_poll.borrow();
             (
-                (c.font_size / 12.0) as f32,
+                (c.buff_overlay_font_size / 12.0) as f32,
                 (c.stats_overlay_font_size / 12.0) as f32,
                 (c.imagine_overlay_font_size / 12.0) as f32,
             )

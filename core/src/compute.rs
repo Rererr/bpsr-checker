@@ -824,8 +824,74 @@ pub fn get_capture_status() -> CaptureStatusDto {
     }
 }
 
-pub fn get_self_buff_status(enc: &EncounterMutex) -> SelfStatusData {
+/// 自キャラのバフ観測を表示用の (バフ, デバフ) へ整形する。
+/// 同一 base_id のインスタンスは1件に束ねる。AddBuff 経路は同じバフの再付与ごとに新しい
+/// buff_uuid を振るため、束ねないと同名の行が並ぶ（実測: 自バフ窓に同じバフが2件ずつ）。
+/// 代表は残り時間が最長のインスタンス（イマジンタイマー `aggregate_player_buffs` と同規約）。
+fn split_self_status(
+    snapshots: Vec<crate::engine::buff_tracker::BuffStateSnapshot>,
+) -> (Vec<SelfStatusEntry>, Vec<SelfStatusEntry>) {
     use crate::engine::buff_dictionary::{self, DisplayPriority};
+    use std::collections::HashMap;
+
+    let mut by_base: HashMap<i32, SelfStatusEntry> = HashMap::new();
+
+    for snap in snapshots {
+        if !buff_dictionary::is_visible(snap.base_id) {
+            continue;
+        }
+        let meta = match buff_dictionary::lookup(snap.base_id) {
+            Some(m) => *m,
+            None => continue,
+        };
+        let priority_str = match meta.priority {
+            DisplayPriority::Hidden => "hidden",
+            DisplayPriority::Low => "low",
+            DisplayPriority::Normal => "normal",
+            DisplayPriority::High => "high",
+            DisplayPriority::Alert => "alert",
+        };
+
+        let entry = SelfStatusEntry {
+            instance_id: snap.buff_uuid as i64,
+            base_id: snap.base_id,
+            category: meta.category.as_str().to_string(),
+            priority: priority_str.to_string(),
+            remaining_ms: snap.remaining_ms.max(0),
+            duration_ms: snap.duration_ms,
+            layer: snap.layer,
+            source_config_id: 0,
+        };
+
+        match by_base.get(&entry.base_id) {
+            Some(kept) if kept.remaining_ms >= entry.remaining_ms => {}
+            _ => {
+                by_base.insert(entry.base_id, entry);
+            }
+        }
+    }
+
+    let mut buffs = Vec::new();
+    let mut debuffs = Vec::new();
+    for entry in by_base.into_values() {
+        if entry.category == "debuff" {
+            debuffs.push(entry);
+        } else {
+            buffs.push(entry);
+        }
+    }
+
+    // 残り時間の降順で並べる（残り多い順）。同値は base_id 昇順で確定させる
+    // （HashMap 由来の不定順で毎tick 行が入れ替わるのを防ぐ）。
+    let by_remaining = |a: &SelfStatusEntry, b: &SelfStatusEntry| {
+        b.remaining_ms.cmp(&a.remaining_ms).then(a.base_id.cmp(&b.base_id))
+    };
+    buffs.sort_by(by_remaining);
+    debuffs.sort_by(by_remaining);
+    (buffs, debuffs)
+}
+
+pub fn get_self_buff_status(enc: &EncounterMutex) -> SelfStatusData {
     use crate::engine::processor::now_ms;
 
     let (snapshots, now_ms, local_uid) = {
@@ -846,50 +912,7 @@ pub fn get_self_buff_status(enc: &EncounterMutex) -> SelfStatusData {
         (snaps, now, uid)
     };
 
-    let mut buffs = Vec::new();
-    let mut debuffs = Vec::new();
-
-    for snap in snapshots {
-        if !buff_dictionary::is_visible(snap.base_id) {
-            continue;
-        }
-        let meta = match buff_dictionary::lookup(snap.base_id) {
-            Some(m) => *m,
-            None => continue,
-        };
-        let category_str = meta.category.as_str().to_string();
-        let priority_str = match meta.priority {
-            DisplayPriority::Hidden => "hidden",
-            DisplayPriority::Low => "low",
-            DisplayPriority::Normal => "normal",
-            DisplayPriority::High => "high",
-            DisplayPriority::Alert => "alert",
-        }
-        .to_string();
-
-        let remaining = snap.remaining_ms.max(0);
-        let is_debuff = category_str == "debuff";
-        let entry = SelfStatusEntry {
-            instance_id: snap.buff_uuid as i64,
-            base_id: snap.base_id,
-            category: category_str,
-            priority: priority_str,
-            remaining_ms: remaining,
-            duration_ms: snap.duration_ms,
-            layer: snap.layer,
-            source_config_id: 0,
-        };
-
-        if is_debuff {
-            debuffs.push(entry);
-        } else {
-            buffs.push(entry);
-        }
-    }
-
-    // 残り時間の降順で並べる（残り多い順）
-    buffs.sort_by(|a, b| b.remaining_ms.cmp(&a.remaining_ms));
-    debuffs.sort_by(|a, b| b.remaining_ms.cmp(&a.remaining_ms));
+    let (buffs, debuffs) = split_self_status(snapshots);
 
     SelfStatusData {
         buffs,
@@ -1208,6 +1231,31 @@ mod tests {
         let result = aggregate_player_buffs(vec![snap(2110056, 45_000)], 1.0, "self".into());
         assert_eq!(result.buffs.len(), 1);
         assert_eq!(result.buffs[0].base_id, 2110056);
+    }
+
+    // 同じバフの再付与で buff_uuid が増えても、自バフ窓の行は base_id で1件に束ねられ、
+    // 残り時間が最長のインスタンスが代表になる。
+    #[test]
+    fn self_status_dedupes_instances_of_same_base_id() {
+        let mut a = snap(2208484, 5_000); // 表示対象の自バフ (Buff/Normal)
+        a.buff_uuid = 11;
+        let mut b = snap(2208484, 9_000);
+        b.buff_uuid = 22;
+        for snaps in [vec![a.clone(), b.clone()], vec![b, a]] {
+            let (buffs, debuffs) = split_self_status(snaps);
+            assert_eq!(buffs.len(), 1, "同一 base_id は1行に束ねる");
+            assert!(debuffs.is_empty());
+            assert_eq!(buffs[0].remaining_ms, 9_000);
+            assert_eq!(buffs[0].instance_id, 22);
+        }
+    }
+
+    // 残り時間が同値でも並びは base_id 昇順で確定する（毎tick の行入れ替わり防止）。
+    #[test]
+    fn self_status_order_is_deterministic_on_ties() {
+        let (buffs, _) = split_self_status(vec![snap(2208651, 4_000), snap(2208484, 4_000)]);
+        let ids: Vec<i32> = buffs.iter().map(|e| e.base_id).collect();
+        assert_eq!(ids, vec![2208484, 2208651]);
     }
 
     // 同一系統(免疫デバフ同士)では従来どおり残時間が長い方を採用。

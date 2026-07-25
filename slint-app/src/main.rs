@@ -1005,7 +1005,16 @@ fn refresh_selected_uid(
             .into(),
     );
     let name = sel.and_then(compute::lookup_name_cache).map(|d| d.name);
+    // 対象クライアント未特定の間は表示が空になる。「戦闘していない」と区別できるよう明示する
+    // （特定は自プレイヤー専用デルタの受信で自動的に完了する）。
+    let resolved = compute::selected_conn_resolved(enc);
     m.set_selected_uid_name(match (name, sel_i64) {
+        (_, Some(_)) if !resolved => if is_ja() {
+            "（対象クライアント特定中…）"
+        } else {
+            "(identifying target client...)"
+        }
+        .into(),
         (Some(n), _) => n.into(),
         (None, Some(_)) => if is_ja() { "（名前未解決）" } else { "(name unresolved)" }.into(),
         (None, None) => if is_ja() { "（未設定）" } else { "(none)" }.into(),

@@ -980,6 +980,18 @@ pub fn get_selected_uid() -> Option<f64> {
     selected_uid::get().map(|v| v as f64)
 }
 
+/// 指定 UID に対応するゲームクライアントの接続を特定できているか。
+/// UID 未指定なら常に true（フィルタ待ちが存在しない）。UID 指定中に false の間は
+/// 対象クライアントのパケットを1件も採用していない＝表示が空になるため、UI で区別する。
+pub fn selected_conn_resolved(enc: &EncounterMutex) -> bool {
+    if selected_uid::get().is_none() {
+        return true;
+    }
+    with_lock_or(enc, "selected_conn_resolved", false, |encounter| {
+        encounter.active_connection.is_some()
+    })
+}
+
 pub fn set_selected_uid(enc: &EncounterMutex, uid: Option<f64>) {
     let uid_i64 = uid.map(|v| v as i64);
     selected_uid::set(uid_i64);

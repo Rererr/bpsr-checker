@@ -643,7 +643,20 @@ pub(crate) fn now_ms() -> u128 {
 }
 
 fn should_accept(encounter: &mut Encounter, conn: Option<Server>, op: &Pkt) -> bool {
-    if matches!(op, Pkt::ServerHandover | Pkt::SocialEnvelope) {
+    // ServerHandover / SocialEnvelope は接続状態そのものの通知。
+    // 以下は conn ↔ char_id の学習経路なので、身元不明の conn でも必ず通す（ここで弾くと
+    // 学習が永久に起きず、UID 指定時に何も表示されなくなる）。他クライアント由来かどうかは
+    // 各 process_* が learn_connection で判定し破棄する。
+    // LocalDeltaBatch は入場時以外にも継続的に届くため、戦闘途中でアプリを起動しても
+    // 短時間で対象クライアントを特定できる主経路になる。
+    if matches!(
+        op,
+        Pkt::ServerHandover
+            | Pkt::SocialEnvelope
+            | Pkt::WorldEnterSnapshot
+            | Pkt::WorldEnterScene
+            | Pkt::LocalDeltaBatch
+    ) {
         return true;
     }
     let Some(conn) = conn else {
@@ -662,19 +675,35 @@ fn should_accept(encounter: &mut Encounter, conn: Option<Server>, op: &Pkt) -> b
                     false
                 }
             }
-            None => match encounter.active_connection {
-                Some(active) => conn == active,
-                None => true,
-            },
+            None => {
+                // 先着 char_id に属する全コネクションを通す（1クライアント複数接続のため）
+                if encounter.local_player_uid == 0 {
+                    encounter.local_player_uid = uid_for_conn;
+                }
+                if uid_for_conn == encounter.local_player_uid {
+                    encounter.active_connection = Some(conn);
+                    true
+                } else {
+                    false
+                }
+            }
         };
     }
 
-    // 未学習 conn: active_connection が確定しているなら一致のみ通す
-    if let Some(active) = encounter.active_connection {
-        return conn == active;
+    // 未学習 conn: UID 指定時は「身元不明＝通さない」。複数クライアント起動中に
+    // 他キャラのデータが混入するのを防ぐ。WorldEnterSnapshot は上で常時通すので、
+    // 対象クライアントの入場/ゾーン移動を検出した時点で学習が進み accept に転じる。
+    if sel.is_some() {
+        return false;
     }
 
-    // 完全未確定 (起動直後): 全 accept。WorldEnterSnapshot 受信後に active_connection が確定する
+    // 対象キャラが確定済みなら身元不明の conn は通さない。
+    // （active_connection は同一キャラの複数接続間で移り変わるため比較対象にしない）
+    if encounter.local_player_uid != 0 {
+        return false;
+    }
+
+    // 完全未確定 (起動直後・UID 未指定): 全 accept。学習経路の受信で確定する
     true
 }
 
@@ -735,7 +764,7 @@ pub fn process_opcode(enc: &EncounterMutex, env: PktEnvelope) -> AppResult<()> {
                     let Some(msg) = decode_packet::<pb::EnterScene>(data, "EnterScene") else {
                         return Ok(());
                     };
-                    process_enter_scene(&mut encounter, msg);
+                    process_enter_scene(&mut encounter, msg, conn);
                 }
 
                 Pkt::WorldEntityBatch => {
@@ -767,7 +796,7 @@ pub fn process_opcode(enc: &EncounterMutex, env: PktEnvelope) -> AppResult<()> {
                     else {
                         return Ok(());
                     };
-                    process_local_delta_batch(&mut encounter, msg);
+                    process_local_delta_batch(&mut encounter, msg, conn);
                 }
 
                 Pkt::WorldDeltaBatch => {
@@ -1032,10 +1061,66 @@ fn log_container_equips(player_uid: i64, v_data: &pb::PlayerSnapshot) {
     }
 }
 
-fn process_local_delta_batch(encounter: &mut Encounter, msg: pb::LocalDeltaBatch) {
+/// conn ↔ char_id を学習し、この conn が対象クライアントかを返す。
+/// false のとき呼び出し側は以降の処理を破棄する（他クライアント由来）。
+///
+/// 複数のゲームクライアントを同時起動していると、観測されるコネクションはキャラ数だけ
+/// 存在する。UID 指定時は一致した conn だけを active にし、未指定時は先着に固定する。
+fn learn_connection(encounter: &mut Encounter, conn: Server, player_uid: i64) -> bool {
+    // 学習は毎パケット走るため、ログは「新規に判明した」瞬間だけに絞る
+    let newly_learned = encounter.conn_to_uid.insert(conn, player_uid) != Some(player_uid);
+    let sel = selected_uid::get();
+    // 1つのゲームクライアントは複数の TCP コネクションを張る（scene 用の補助接続。
+    // 実測: 同一 char_id が :10541 と :10408 の2本で学習された）。したがって判定は
+    // conn 単位ではなく char_id 単位で行う。conn 単位にすると後着の接続が active を
+    // 奪い、先の接続のデータが落ちる。
+    let is_target = match sel {
+        Some(sel_uid) => sel_uid == player_uid,
+        // 自動検出: 先着の char_id に固定し、そのキャラの全コネクションを対象とする
+        None => encounter.local_player_uid == 0 || encounter.local_player_uid == player_uid,
+    };
+    if newly_learned {
+        info!(
+            "[conn] learned char_id={player_uid} on {conn} (selected={sel:?}, target={is_target})"
+        );
+    }
+    if !is_target {
+        return false;
+    }
+    if encounter.active_connection != Some(conn) {
+        info!("[conn] active connection -> {conn} (char_id={player_uid})");
+    }
+    encounter.active_connection = Some(conn);
+    if encounter.local_player_uid == 0 {
+        encounter.local_player_uid = player_uid;
+    }
+    true
+}
+
+fn process_local_delta_batch(
+    encounter: &mut Encounter,
+    msg: pb::LocalDeltaBatch,
+    conn: Option<Server>,
+) {
     let Some(delta_info) = msg.delta_info else {
         return;
     };
+
+    // LocalDeltaBatch は自プレイヤー専用の差分。LocalSceneDelta.uuid(field 5) が自キャラ
+    // なので、conn ↔ char_id の主要な学習経路になる。EnterScene / WorldEnterSnapshot が
+    // 入場時にしか届かないのに対し、これは戦闘中・非戦闘中を問わず継続的に流れるため、
+    // 戦闘途中でアプリを起動しても対象クライアントを短時間で特定できる。
+    let self_uuid = if delta_info.uuid != 0 {
+        delta_info.uuid
+    } else {
+        delta_info.base_delta.as_ref().map_or(0, |d| d.uuid)
+    };
+    if let (Some(conn), true) = (conn, self_uuid != 0) {
+        let self_uid = entity::get_player_uid(self_uuid);
+        if self_uid != 0 && !learn_connection(encounter, conn, self_uid) {
+            return; // 他クライアント由来
+        }
+    }
 
     // LocalSceneDelta.effects(field 3): 自プレイヤーへのバフ/デバフ効果リスト
     if !delta_info.effects.is_empty() {
@@ -1449,7 +1534,11 @@ pub(crate) fn take_time_series_sample(encounter: &mut Encounter, ts: u128, force
 /// EnterScene (自キャラ入場) の PlayerEnt.attrs を処理する。
 /// AOI 同期(SyncNearEntities)には含まれない詳細ステータス（会心/ファスト/万能/知力/敏捷/
 /// 魔攻/魔防 等）がここに入る。PlayerEnt は自キャラなので、未確定なら local_player_uid も確定する。
-fn process_enter_scene(encounter: &mut Encounter, msg: pb::EnterScene) {
+///
+/// PlayerEnt が自キャラである性質から、この経路は WorldEnterSnapshot に次ぐ
+/// conn ↔ char_id の学習源でもある（ゾーン移動のたびに届くため、ログイン時にしか
+/// 来ない WorldEnterSnapshot より早く対象クライアントを特定できる）。
+fn process_enter_scene(encounter: &mut Encounter, msg: pb::EnterScene, conn: Option<Server>) {
     let Some(info) = msg.enter_scene_info else {
         return;
     };
@@ -1466,9 +1555,14 @@ fn process_enter_scene(encounter: &mut Encounter, msg: pb::EnterScene) {
     if crate::probe::enabled() {
         crate::probe::log_attrs("enter_scene Player", player_ent.uuid, &attrs.attrs);
     }
-    // EnterScene は自キャラの入場通知。local_player_uid 未確定ならここで確定させる
-    // （初回フル同期をこの経路で確実に取得するため）。
-    if encounter.local_player_uid == 0 {
+
+    // connection ↔ char_id を学習し、他クライアント由来ならエンティティを作らず捨てる。
+    // （learn_connection が local_player_uid の未確定時確定も担う）
+    if let Some(conn) = conn {
+        if !learn_connection(encounter, conn, player_uid) {
+            return;
+        }
+    } else if encounter.local_player_uid == 0 {
         encounter.local_player_uid = player_uid;
     }
     let target_entity = get_or_create_entity(encounter, player_uid, EntityKind::Player);
@@ -2620,5 +2714,533 @@ mod tests {
             vec!["ヴェノミーンの巣".to_string(), "ロローラ".to_string()]
         );
         assert!(enc.entities[&uid].pending_imagine.is_none());
+    }
+
+    fn conn(port: u16) -> Server {
+        Server::new([10, 0, 0, 1], port, [192, 168, 0, 2], 5000)
+    }
+
+    /// selected_uid はプロセス共有のグローバル。cargo test は同一プロセス内で
+    /// テストを並列実行するため、これを触るテストは必ず直列化する
+    /// （怠ると他テストの set(None) が割り込み、フィルタが無効化された状態で観測される）。
+    static SELECTED_UID_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn lock_selected_uid() -> std::sync::MutexGuard<'static, ()> {
+        SELECTED_UID_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// 複数クライアント同時起動時の conn フィルタ。selected_uid はプロセス共有の
+    /// グローバルなので、分岐を1テストに集約して直列に検証し、最後に必ず解除する。
+    #[test]
+    fn should_accept_filters_by_selected_uid_across_multiple_clients() {
+        let _guard = lock_selected_uid();
+        let mine = conn(40001); // 自分のキャラのクライアント
+        let other = conn(40002); // 別キャラのクライアント
+        let my_uid = 111_i64;
+        let other_uid = 222_i64;
+
+        // ── UID 未指定: 先着 char_id に固定される
+        // （learn_connection は active_connection と local_player_uid を同時に確定させる）
+        selected_uid::set(None);
+        let mut enc = Encounter::default();
+        assert!(
+            should_accept(&mut enc, Some(mine), &Pkt::WorldDeltaBatch),
+            "UID 未指定・完全未確定なら accept"
+        );
+        assert!(learn_connection(&mut enc, mine, my_uid));
+        assert!(should_accept(&mut enc, Some(mine), &Pkt::WorldDeltaBatch));
+        assert!(
+            !should_accept(&mut enc, Some(other), &Pkt::WorldDeltaBatch),
+            "対象キャラ確定後は身元不明の conn を弾く"
+        );
+        assert!(
+            !learn_connection(&mut enc, other, other_uid),
+            "別 char_id の conn は対象外"
+        );
+        assert!(
+            !should_accept(&mut enc, Some(other), &Pkt::WorldDeltaBatch),
+            "学習後も別キャラの conn は弾く"
+        );
+
+        // ── UID 指定・学習前: 身元不明の conn は両方とも弾く（混線防止の本丸）
+        selected_uid::set(Some(my_uid));
+        let mut enc = Encounter::default();
+        assert!(
+            !should_accept(&mut enc, Some(mine), &Pkt::WorldDeltaBatch),
+            "UID 指定中は未学習 conn を通さない"
+        );
+        assert!(!should_accept(&mut enc, Some(other), &Pkt::WorldDeltaBatch));
+
+        // ── ただし学習経路のパケットは常に通す（弾くと永久に特定できない）
+        assert!(should_accept(&mut enc, Some(other), &Pkt::WorldEnterSnapshot));
+        assert!(should_accept(&mut enc, Some(other), &Pkt::WorldEnterScene));
+        assert!(should_accept(&mut enc, Some(other), &Pkt::ServerHandover));
+
+        // ── 学習後: 一致 conn だけ通り、active_connection が確定する
+        enc.conn_to_uid.insert(mine, my_uid);
+        enc.conn_to_uid.insert(other, other_uid);
+        assert!(
+            !should_accept(&mut enc, Some(other), &Pkt::WorldDeltaBatch),
+            "別キャラの conn は学習後も弾く"
+        );
+        assert!(should_accept(&mut enc, Some(mine), &Pkt::WorldDeltaBatch));
+        assert_eq!(enc.active_connection, Some(mine));
+
+        // ── 先に他 conn が active になっていても、UID 一致側へ矯正される
+        let mut enc = Encounter::default();
+        enc.active_connection = Some(other);
+        enc.conn_to_uid.insert(mine, my_uid);
+        enc.conn_to_uid.insert(other, other_uid);
+        assert!(!should_accept(&mut enc, Some(other), &Pkt::WorldDeltaBatch));
+        assert!(should_accept(&mut enc, Some(mine), &Pkt::WorldDeltaBatch));
+        assert_eq!(enc.active_connection, Some(mine));
+
+        selected_uid::set(None);
+    }
+
+    /// EnterScene は自キャラ入場通知なので conn ↔ char_id を学習する。
+    /// 他クライアント由来なら学習だけ行い、エンティティは作らない。
+    #[test]
+    fn enter_scene_learns_conn_and_rejects_other_client() {
+        let _guard = lock_selected_uid();
+        let other = conn(40003);
+        let other_uid = 333_i64;
+        selected_uid::set(Some(444));
+
+        let mut enc = Encounter::default();
+        let msg = pb::EnterScene {
+            enter_scene_info: Some(pb::EnterSceneInfo {
+                player_ent: Some(pb::EntityAppear {
+                    uuid: other_uid << 16 | 640,
+                    attrs: Some(pb::EntityAttrs { attrs: vec![], ..Default::default() }),
+                    ..Default::default()
+                }),
+            }),
+        };
+        process_enter_scene(&mut enc, msg, Some(other));
+
+        assert_eq!(
+            enc.conn_to_uid.get(&other),
+            Some(&other_uid),
+            "他クライアントでも conn↔uid は学習する（以降その conn を弾くため）"
+        );
+        assert_eq!(enc.active_connection, None, "他クライアントを active にしない");
+        assert!(enc.entities.is_empty(), "他キャラのエンティティを作らない");
+        assert_eq!(enc.local_player_uid, 0);
+
+        selected_uid::set(None);
+    }
+
+    fn player_uuid(uid: i64) -> i64 {
+        uid << 16 | 640
+    }
+
+    fn enter_scene_bytes(uid: i64) -> Vec<u8> {
+        pb::EnterScene {
+            enter_scene_info: Some(pb::EnterSceneInfo {
+                player_ent: Some(pb::EntityAppear {
+                    uuid: player_uuid(uid),
+                    attrs: Some(pb::EntityAttrs { attrs: vec![], ..Default::default() }),
+                    ..Default::default()
+                }),
+            }),
+        }
+        .encode_to_vec()
+    }
+
+    /// attacker_uid が target_uuid へ value ダメージを与える WorldDeltaBatch。
+    fn delta_damage_bytes(target_uuid: i64, attacker_uid: i64, value: i64) -> Vec<u8> {
+        pb::WorldDeltaBatch {
+            delta_infos: vec![pb::SceneDelta {
+                uuid: target_uuid,
+                skill_effects: Some(pb::SkillImpact {
+                    damages: vec![pb::DamageRecord {
+                        value,
+                        hp_lessen_value: value,
+                        attacker_uuid: player_uuid(attacker_uid),
+                        owner_id: 1001,
+                        ..Default::default()
+                    }],
+                }),
+                ..Default::default()
+            }],
+        }
+        .encode_to_vec()
+    }
+
+    fn envelope(op: Pkt, data: Vec<u8>, conn: Server) -> PktEnvelope {
+        PktEnvelope { op, data, conn: Some(conn) }
+    }
+
+    /// 2クライアント同時稼働のエンドツーエンド。実パケットを encode して
+    /// process_opcode に流し、指定 UID のデータだけが集計されることを確認する。
+    #[test]
+    fn two_clients_only_selected_uid_is_aggregated_end_to_end() {
+        let _guard = lock_selected_uid();
+        let my_uid = 555_i64;
+        let other_uid = 666_i64;
+        let mine = conn(40011);
+        let other = conn(40012);
+        let monster_uuid = 7_i64 << 16 | 64;
+
+        selected_uid::set(Some(my_uid));
+        let enc = EncounterMutex::default();
+        enc.lock().unwrap().local_player_uid = my_uid;
+
+        // 両クライアントが入場（他クライアントが先着でも引きずられないこと）
+        process_opcode(&enc, envelope(Pkt::WorldEnterScene, enter_scene_bytes(other_uid), other))
+            .unwrap();
+        process_opcode(&enc, envelope(Pkt::WorldEnterScene, enter_scene_bytes(my_uid), mine))
+            .unwrap();
+
+        // 両クライアントで戦闘が発生
+        process_opcode(
+            &enc,
+            envelope(Pkt::WorldDeltaBatch, delta_damage_bytes(monster_uuid, other_uid, 9_999), other),
+        )
+        .unwrap();
+        process_opcode(
+            &enc,
+            envelope(Pkt::WorldDeltaBatch, delta_damage_bytes(monster_uuid, my_uid, 100), mine),
+        )
+        .unwrap();
+
+        let e = enc.lock().unwrap();
+        assert_eq!(e.conn_to_uid.get(&mine), Some(&my_uid));
+        assert_eq!(e.conn_to_uid.get(&other), Some(&other_uid));
+        assert_eq!(e.active_connection, Some(mine), "指定 UID 側の conn が active");
+        assert_eq!(e.dmg_stats.total, 100, "他クライアントの 9999 ダメージが混入していない");
+        assert!(e.participant_player_uids.contains(&my_uid));
+        assert!(
+            !e.participant_player_uids.contains(&other_uid),
+            "他キャラが参加者として計上されていない"
+        );
+        assert!(!e.entities.contains_key(&other_uid), "他キャラのエンティティが作られていない");
+        drop(e);
+
+        selected_uid::set(None);
+    }
+
+    /// 戦闘中にアプリを後から起動したケース。EnterScene も WorldEnterSnapshot も
+    /// 届かないため conn を一切学習できない。この状態で身元不明の conn を通すと
+    /// 両クライアントのダメージが合算されてしまう（修正前の実際の症状）。
+    /// UID 指定中は「特定できるまで何も採用しない」が正しい。
+    #[test]
+    fn two_clients_mid_session_start_rejects_unidentified_connections() {
+        let _guard = lock_selected_uid();
+        let my_uid = 555_i64;
+        let other_uid = 666_i64;
+        let mine = conn(40031);
+        let other = conn(40032);
+        let monster_uuid = 9_i64 << 16 | 64;
+
+        selected_uid::set(Some(my_uid));
+        let enc = EncounterMutex::default();
+        enc.lock().unwrap().local_player_uid = my_uid;
+
+        // 学習パケットなしで、いきなり双方の戦闘パケットが流れてくる
+        process_opcode(
+            &enc,
+            envelope(Pkt::WorldDeltaBatch, delta_damage_bytes(monster_uuid, other_uid, 9_999), other),
+        )
+        .unwrap();
+        process_opcode(
+            &enc,
+            envelope(Pkt::WorldDeltaBatch, delta_damage_bytes(monster_uuid, my_uid, 100), mine),
+        )
+        .unwrap();
+
+        let e = enc.lock().unwrap();
+        assert_eq!(
+            e.dmg_stats.total, 0,
+            "身元不明 conn を通すと他キャラの 9999 が混入する（合計 10099 になる）"
+        );
+        assert_eq!(e.active_connection, None, "特定できていない");
+        drop(e);
+
+        // ゾーン移動で EnterScene が届けば特定され、以降は自分の分だけ集計される
+        process_opcode(&enc, envelope(Pkt::WorldEnterScene, enter_scene_bytes(my_uid), mine))
+            .unwrap();
+        process_opcode(
+            &enc,
+            envelope(Pkt::WorldDeltaBatch, delta_damage_bytes(monster_uuid, my_uid, 100), mine),
+        )
+        .unwrap();
+        process_opcode(
+            &enc,
+            envelope(Pkt::WorldDeltaBatch, delta_damage_bytes(monster_uuid, other_uid, 9_999), other),
+        )
+        .unwrap();
+
+        let e = enc.lock().unwrap();
+        assert_eq!(e.active_connection, Some(mine), "EnterScene で特定が完了する");
+        assert_eq!(e.dmg_stats.total, 100, "特定後も他クライアント分は入らない");
+        drop(e);
+
+        selected_uid::set(None);
+    }
+
+    /// 自プレイヤー専用デルタ（LocalSceneDelta.uuid = 自キャラ）。
+    fn local_delta_bytes(self_uid: i64) -> Vec<u8> {
+        pb::LocalDeltaBatch {
+            delta_info: Some(pb::LocalSceneDelta {
+                uuid: player_uuid(self_uid),
+                base_delta: Some(pb::SceneDelta {
+                    uuid: player_uuid(self_uid),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+        }
+        .encode_to_vec()
+    }
+
+    /// EnterScene / WorldEnterSnapshot が一切来なくても、LocalDeltaBatch だけで
+    /// 対象クライアントを特定できる（入場通知への依存を断つための主経路）。
+    #[test]
+    fn local_delta_alone_identifies_target_client() {
+        let _guard = lock_selected_uid();
+        let my_uid = 555_i64;
+        let other_uid = 666_i64;
+        let mine = conn(40041);
+        let other = conn(40042);
+        let monster_uuid = 11_i64 << 16 | 64;
+
+        selected_uid::set(Some(my_uid));
+        let enc = EncounterMutex::default();
+        enc.lock().unwrap().local_player_uid = my_uid;
+
+        // 他クライアントの自分専用デルタが先に届いても引きずられない
+        process_opcode(&enc, envelope(Pkt::LocalDeltaBatch, local_delta_bytes(other_uid), other))
+            .unwrap();
+        assert_eq!(enc.lock().unwrap().active_connection, None);
+
+        // 対象クライアントの自分専用デルタで特定完了（入場通知は一度も来ていない）
+        process_opcode(&enc, envelope(Pkt::LocalDeltaBatch, local_delta_bytes(my_uid), mine))
+            .unwrap();
+        assert_eq!(enc.lock().unwrap().active_connection, Some(mine));
+
+        process_opcode(
+            &enc,
+            envelope(Pkt::WorldDeltaBatch, delta_damage_bytes(monster_uuid, other_uid, 9_999), other),
+        )
+        .unwrap();
+        process_opcode(
+            &enc,
+            envelope(Pkt::WorldDeltaBatch, delta_damage_bytes(monster_uuid, my_uid, 100), mine),
+        )
+        .unwrap();
+
+        let e = enc.lock().unwrap();
+        assert_eq!(e.dmg_stats.total, 100, "他クライアント分が混入していない");
+        assert!(!e.entities.contains_key(&other_uid));
+        drop(e);
+
+        selected_uid::set(None);
+    }
+
+    /// 表示層まで通した検証。エンジン内部状態だけでなく、UI が実際に描画する
+    /// `compute::get_dps_players()` の行に他キャラが現れないことを確認する。
+    #[test]
+    fn display_rows_contain_only_selected_character() {
+        let _guard = lock_selected_uid();
+        let my_uid = 555_i64;
+        let other_uid = 666_i64;
+        let mine = conn(40051);
+        let other = conn(40052);
+        let monster_uuid = 12_i64 << 16 | 64;
+
+        selected_uid::set(Some(my_uid));
+        let enc = EncounterMutex::default();
+        enc.lock().unwrap().local_player_uid = my_uid;
+
+        // 両クライアントが稼働し、両方で戦闘が起きている
+        process_opcode(&enc, envelope(Pkt::LocalDeltaBatch, local_delta_bytes(other_uid), other))
+            .unwrap();
+        process_opcode(&enc, envelope(Pkt::LocalDeltaBatch, local_delta_bytes(my_uid), mine))
+            .unwrap();
+        process_opcode(
+            &enc,
+            envelope(Pkt::WorldDeltaBatch, delta_damage_bytes(monster_uuid, other_uid, 9_999), other),
+        )
+        .unwrap();
+        process_opcode(
+            &enc,
+            envelope(Pkt::WorldDeltaBatch, delta_damage_bytes(monster_uuid, my_uid, 100), mine),
+        )
+        .unwrap();
+
+        let window = crate::compute::get_dps_players(&enc);
+        let shown: Vec<i64> = window.player_rows.iter().map(|r| r.uid as i64).collect();
+        assert_eq!(shown, vec![my_uid], "表示行は指定キャラのみ");
+        assert_eq!(window.player_rows[0].total_value, 100.0);
+        assert_eq!(window.local_player_uid as i64, my_uid);
+
+        // 接続を特定できている＝UI は「特定中」表示にならない
+        assert!(crate::compute::selected_conn_resolved(&enc));
+
+        selected_uid::set(None);
+    }
+
+    /// 特定前は表示を空にし、UI 側が「特定中」を出せる状態であること。
+    /// （空表示のまま「戦闘していない」と誤認させないための契約）
+    #[test]
+    fn display_is_empty_and_unresolved_before_client_is_identified() {
+        let _guard = lock_selected_uid();
+        let my_uid = 555_i64;
+        let other_uid = 666_i64;
+        let other = conn(40062);
+        let monster_uuid = 13_i64 << 16 | 64;
+
+        selected_uid::set(Some(my_uid));
+        let enc = EncounterMutex::default();
+        enc.lock().unwrap().local_player_uid = my_uid;
+
+        process_opcode(
+            &enc,
+            envelope(Pkt::WorldDeltaBatch, delta_damage_bytes(monster_uuid, other_uid, 9_999), other),
+        )
+        .unwrap();
+
+        let window = crate::compute::get_dps_players(&enc);
+        assert!(window.player_rows.is_empty(), "他キャラの行が出てはいけない");
+        assert!(
+            !crate::compute::selected_conn_resolved(&enc),
+            "未特定を UI へ伝えられる"
+        );
+
+        selected_uid::set(None);
+    }
+
+    /// 実機で判明したトポロジ: 1つのゲームクライアントが複数の TCP コネクションを張る
+    /// （scene 用の補助接続。実測で同一 char_id が :10541 と :10408 の2本で学習された）。
+    /// 判定を conn 単位にすると後着の接続が active を奪い、先の接続のダメージが落ちる。
+    #[test]
+    fn one_client_with_multiple_connections_keeps_all_its_damage() {
+        let my_uid = 3_485_705_i64;
+        let primary = conn(50177); // 実機の主接続に相当
+        let auxiliary = conn(58387); // 同一キャラの補助接続
+        let monster_uuid = 14_i64 << 16 | 64;
+
+        // ── UID 指定あり
+        {
+            let _guard = lock_selected_uid();
+            selected_uid::set(Some(my_uid));
+            let enc = EncounterMutex::default();
+            enc.lock().unwrap().local_player_uid = my_uid;
+
+            for c in [primary, auxiliary] {
+                process_opcode(&enc, envelope(Pkt::LocalDeltaBatch, local_delta_bytes(my_uid), c))
+                    .unwrap();
+            }
+            // 両方の接続からダメージが届く
+            for c in [primary, auxiliary] {
+                process_opcode(
+                    &enc,
+                    envelope(Pkt::WorldDeltaBatch, delta_damage_bytes(monster_uuid, my_uid, 100), c),
+                )
+                .unwrap();
+            }
+            assert_eq!(
+                enc.lock().unwrap().dmg_stats.total,
+                200,
+                "補助接続のダメージが落ちていない"
+            );
+            selected_uid::set(None);
+        }
+
+        // ── UID 未指定（自動検出）でも同じであること
+        {
+            let _guard = lock_selected_uid();
+            selected_uid::set(None);
+            let enc = EncounterMutex::default();
+
+            for c in [primary, auxiliary] {
+                process_opcode(&enc, envelope(Pkt::LocalDeltaBatch, local_delta_bytes(my_uid), c))
+                    .unwrap();
+            }
+            for c in [primary, auxiliary] {
+                process_opcode(
+                    &enc,
+                    envelope(Pkt::WorldDeltaBatch, delta_damage_bytes(monster_uuid, my_uid, 100), c),
+                )
+                .unwrap();
+            }
+            assert_eq!(
+                enc.lock().unwrap().dmg_stats.total,
+                200,
+                "自動検出でも補助接続を落とさない"
+            );
+        }
+    }
+
+    /// 上と同じ多接続構成で、別キャラのクライアントが混ざっても弾けること。
+    #[test]
+    fn multi_connection_client_still_excludes_other_character() {
+        let _guard = lock_selected_uid();
+        let my_uid = 3_485_705_i64;
+        let other_uid = 9_999_999_i64;
+        let primary = conn(50177);
+        let auxiliary = conn(58387);
+        let other = conn(60001);
+        let monster_uuid = 15_i64 << 16 | 64;
+
+        selected_uid::set(Some(my_uid));
+        let enc = EncounterMutex::default();
+        enc.lock().unwrap().local_player_uid = my_uid;
+
+        for (c, uid) in [(primary, my_uid), (auxiliary, my_uid), (other, other_uid)] {
+            process_opcode(&enc, envelope(Pkt::LocalDeltaBatch, local_delta_bytes(uid), c)).unwrap();
+        }
+        for (c, uid) in [(primary, my_uid), (auxiliary, my_uid), (other, other_uid)] {
+            process_opcode(
+                &enc,
+                envelope(Pkt::WorldDeltaBatch, delta_damage_bytes(monster_uuid, uid, 100), c),
+            )
+            .unwrap();
+        }
+
+        let e = enc.lock().unwrap();
+        assert_eq!(e.dmg_stats.total, 200, "自分の2接続分のみ");
+        assert!(!e.entities.contains_key(&other_uid));
+        drop(e);
+
+        selected_uid::set(None);
+    }
+
+    /// 対照実験: UID 未指定なら従来どおり先着 conn に固定され、
+    /// 後着クライアントのダメージは入らない（回帰防止）。
+    #[test]
+    fn two_clients_without_selected_uid_locks_onto_first_connection() {
+        let _guard = lock_selected_uid();
+        let first_uid = 777_i64;
+        let second_uid = 888_i64;
+        let first = conn(40021);
+        let second = conn(40022);
+        let monster_uuid = 8_i64 << 16 | 64;
+
+        selected_uid::set(None);
+        let enc = EncounterMutex::default();
+
+        process_opcode(&enc, envelope(Pkt::WorldEnterScene, enter_scene_bytes(first_uid), first))
+            .unwrap();
+        process_opcode(&enc, envelope(Pkt::WorldEnterScene, enter_scene_bytes(second_uid), second))
+            .unwrap();
+        process_opcode(
+            &enc,
+            envelope(Pkt::WorldDeltaBatch, delta_damage_bytes(monster_uuid, second_uid, 9_999), second),
+        )
+        .unwrap();
+        process_opcode(
+            &enc,
+            envelope(Pkt::WorldDeltaBatch, delta_damage_bytes(monster_uuid, first_uid, 100), first),
+        )
+        .unwrap();
+
+        let e = enc.lock().unwrap();
+        assert_eq!(e.active_connection, Some(first));
+        assert_eq!(e.dmg_stats.total, 100);
     }
 }

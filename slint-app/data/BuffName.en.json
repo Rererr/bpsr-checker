@@ -1255,5 +1255,83 @@
   },
   "3210222": {
     "name": "Survival Instinct"
+  },
+  "829124": {
+    "name": "Bleed"
+  },
+  "829265": {
+    "name": "Slow"
+  },
+  "883344": {
+    "name": "Slow"
+  },
+  "990204": {
+    "name": "Frozen"
+  },
+  "995186": {
+    "name": "Lightning Strike"
+  },
+  "2110161": {
+    "name": "Celestial Spirit Mage!"
+  },
+  "2110162": {
+    "name": "Fire Dragon Slayer!"
+  },
+  "2110306": {
+    "name": "Electro Shield"
+  },
+  "2208621": {
+    "name": "Flame Dance"
+  },
+  "3050441": {
+    "name": "Lucky Moonblade"
+  },
+  "3053411": {
+    "name": "Photon Energy Enhancement"
+  },
+  "3053412": {
+    "name": "Photon Energy Enhancement"
+  },
+  "3057411": {
+    "name": "Harmonic Anthem Enhancement"
+  },
+  "3060141": {
+    "name": "Crimson Lotus Awakening"
+  },
+  "3060191": {
+    "name": "Explosive Strike"
+  },
+  "3060241": {
+    "name": "Blazing Element"
+  },
+  "3060401": {
+    "name": "Flame Soul Recovery"
+  },
+  "3060411": {
+    "name": "Axe Wind Hunt"
+  },
+  "3060421": {
+    "name": "Formless Illusion"
+  },
+  "3060441": {
+    "name": "Peerless Flame Dance"
+  },
+  "3210181": {
+    "name": "Wind Thunder Combo"
+  },
+  "3210191": {
+    "name": "Arachnocrab Power"
+  },
+  "3210201": {
+    "name": "All-Out Assault"
+  },
+  "3210202": {
+    "name": "Elemental Smackdown"
+  },
+  "3210211": {
+    "name": "Eye Power"
+  },
+  "3210221": {
+    "name": "Invigorated"
   }
 }

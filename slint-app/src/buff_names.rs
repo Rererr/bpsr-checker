@@ -36,3 +36,23 @@ pub fn label(base_id: i32) -> String {
     }
     format!("#{base_id}")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 辞書に表示対象として載っている base_id は必ず表示名を持つ。持たないと UI が
+    /// `#3060441` のような生 ID を出す（S3 追補で26件が漏れていた実例あり）。
+    /// JA 名が確定できないものは公式 EN 名を en 側に入れてフォールバックさせる。
+    #[test]
+    fn every_visible_buff_has_a_display_name() {
+        let missing: Vec<i32> = bpsr_core::engine::buff_dictionary::visible_base_ids()
+            .into_iter()
+            .filter(|id| !JA.contains_key(id) && !EN.contains_key(id))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "表示名が無い base_id: {missing:?} (BuffName.ja.json / BuffName.en.json へ追加が必要)"
+        );
+    }
+}

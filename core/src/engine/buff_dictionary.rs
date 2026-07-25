@@ -587,6 +587,17 @@ pub fn lookup(base_id: i32) -> Option<&'static BuffMeta> {
     DICT.get(&base_id)
 }
 
+/// 表示対象（Hidden 以外）の base_id を全て返す。表示名辞書との整合検査に使う。
+pub fn visible_base_ids() -> Vec<i32> {
+    let mut ids: Vec<i32> = DICT
+        .iter()
+        .filter(|(_, meta)| meta.priority != DisplayPriority::Hidden)
+        .map(|(id, _)| *id)
+        .collect();
+    ids.sort_unstable();
+    ids
+}
+
 /// 表示対象かどうか。Hidden または未登録なら false。
 pub fn is_visible(base_id: i32) -> bool {
     match DICT.get(&base_id) {

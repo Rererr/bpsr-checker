@@ -1136,6 +1136,7 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         show_imagine_aluna: c.show_imagine_aluna,
         show_imagine_tarta: c.show_imagine_tarta,
         show_imagine_basilisk: c.show_imagine_basilisk,
+        show_imagine_kartgriff: c.show_imagine_kartgriff,
         show_consumable: c.show_consumable,
         show_in_taskbar: c.show_in_taskbar,
         overlay_text_color: c.overlay_text_color.clone().into(),
@@ -1855,6 +1856,7 @@ fn build_buff_rows(
                 aluna: buff_cell(find("Aluna"), 0x5fd35f),
                 tarta: buff_cell(find("Tarta"), 0xb98bff),
                 basilisk: buff_cell(find("Basilisk"), 0xd9a05b),
+                kartgriff: buff_cell(find("Kartgriff"), 0x4fc3f7),
             }
         })
         .collect()
@@ -1995,7 +1997,8 @@ fn poll_overlay_restore(
                         last_saved.borrow().buffs.as_ref(),
                         &mons,
                         0,
-                        (250, 150),
+                        // 5列全表示が収まる既定幅（BuffOverlay の preferred-width と同値）。
+                        (350, 150),
                     ));
                     st.buff_rtick = Some(st.tick);
                     overlay::set_click_through(o.window(), pass_through);
@@ -2985,6 +2988,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "imagine-col-aluna" => c.show_imagine_aluna = val,
                     "imagine-col-tarta" => c.show_imagine_tarta = val,
                     "imagine-col-basilisk" => c.show_imagine_basilisk = val,
+                    "imagine-col-kartgriff" => c.show_imagine_kartgriff = val,
                     "imagine-compact-rows" => c.imagine_compact_rows = val,
                     "show-consumable" => c.show_consumable = val,
                     "show-in-taskbar" => c.show_in_taskbar = val,
@@ -3942,6 +3946,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     o.set_show_aluna(c.show_imagine_aluna);
                     o.set_show_tarta(c.show_imagine_tarta);
                     o.set_show_basilisk(c.show_imagine_basilisk);
+                    o.set_show_kartgriff(c.show_imagine_kartgriff);
                     o.set_compact(c.imagine_compact_rows);
                 }
                 // 名簿源は3分岐（timer_roster 参照）。専用モードはバフ追跡から自動（メイン一覧が

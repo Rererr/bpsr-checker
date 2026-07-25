@@ -135,11 +135,13 @@ pub struct Settings {
     /// true: メインDPS順そのまま。false: 自分(local uid)を先頭固定＋以降は安定順（uid昇順）。
     /// sync_timer_with_main=false または imagine_only_mode=true のときは参照されない。
     pub sync_order_follow: bool,
-    /// イマジンデバフタイマーで表示するイマジン列（4種を個別にON/OFF）。
+    /// イマジンデバフタイマーで表示するイマジン列（奥義の重複使用無効デバフを持つ
+    /// 5種を個別にON/OFF）。
     pub show_imagine_tina: bool,
     pub show_imagine_aluna: bool,
     pub show_imagine_tarta: bool,
     pub show_imagine_basilisk: bool,
+    pub show_imagine_kartgriff: bool,
     /// DPS一覧の名前列に食事/シロップバッジを表示するか。
     pub show_consumable: bool,
     /// メインウィンドウをタスクバーに常駐させるか（true=タスクバー表示／最小化はOS最小化、
@@ -227,6 +229,7 @@ impl Default for Settings {
             show_imagine_aluna: true,
             show_imagine_tarta: true,
             show_imagine_basilisk: true,
+            show_imagine_kartgriff: true,
             show_consumable: true,
             show_in_taskbar: false,
             overlay_opacity: 0.82,

@@ -177,6 +177,9 @@ msgstr "Tarta"
 msgid "バジリスク"
 msgstr "Basilisk"
 
+msgid "ガトグリフ"
+msgstr "Kartgriff"
+
 msgid "メインDPSと同期"
 msgstr "Sync with main DPS list"
 

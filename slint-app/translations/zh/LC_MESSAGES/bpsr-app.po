@@ -168,6 +168,9 @@ msgstr "Tarta"
 msgid "バジリスク"
 msgstr "Basilisk"
 
+msgid "ガトグリフ"
+msgstr "Kartgriff"
+
 msgid "全プレイヤー自動追加"
 msgstr "自动添加所有玩家"
 

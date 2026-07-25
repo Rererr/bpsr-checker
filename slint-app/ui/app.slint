@@ -70,6 +70,7 @@ struct SettingsUi {
     show-imagine-aluna: bool,
     show-imagine-tarta: bool,
     show-imagine-basilisk: bool,
+    show-imagine-kartgriff: bool,
     show-consumable: bool,
     show-in-taskbar: bool,
     overlay-text-color: string,  // オーバーレイ共通の基準テキスト色（プリセットキー or #rrggbb）
@@ -1630,7 +1631,8 @@ component ImagineTimerSection inherits SectionCard {
     if root.cfg.buff-overlay: VerticalLayout {
         spacing: 1px;
         Text { text: @tr("タイマー表示イマジン"); color: SettingsStyle.sub-label; font-size: SettingsStyle.sub-label-size; }
-        // ステータスと同様に2列化（左=ティナ/アルーナ・右=タータ/バジリスク）。列間に上下90%の中央寄せ区切り線。
+        // ステータスと同様に2列化（左=ティナ/アルーナ・右=タータ/バジリスク/ガトグリフ）。
+        // 並びはオーバーレイの列順と同じ。列間に上下90%の中央寄せ区切り線。
         HorizontalLayout {
             spacing: 8px;
             VerticalLayout {
@@ -1653,6 +1655,7 @@ component ImagineTimerSection inherits SectionCard {
                 alignment: start;
                 ToggleRow { pad-x: 4px; label: @tr("タータ"); checked: root.cfg.show-imagine-tarta; toggled => { root.set-bool("imagine-col-tarta", !root.cfg.show-imagine-tarta); } }
                 ToggleRow { pad-x: 4px; label: @tr("バジリスク"); checked: root.cfg.show-imagine-basilisk; toggled => { root.set-bool("imagine-col-basilisk", !root.cfg.show-imagine-basilisk); } }
+                ToggleRow { pad-x: 4px; label: @tr("ガトグリフ"); checked: root.cfg.show-imagine-kartgriff; toggled => { root.set-bool("imagine-col-kartgriff", !root.cfg.show-imagine-kartgriff); } }
             }
         }
         // タイマー専用の文字サイズ・フォント（メイン窓とは独立）。
@@ -3458,6 +3461,7 @@ struct BuffPlayerRow {
     aluna: BuffCell,
     tarta: BuffCell,
     basilisk: BuffCell,
+    kartgriff: BuffCell,
 }
 
 component CircularCell inherits Rectangle {
@@ -3515,6 +3519,7 @@ component BuffPlayerRowItem inherits Rectangle {
     in property <bool> show-aluna: true;
     in property <bool> show-tarta: true;
     in property <bool> show-basilisk: true;
+    in property <bool> show-kartgriff: true;
     in property <bool> compact;          // 密表示（行高・円を縮める）
     // 円は 28px*scale*cell-mul。compact 時は行高を円に合わせて詰める。
     property <float> cell-mul: root.compact ? 0.78 : 1.0;
@@ -3528,6 +3533,7 @@ component BuffPlayerRowItem inherits Rectangle {
         if root.show-aluna: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.aluna; font-scale: root.font-scale; size-mul: root.cell-mul; fx: root.fx; } } }
         if root.show-tarta: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.tarta; font-scale: root.font-scale; size-mul: root.cell-mul; fx: root.fx; } } }
         if root.show-basilisk: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.basilisk; font-scale: root.font-scale; size-mul: root.cell-mul; fx: root.fx; } } }
+        if root.show-kartgriff: VerticalLayout { width: 48px * root.font-scale; alignment: center; HorizontalLayout { alignment: center; CircularCell { cell: root.p.kartgriff; font-scale: root.font-scale; size-mul: root.cell-mul; fx: root.fx; } } }
         // ×ボタン用の右余白（固定。横拡大は名前列が吸収する）
         Rectangle { width: 20px * root.font-scale; }
     }
@@ -3545,6 +3551,7 @@ export component BuffOverlay inherits Window {
     in property <bool> show-aluna: true;
     in property <bool> show-tarta: true;
     in property <bool> show-basilisk: true;
+    in property <bool> show-kartgriff: true;
     in property <bool> compact;          // 密表示（行高・行間を詰める）
     in property <bool> show-minimize; // タスクバー常駐モード時のみ最小化ボタンを出す
     in property <float> overlay-opacity: 0.82;        // 背景不透明度（メインとは独立）
@@ -3564,7 +3571,9 @@ export component BuffOverlay inherits Window {
     // 完全透明時は `transparent`(#00000000) を使う。femtovg 透明窓は背景色の RGB を alpha=0 でも
     // 加算で漏らすため、#0a0a12.with-alpha(0) だと窓全体に +#0a0a12 の被膜が残る（RGB=0 なら漏れ 0）。
     background: root.overlay-opacity <= 0.001 ? transparent : #0a0a12.with-alpha(root.overlay-opacity);
-    preferred-width: 250px;
+    // 5列全表示（名前46 + 48×5 + ×余白20 + spacing/padding）が収まる幅。
+    // 既に保存済みレイアウトがある場合は復元値が勝つため、狭い窓では手動で広げる必要がある。
+    preferred-width: 350px;
     preferred-height: 150px;
 
     drag := TouchArea {
@@ -3592,6 +3601,7 @@ export component BuffOverlay inherits Window {
             if root.show-aluna: HudText { text: @tr("アルーナ"); text-color: #5fd35f; font-size: 9px * root.font-scale; width: 48px * root.font-scale; horizontal-alignment: center; vertical-alignment: center; overflow: elide; fx: root.fx; }
             if root.show-tarta: HudText { text: @tr("タータ"); text-color: #b98bff; font-size: 9px * root.font-scale; width: 48px * root.font-scale; horizontal-alignment: center; vertical-alignment: center; overflow: elide; fx: root.fx; }
             if root.show-basilisk: HudText { text: @tr("バジリスク"); text-color: #d9a05b; font-size: 9px * root.font-scale; width: 48px * root.font-scale; horizontal-alignment: center; vertical-alignment: center; overflow: elide; fx: root.fx; }
+            if root.show-kartgriff: HudText { text: @tr("ガトグリフ"); text-color: #4fc3f7; font-size: 9px * root.font-scale; width: 48px * root.font-scale; horizontal-alignment: center; vertical-alignment: center; overflow: elide; fx: root.fx; }
             // ×ボタン用の右余白（固定。横拡大は名前列が吸収する）
             Rectangle { width: 20px * root.font-scale; }
         }
@@ -3604,6 +3614,7 @@ export component BuffOverlay inherits Window {
             show-aluna: root.show-aluna;
             show-tarta: root.show-tarta;
             show-basilisk: root.show-basilisk;
+            show-kartgriff: root.show-kartgriff;
             compact: root.compact;
         }
     }

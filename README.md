@@ -76,21 +76,24 @@
 - 不安な場合は[ソースコード](https://github.com/Rererr/bpsr-checker)を確認し、自分で[ビルド](#ソースからのビルド)することも可能です (GPL-3.0)。
 - すべてのリリースは VirusTotal でスキャンしています（最新リリースの結果: [インストーラ](https://www.virustotal.com/gui/file/c3bf677f34ee4e6efc2970cf86fbc15886f613fe2e743977a230522b96c23e1f/detection) ・ [ポータブル](https://www.virustotal.com/gui/file/39b7163e98a3723c27d0081ba1bdcf9821453112cdf8a0ddff12f72dfed9ea1b/detection)）。
 
-### Chrome で「ウイルスを検出しました」と表示されダウンロードできません
+### 「ウイルスが検出されました」と表示されインストーラをダウンロードできません
 
-Chrome のこの警告は Google Safe Browsing による判定で、上記と同じく **未署名 exe ＋ WinDivert 同梱によるレピュテーション不足が原因の誤検知**です。ダウンロードしたファイルの SHA256 が上記 VirusTotal リンクのハッシュと一致していれば、改ざんされていない正規のリリースです。
+**ポータブル版 zip をご利用ください。** 現在この警告が出るのは**インストーラ (`bpsr-checker-setup-*.exe`) のみ**で、ポータブル版 zip とその中身 (`bpsr-checker.exe` 本体・WinDivert) は検出されません。
 
-ダウンロード方法:
-1. Chrome のダウンロード一覧 (`Ctrl+J`) を開き、該当項目の「⋮」→「保持する」を選択してください。
-2. 「保持する」が表示されない場合は、PowerShell で直接ダウンロードできます (ブラウザのスキャンを経由しません):
-   ```powershell
-   irm https://github.com/Rererr/bpsr-checker/releases/download/<バージョン>/bpsr-checker-setup-<バージョン>.exe -OutFile bpsr-checker-setup.exe
-   ```
-3. または[リリースページ](https://github.com/Rererr/bpsr-checker/releases/latest)からポータブル版 zip を利用してください (zip 内の exe はダウンロード時のスキャンを回避できる場合があります)。
+原因はブラウザではなく **Windows Defender** です。未署名かつ公開直後でレピュテーションが無い NSIS 形式のインストーラを、機械学習ヒューリスティックが `Trojan:Win32/Wacatac.B!ml` として誤検知します (検出名末尾の `!ml` が機械学習による推定判定であることを示します)。Chrome と Edge のどちらもダウンロード完了時に Windows 側のウイルス対策へ問い合わせるため、**ブラウザを変えても結果は同じ**です。同じ理由で、PowerShell やコマンドラインで直接ダウンロードしてもリアルタイム保護に削除されます。
+
+どうしてもインストーラ版が必要な場合:
+1. Windows セキュリティ → 「ウイルスと脅威の防止」→ 「設定の管理」→ 「除外の追加または削除」で、保存先フォルダを一時的に除外に追加してからダウンロードしてください。
+2. ダウンロードしたファイルの SHA256 が上記 VirusTotal リンクのハッシュと一致することを確認してください (`Get-FileHash <ファイル> -Algorithm SHA256`)。一致していれば改ざんされていない正規のリリースです。
+3. インストール後、除外設定は元に戻して構いません。
+
+> 誤検知が確認され次第 Microsoft へ報告しており、定義ファイルの更新で解消されます。ただしリリースのたびにファイルのハッシュが変わるため、新バージョン公開直後に再発することがあります。
 
 ### Windows SmartScreen で「WindowsによってPCが保護されました」と表示されます
 
-アプリへの署名 (コードサイニング、[SignPath](https://signpath.org/) 経由) を進めていますが、新規署名はレピュテーション (実行実績) が蓄積されるまでの過渡期に SmartScreen 警告が表示されることがあります。
+本アプリは現在**コードサイニング証明書による署名を行っていません**。個人開発のため証明書の取得・運用コストが見合わず、対応を検討中です。署名の無いアプリはダウンロード実績が一定数に達するまで SmartScreen の警告対象となります。
+
+ソースコードは全て公開しており ([GPL-3.0](https://github.com/Rererr/bpsr-checker))、リリース物は VirusTotal のスキャン結果を上記に掲載しています。ご自身で[ビルド](#ソースからのビルド)して利用することも可能です。
 
 回避手順:
 1. ダイアログの「詳細情報」をクリック

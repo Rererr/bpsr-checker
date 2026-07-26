@@ -76,21 +76,24 @@ What to do:
 - If you are worried, you can review the [source code](https://github.com/Rererr/bpsr-checker) and [build it yourself](#building-from-source) (GPL-3.0).
 - Every release is scanned on VirusTotal: [installer](https://www.virustotal.com/gui/file/c3bf677f34ee4e6efc2970cf86fbc15886f613fe2e743977a230522b96c23e1f/detection) · [portable](https://www.virustotal.com/gui/file/39b7163e98a3723c27d0081ba1bdcf9821453112cdf8a0ddff12f72dfed9ea1b/detection).
 
-### Chrome blocks the download with "Virus detected"
+### The download is blocked with "Virus detected"
 
-This Chrome warning is a Google Safe Browsing verdict. Like the above, it is a **false positive caused by insufficient reputation for an unsigned exe bundling WinDivert**. If the SHA256 of the downloaded file matches the hash in the VirusTotal links above, it is a genuine, untampered release.
+**Please use the portable zip.** This warning currently affects **only the installer (`bpsr-checker-setup-*.exe`)** — the portable zip and its contents (the `bpsr-checker.exe` binary and WinDivert) are not flagged.
 
-How to download:
-1. Open Chrome's downloads list (`Ctrl+J`), then on the blocked item choose "⋮" → "Keep".
-2. If "Keep" is not offered, download it directly with PowerShell (bypasses the browser scan):
-   ```powershell
-   irm https://github.com/Rererr/bpsr-checker/releases/download/<version>/bpsr-checker-setup-<version>.exe -OutFile bpsr-checker-setup.exe
-   ```
-3. Or use the portable zip from the [releases page](https://github.com/Rererr/bpsr-checker/releases/latest) (an exe inside a zip can avoid the download-time scan).
+The block comes from **Windows Defender**, not from your browser. Its machine-learning heuristic flags the unsigned, freshly published NSIS installer as `Trojan:Win32/Wacatac.B!ml` (the `!ml` suffix marks a machine-learning inference). Both Chrome and Edge hand the finished download to the Windows antivirus for inspection, so **switching browsers changes nothing**. For the same reason, downloading directly via PowerShell or a command-line tool does not help — real-time protection removes the file anyway.
+
+If you specifically need the installer:
+1. Go to Windows Security → "Virus & threat protection" → "Manage settings" → "Add or remove exclusions" and temporarily exclude your download folder.
+2. Verify that the SHA256 of the downloaded file matches the hash in the VirusTotal links above (`Get-FileHash <file> -Algorithm SHA256`). A match confirms a genuine, untampered release.
+3. Remove the exclusion once installation is complete.
+
+> False positives are reported to Microsoft as they are found, and get cleared in a definition update. However, each release has a new file hash, so the detection can reappear right after a new version ships.
 
 ### Windows SmartScreen shows "Windows protected your PC"
 
-Code signing (via [SignPath](https://signpath.org/)) is in progress, but newly signed apps can trigger a SmartScreen warning during the transition period until reputation (a track record of executions) accumulates.
+This app is currently **not code-signed**. As a solo project, the cost of obtaining and operating a certificate is hard to justify; this is under review. Unsigned apps trigger a SmartScreen warning until enough downloads accumulate to build reputation.
+
+The full source is public under [GPL-3.0](https://github.com/Rererr/bpsr-checker), VirusTotal scan results for each release are linked above, and you can always [build it yourself](#building-from-source).
 
 How to bypass:
 1. Click "More info" in the dialog.

@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: write
-  id-token: write  # SignPath OIDC verification
 
 jobs:
   build-windows:
@@ -45,39 +44,23 @@ jobs:
         shell: pwsh
         run: ./scripts/package-slint.ps1
 
-      - name: Prepare artifacts for signing
+      # 配布する正本を release/ に集約する。
+      # 注: 現在このワークフローはコードサイニングを行わない（配布物は未署名）。
+      # 経緯: SignPath 組織に登録していた証明書は自己署名で Windows の信頼ルートに繋がらず、
+      # SignPath Foundation の OSS 無料枠は 2026-06-24 に知名度不足を理由に却下された。
+      # Azure Trusted Signing は日本在住者が対象外。署名を再開する際はここに署名ステップを戻す。
+      - name: Collect release artifacts
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force to-sign | Out-Null
-          New-Item -ItemType Directory -Force signed | Out-Null
-          # インストーラ(.exe)を署名対象に。署名失敗時のフォールバックとして signed/ に未署名も置く。
+          New-Item -ItemType Directory -Force release | Out-Null
           Get-ChildItem dist-slint/*setup*.exe -ErrorAction SilentlyContinue |
-            ForEach-Object { Copy-Item $_ to-sign/; Copy-Item $_ signed/ }
-          # ポータブル zip はそのまま配布物に含める（署名対象外）。
+            ForEach-Object { Copy-Item $_ release/ }
           Get-ChildItem dist-slint/*portable*.zip -ErrorAction SilentlyContinue |
-            ForEach-Object { Copy-Item $_ signed/ }
-          Write-Host "Artifacts to sign:"
-          Get-ChildItem to-sign/
-
-      - name: Upload unsigned artifacts
-        id: upload-unsigned
-        uses: actions/upload-artifact@v4
-        with:
-          name: unsigned-build
-          path: to-sign/
-
-      - name: Sign with SignPath
-        continue-on-error: true
-        uses: signpath/github-action-submit-signing-request@v1.2
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ secrets.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ secrets.SIGNPATH_SIGNING_POLICY_SLUG }}
-          artifact-configuration-slug: ${{ secrets.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
-          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
-          wait-for-completion: true
-          output-artifact-directory: signed/
+            ForEach-Object { Copy-Item $_ release/ }
+          $found = Get-ChildItem release/ -File
+          if (-not $found) { Write-Error "no release artifacts found in dist-slint/"; exit 1 }
+          Write-Host "Release artifacts:"
+          $found | ForEach-Object { Write-Host "  $($_.Name)  $($_.Length) bytes" }
 
       - name: Release artifacts
         uses: softprops/action-gh-release@v2
@@ -86,12 +69,12 @@ jobs:
           name: "bpsr-checker ${{ github.ref_name }}"
           draft: false
           prerelease: false
-          files: signed/*
+          files: release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # ── リリース後: 配布物を VirusTotal へ自動アップロードし、README のスキャンリンクを更新 ──
-      # スキャンページはハッシュ単位で永続化されるため、配布する正本(signed/*)を VT に上げて
+      # スキャンページはハッシュ単位で永続化されるため、配布する正本(release/*)を VT に上げて
       # 実在を保証し、その SHA256 で README(ja/en)の gui/file/<hash> リンクを書き換えて master へ戻す。
       # 要 Secret: VT_API_KEY（VirusTotal 無料アカウントの API キー）。未設定なら下記は失敗→
       # README 更新はスキップされ、リリース自体は成功する（continue-on-error + outcome ガード）。
@@ -102,16 +85,16 @@ jobs:
         with:
           vt_api_key: ${{ secrets.VT_API_KEY }}
           files: |
-            signed/*setup*.exe
-            signed/*portable*.zip
+            release/*setup*.exe
+            release/*portable*.zip
 
       - name: Update VirusTotal links in README
         if: steps.vt.outcome == 'success'   # アップロード成功時のみ（リンク先ページの実在を保証）
         shell: pwsh
         run: |
-          $instFile = Get-ChildItem signed -Recurse -File | Where-Object { $_.Name -like '*setup*.exe' } | Select-Object -First 1
-          $portFile = Get-ChildItem signed -Recurse -File | Where-Object { $_.Name -like '*portable*.zip' } | Select-Object -First 1
-          if (-not $instFile -or -not $portFile) { Write-Error "release artifacts not found in signed/"; exit 1 }
+          $instFile = Get-ChildItem release -Recurse -File | Where-Object { $_.Name -like '*setup*.exe' } | Select-Object -First 1
+          $portFile = Get-ChildItem release -Recurse -File | Where-Object { $_.Name -like '*portable*.zip' } | Select-Object -First 1
+          if (-not $instFile -or -not $portFile) { Write-Error "release artifacts not found in release/"; exit 1 }
           $inst = (Get-FileHash $instFile.FullName -Algorithm SHA256).Hash.ToLower()
           $port = (Get-FileHash $portFile.FullName -Algorithm SHA256).Hash.ToLower()
           Write-Host "installer sha256=$inst ($($instFile.Name))"

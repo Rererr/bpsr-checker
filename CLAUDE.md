@@ -125,7 +125,12 @@ MCP サーバーは素の HTTP JSON-RPC なので Bash/PowerShell から直接�
 2. GitHub Releases ページにリリースノートを日本語で記載（CHANGELOG.md ではない）
    - 形式: `## 変更内容` 見出しの下に箇条書き（追加/修正/変更を区別）
 3. ユーザー向けの機能変化を伴う場合は README の「主な機能」も同タイミングで更新
-> 署名(SignPath)は現状 continue-on-error で未署名公開が続いている（要修正）。
+> **配布物は未署名**（コードサイニングは当面不可）。SignPath の証明書は自己署名で Windows の信頼
+> ルートに繋がらず無意味だったため、署名ステップは release.yml から撤去済み（2026-07-26）。
+> Foundation 無料枠は知名度不足で却下・Azure Trusted Signing は日本在住者が対象外。残る手段は
+> Certum Open Source（€69）だが CI 自動署名との両立に課題あり。**未署名ゆえ新バージョン公開直後は
+> Windows Defender が `Trojan:Win32/Wacatac.B!ml` でインストーラを誤検知しうる**（ポータブル版は無事）。
+> 検出時は Microsoft へ誤検知報告する。
 > README の VirusTotal スキャンリンク（`gui/file/<sha256>`）は **CI が自動更新**する（リリース後に
 > 配布物を VT へ上げ、その SHA256 で README(ja/en)を書き換え master へ push）。**手動で書き換えない**こと。
 > 要 Secret: `VT_API_KEY`（未設定なら更新スキップ＝旧リンク据置でリリースは成功）。

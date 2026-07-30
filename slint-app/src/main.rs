@@ -120,6 +120,20 @@ fn log_to_file(line: &str) {
     }
 }
 
+/// イマジン専用モード案内の拡大率（1.0〜1.6）。窓の論理サイズから算出する。
+/// 900x620 以下で 1.0（＝他の空状態案内の約2倍の基準サイズ）、広いほど伸ばして 1.6 で頭打ち。
+/// 幅と高さの小さい方に合わせ、横長・縦潰れの窓で文字がはみ出さないようにする。
+fn notice_scale(win: &MainWindow) -> f32 {
+    let factor = win.window().scale_factor();
+    if factor <= 0.0 {
+        return 1.0;
+    }
+    let size = win.window().size();
+    let w = size.width as f32 / factor;
+    let h = size.height as f32 / factor;
+    (w / 900.0).min(h / 620.0).clamp(1.0, 1.6)
+}
+
 /// 二重起動防止（Windows 名前付き Mutex）。既に起動済みなら true。
 #[cfg(windows)]
 fn already_running() -> bool {
@@ -3753,6 +3767,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             1 => 1,
             _ => 0,
         });
+
+        // イマジン専用モード案内の拡大率。窓が広いほど大きくする（可読性優先。専用モード中は
+        // 一覧領域に他に何も出ない）。.slint 側で窓サイズから計算すると
+        // 「文字サイズ→preferred-height→レイアウト→窓サイズ」の束縛ループになるため Rust で持つ。
+        // Slint の set は同値でも依存を dirty にするため、変化時のみ書いて毎ポーリングの
+        // 不要な再レイアウトを避ける（このタイマーは既定 200ms で回り続ける）。
+        let scale = notice_scale(&m);
+        if (m.get_notice_scale() - scale).abs() > f32::EPSILON {
+            m.set_notice_scale(scale);
+        }
 
         // 一時停止状態をボタンへ反映
         m.set_paused(compute::is_paused(&enc_poll));

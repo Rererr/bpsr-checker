@@ -461,3 +461,13 @@ msgstr "Report on GitHub"
 
 msgid "お問い合わせ"
 msgstr "Contact"
+
+# イマジン専用モード中の空状態バナー（一覧ビュー／軽量分割）
+msgid "イマジン専用モード中です"
+msgstr "Imagine-only mode is active"
+
+msgid "DPS・回復・スキルの集計を停止しています"
+msgstr "DPS, healing and skill tracking are paused"
+
+msgid "専用モードを解除"
+msgstr "Turn off Imagine-only mode"

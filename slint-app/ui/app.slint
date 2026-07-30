@@ -2120,6 +2120,52 @@ component ResizeEdges inherits Rectangle {
     ResizeHandle { dir: 6; mouse-cursor: nwse-resize; resize(d) => { root.resize(d); } x: root.width - 14px; y: root.height - 14px; width: 14px; height: 14px; }
 }
 
+// イマジン専用モード中の空状態バナー（一覧ビュー／軽量分割の両方で使う）。
+// 専用モードは DPS/回復/スキルの集計を丸ごと止める設定なのに、空一覧には観測ステータス由来の
+// 「ゲーム通信を検出中 / 戦闘を開始すると自動的に表示されます」しか出ず、故障と区別できなかった。
+// 停止中である事実と、設定パネルを開かずに戻せる導線をその場に置く。
+component ImagineOnlyNotice inherits VerticalLayout {
+    callback disable();
+    // 拡大率。専用モード中は一覧領域に他に何も出ないため、余白を可読性へ全振りする
+    // ＝窓が広いほど文字と余白を大きくする（1.0〜1.6）。
+    // 値の算出は Rust 側（窓サイズから毎ポーリングで set）。ここで root.width を読むと
+    // 「文字サイズ→自身の preferred-height→親のレイアウト→窓サイズ」の束縛ループになり、
+    // Slint が deprecated 警告（将来 panic しうる）を出すため、外から与える入力にしている。
+    in property <float> ui-scale: 1.0;
+    padding-top: 30px * root.ui-scale;
+    spacing: 16px * root.ui-scale;
+    Text {
+        text: @tr("イマジン専用モード中です");
+        color: #d8a24a;
+        font-size: 24px * root.ui-scale;
+        horizontal-alignment: center;
+    }
+    Text {
+        text: @tr("DPS・回復・スキルの集計を停止しています");
+        color: #999;
+        font-size: 22px * root.ui-scale;
+        horizontal-alignment: center;
+        wrap: word-wrap;
+    }
+    HorizontalLayout {
+        alignment: center;
+        disable-btn := TouchArea {
+            width: 260px * root.ui-scale;
+            height: 48px * root.ui-scale;
+            accessible-role: button;
+            accessible-label: @tr("専用モードを解除");
+            accessible-action-default => { root.disable(); }
+            clicked => { root.disable(); }
+            Rectangle {
+                background: disable-btn.has-hover ? #ffffff28 : #ffffff14;
+                animate background { duration: 100ms; easing: ease-out; }
+                border-radius: 5px * root.ui-scale;
+                Text { text: @tr("専用モードを解除"); color: #dee; font-size: 20px * root.ui-scale; horizontal-alignment: center; vertical-alignment: center; }
+            }
+        }
+    }
+}
+
 export component MainWindow inherits Window {
     in property <[Row]> rows;
     in property <[Row]> compact-left;   // 軽量分割 左カラム（前半）
@@ -2187,6 +2233,9 @@ export component MainWindow inherits Window {
     in property <string> result-skill-axis-mid;     // エリア4 Y軸: 最大DPSの半分
     in property <float> result-duration-ms;         // 折れ線 X軸 時間ラベル用（計測全体の長さ）
     in property <int> capture-state;  // 0=起動中 1=待機(ゲーム通信なし) 2=受信中 3=開始失敗
+    // イマジン専用モード案内の拡大率（1.0〜1.6）。Rust が窓サイズから算出して毎ポーリング set する。
+    // .slint 側で窓サイズから計算すると束縛ループになるため（ImagineOnlyNotice の s 参照）。
+    in property <float> notice-scale: 1.0;
     in property <string> app-version;        // 設定パネル最下部の表示（バージョンのみ）
     in property <string> result-watermark;   // 結果モーダルの透かし（バージョン・日時・計測時間。画像コピーに写り込む）
     in property <bool> result-img-copied;    // 画像コピー直後の一時フィードバック
@@ -2492,8 +2541,17 @@ export component MainWindow inherits Window {
                         activate(u) => { root.open-drill(u); }
                         toggle-watch(u) => { root.toggle-watch(u); }
                     }
+                    // 空状態: 専用モード中はその事実を出す。観測自体は正常に動いているため、
+                    // 下の観測ステータス案内（「戦闘を開始すると自動的に表示されます」）を出すと
+                    // 「待てば出る」と誤誘導してしまう。
+                    // ただし観測開始に失敗している(3)ときは下の障害表示を優先する。専用モードでも
+                    // バフ追跡にはパケット観測が要るため、失敗の方が重く、隠してはいけない。
+                    if root.rows.length == 0 && root.cfg-ui.imagine-only && root.capture-state != 3: ImagineOnlyNotice {
+                        ui-scale: root.notice-scale;
+                        disable => { root.set-bool("imagine-only", false); }
+                    }
                     // 空状態: 観測ステータスに応じた案内（初回ユーザーの「動いているのか」を解消）
-                    if root.rows.length == 0: VerticalLayout {
+                    if root.rows.length == 0 && (!root.cfg-ui.imagine-only || root.capture-state == 3): VerticalLayout {
                         padding-top: 18px;
                         spacing: 5px;
                         Text {
@@ -2548,50 +2606,58 @@ export component MainWindow inherits Window {
             animate opacity { duration: 140ms; easing: ease-out; }
             init => { self.entered = true; }
             viewport-height: csbox.preferred-height;
-            csbox := HorizontalLayout {
-                spacing: 4px;
-                // 左カラム（前半）
-                VerticalLayout {
-                    horizontal-stretch: 1;
-                    Rectangle {
-                        height: 16px;
-                        HorizontalLayout {
-                            padding-left: 6px;
-                            padding-right: 6px;
-                            spacing: 5px;
-                            Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; vertical-alignment: center; }
-                            Text { text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ")); color: #888; font-size: 10px * root.font-scale; width: 56px; horizontal-alignment: right; vertical-alignment: center; }
-                            Text { text: root.tab == 1 ? @tr("HPS") : (root.tab == 2 ? @tr("被DPS") : @tr("DPS")); color: #888; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-                        }
-                    }
-                    for row in root.compact-left: CompactRowItem {
-                        entry: row;
-                        highlight-local: root.highlight-local;
-                        font-scale: root.font-scale;
-                        activate(u) => { root.open-drill(u); }
-                    }
+            csbox := VerticalLayout {
+                // 一覧ビューと同じ理由で、専用モード中は2カラム側にも案内と解除導線を出す
+                // （こちらの空状態は「データなし」だけで、集計を止めていることが読み取れない）。
+                if root.rows.length == 0 && root.cfg-ui.imagine-only && root.capture-state != 3: ImagineOnlyNotice {
+                    ui-scale: root.notice-scale;
+                    disable => { root.set-bool("imagine-only", false); }
                 }
-                // 右カラム（後半）
-                VerticalLayout {
-                    horizontal-stretch: 1;
-                    Rectangle {
-                        height: 16px;
-                        HorizontalLayout {
-                            padding-left: 6px;
-                            padding-right: 6px;
-                            spacing: 5px;
-                            Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; vertical-alignment: center; }
-                            Text { text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ")); color: #888; font-size: 10px * root.font-scale; width: 56px; horizontal-alignment: right; vertical-alignment: center; }
-                            Text { text: root.tab == 1 ? @tr("HPS") : (root.tab == 2 ? @tr("被DPS") : @tr("DPS")); color: #888; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                HorizontalLayout {
+                    spacing: 4px;
+                    // 左カラム（前半）
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        Rectangle {
+                            height: 16px;
+                            HorizontalLayout {
+                                padding-left: 6px;
+                                padding-right: 6px;
+                                spacing: 5px;
+                                Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; vertical-alignment: center; }
+                                Text { text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ")); color: #888; font-size: 10px * root.font-scale; width: 56px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.tab == 1 ? @tr("HPS") : (root.tab == 2 ? @tr("被DPS") : @tr("DPS")); color: #888; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                            }
+                        }
+                        for row in root.compact-left: CompactRowItem {
+                            entry: row;
+                            highlight-local: root.highlight-local;
+                            font-scale: root.font-scale;
+                            activate(u) => { root.open-drill(u); }
                         }
                     }
-                    for row in root.compact-right: CompactRowItem {
-                        entry: row;
-                        highlight-local: root.highlight-local;
-                        font-scale: root.font-scale;
-                        activate(u) => { root.open-drill(u); }
+                    // 右カラム（後半）
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        Rectangle {
+                            height: 16px;
+                            HorizontalLayout {
+                                padding-left: 6px;
+                                padding-right: 6px;
+                                spacing: 5px;
+                                Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; vertical-alignment: center; }
+                                Text { text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ")); color: #888; font-size: 10px * root.font-scale; width: 56px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.tab == 1 ? @tr("HPS") : (root.tab == 2 ? @tr("被DPS") : @tr("DPS")); color: #888; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                            }
+                        }
+                        for row in root.compact-right: CompactRowItem {
+                            entry: row;
+                            highlight-local: root.highlight-local;
+                            font-scale: root.font-scale;
+                            activate(u) => { root.open-drill(u); }
+                        }
+                        if root.rows.length == 0 && (!root.cfg-ui.imagine-only || root.capture-state == 3): Text { text: @tr("データなし"); color: #666; font-size: 12px; height: 40px; horizontal-alignment: center; vertical-alignment: center; }
                     }
-                    if root.rows.length == 0: Text { text: @tr("データなし"); color: #666; font-size: 12px; height: 40px; horizontal-alignment: center; vertical-alignment: center; }
                 }
             }
         }

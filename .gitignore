@@ -17,6 +17,8 @@ dist-slint/
 tools/_loc/
 tools/_*.tsv
 tools/_*.json
+tools/_*.csv
+tools/_*.txt
 
 # ゲームファイルのリバースエンジニアリング用ツール・調査メモ（手法はローカル管理・非コミット。
 # 生成物の名前辞書 JSON のみ同梱する）

@@ -195,6 +195,13 @@ This tool is intended for **a player's personal review**. Please do not use it f
 
 DPS varies greatly with gear, skill rotation, situation, and role. Treat the numbers as a reference only.
 
+## About in-game images
+
+This tool is an unofficial, fan-made project. In-game images such as the class icons shown in the
+DPS list are used in a limited way to identify game information. Copyright belongs to the respective
+rights holders. If a rights holder requests it, the images will be removed promptly. Please reach out
+via [Issues](https://github.com/Rererr/bpsr-checker/issues).
+
 ## Support
 
 If you would like to support continued development, you can do so via [GitHub Sponsors](https://github.com/sponsors/Rererr).

@@ -307,6 +307,8 @@ fn build_rows(
             )
             .into(),
             class_color: format::class_color(&p.class_name),
+            class_icon_id: format::class_icon_id(&p.class_name),
+            class_role_color: format::class_role_color(&p.class_name),
             dmg_text: format::format_number(p.total_value).into(),
             dps_text: format::format_dps(p.value_per_sec).into(),
             pct_text: format::format_pct(p.value_pct).into(),
@@ -1121,6 +1123,7 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         hits: c.show_hits,
         hpm: c.show_hpm,
         score: c.show_score,
+        class_icon: format::template_shows_class_icon(&c.name_template),
     });
     m.set_highlight_local(c.highlight_local_player);
     m.set_aot(c.always_on_top);

@@ -20,6 +20,16 @@ pub enum Class {
     Unknown,
 }
 
+/// パーティ編成上の役割区分。表示の色分け（職ごとではなくロールごと）に使う。
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum Role {
+    Attacker,
+    Tank,
+    Healer,
+    #[default]
+    Unknown,
+}
+
 impl From<i32> for Class {
     fn from(class_id: i32) -> Self {
         match class_id {
@@ -41,6 +51,26 @@ impl From<i32> for Class {
 }
 
 impl Class {
+    /// `From<i32> for Class` の逆写像（profession id）。素材の有無は問わずゲーム内の実 id を返す
+    /// （表示アイコンの素材集合による絞り込みは呼び出し側の責務）。
+    pub fn profession_id(self) -> i32 {
+        match self {
+            Class::Stormblade => 1,
+            Class::FrostMage => 2,
+            Class::TwinStriker => 3,
+            Class::WindKnight => 4,
+            Class::VerdantOracle => 5,
+            Class::Dorothy => 8,
+            Class::HeavyGuardian => 9,
+            Class::Marksman => 11,
+            Class::ShieldKnight => 12,
+            Class::BeatPerformer => 13,
+            Class::Lucy => 14,
+            Class::Natsu => 15,
+            Class::Unimplemented | Class::Unknown => 0,
+        }
+    }
+
     pub fn name_en(self) -> &'static str {
         match self {
             Class::Stormblade => "Stormblade",
@@ -57,6 +87,23 @@ impl Class {
             Class::Natsu => "Natsu",
             Class::Unknown => "Unknown Class",
             Class::Unimplemented => "Unimplemented Class",
+        }
+    }
+
+    /// クラス → ロール（パーティ編成上の役割区分）。ドロシー/コラボ職も含めアタッカー扱い。
+    pub fn role(self) -> Role {
+        match self {
+            Class::HeavyGuardian | Class::ShieldKnight => Role::Tank,
+            Class::VerdantOracle | Class::BeatPerformer => Role::Healer,
+            Class::Stormblade
+            | Class::FrostMage
+            | Class::TwinStriker
+            | Class::WindKnight
+            | Class::Marksman
+            | Class::Dorothy
+            | Class::Lucy
+            | Class::Natsu => Role::Attacker,
+            Class::Unimplemented | Class::Unknown => Role::Unknown,
         }
     }
 

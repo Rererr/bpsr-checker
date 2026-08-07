@@ -195,6 +195,12 @@ pwsh scripts/package-slint.ps1
 
 DPS は装備・スキル回し・状況・ロールにより大きく変動します。数値はあくまで参考値としてご活用ください。
 
+## ゲーム内画像について
+
+本ツールは非公式のファンメイドツールです。DPS一覧に表示する職業アイコン等のゲーム内画像は、
+ゲーム情報を識別する目的で限定的に使用しています。著作権は各権利者に帰属します。
+権利者からの申し立てがあれば、速やかに削除等の対応を行います。連絡は [Issues](https://github.com/Rererr/bpsr-checker/issues) へお願いします。
+
 ## 支援
 
 開発の継続を支援したい場合は、[GitHub Sponsors](https://github.com/sponsors/Rererr) からサポートできます。

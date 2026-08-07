@@ -6,6 +6,8 @@ struct Row {
     uid-str: string,   // f64 uid を精度落ちさせず Rust へ返すため文字列で持つ
     name: string,
     class-color: color,
+    class-icon-id: int, // 職アイコン用 ID（profession id。素材無し/不明クラスは 0=フォールバック表示）
+    class-role-color: color, // 職アイコンの tint（アタッカー/タンク/ヒーラーの3色。名前やバーの class-color とは別系統）
     dmg-text: string,
     dps-text: string,
     pct-text: string,
@@ -39,6 +41,7 @@ struct ColumnFlags {
     hits: bool,
     hpm: bool,
     score: bool,
+    class-icon: bool,
 }
 
 // 設定パネルのトグル表示状態（Rust が cfg から set）
@@ -376,6 +379,33 @@ component ElementIcon inherits Rectangle {
     if root.id == 8: ElementGlyphFill { commands: ElementIcons.dark; tint: root.tint; }
 }
 
+// 職アイコン（ゲーム内の職業アイコン画像。id は profession id。9職ぶんをビルド時埋め込み）。
+// 素材が無いクラス（ドロシー/ルーシィ/ナツ）・未実装/不明クラスは id=0 でフォールバック（tint の丸）を描く。
+component ClassIcon inherits Rectangle {
+    in property <int> id;
+    in property <color> tint;
+    in property <length> box: 14px;
+    width: root.box;
+    height: root.box;
+    if root.id == 1: Image { source: @image-url("../data/icons/professions/profession_1.png"); width: 100%; height: 100%; image-fit: contain; image-rendering: smooth; colorize: root.tint; }
+    if root.id == 2: Image { source: @image-url("../data/icons/professions/profession_2.png"); width: 100%; height: 100%; image-fit: contain; image-rendering: smooth; colorize: root.tint; }
+    if root.id == 3: Image { source: @image-url("../data/icons/professions/profession_3.png"); width: 100%; height: 100%; image-fit: contain; image-rendering: smooth; colorize: root.tint; }
+    if root.id == 4: Image { source: @image-url("../data/icons/professions/profession_4.png"); width: 100%; height: 100%; image-fit: contain; image-rendering: smooth; colorize: root.tint; }
+    if root.id == 5: Image { source: @image-url("../data/icons/professions/profession_5.png"); width: 100%; height: 100%; image-fit: contain; image-rendering: smooth; colorize: root.tint; }
+    if root.id == 9: Image { source: @image-url("../data/icons/professions/profession_9.png"); width: 100%; height: 100%; image-fit: contain; image-rendering: smooth; colorize: root.tint; }
+    if root.id == 11: Image { source: @image-url("../data/icons/professions/profession_11.png"); width: 100%; height: 100%; image-fit: contain; image-rendering: smooth; colorize: root.tint; }
+    if root.id == 12: Image { source: @image-url("../data/icons/professions/profession_12.png"); width: 100%; height: 100%; image-fit: contain; image-rendering: smooth; colorize: root.tint; }
+    if root.id == 13: Image { source: @image-url("../data/icons/professions/profession_13.png"); width: 100%; height: 100%; image-fit: contain; image-rendering: smooth; colorize: root.tint; }
+    if root.id == 0: Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: root.box / 2;
+        background: root.tint.with-alpha(0.35);
+        border-width: 1px;
+        border-color: root.tint;
+    }
+}
+
 // ヘッダの機能ボタン。狭幅時（show-icon）はテキストの代わりに Path アイコンを表示する。
 component HeaderButton inherits TouchArea {
     in property <string> label;
@@ -550,6 +580,15 @@ component PlayerRowItem inherits Rectangle {
                 background: root.entry.class-color;
                 border-radius: 1px;
             }
+            if root.cols.class-icon: VerticalLayout { alignment: center; ClassIcon {
+                id: root.entry.class-icon-id;
+                tint: root.entry.class-role-color;
+                // 素材は非正方形（縦横比 0.71〜1.17）で、縦長のもの（ゲイルランサー=0.71）は
+                // contain で幅が痩せる。行高 20px*font-scale の上限いっぱいまで取って潰れを緩和する。
+                // ※ ここを max(14px, ...) のような複合式にすると `cargo test -p bpsr-app` の rustc が
+                //    STATUS_STACK_BUFFER_OVERRUN で落ちる（生成コードが肥大するため）。単項の式に留める。
+                box: 18px * root.font-scale;
+            } }
             Text {
                 text: root.entry.name;
                 color: white;
@@ -2304,6 +2343,7 @@ export component MainWindow inherits Window {
         hits: root.cols.hits && root.col-level >= 3,
         hpm: root.cols.hpm && root.col-level >= 2,
         score: root.cols.score,
+        class-icon: root.cols.class-icon,
     };
     property <bool> effective-show-graph-col: root.show-graph-col && root.col-level >= 1;
     // 設定パネルの列数（窓幅でレスポンシブに 1/2/3）。短ラベルが多いので幅があれば3列まで。
@@ -2903,7 +2943,7 @@ export component MainWindow inherits Window {
                             label: @tr("名前列テンプレ");
                             value: root.name-template-value;
                             preview: root.name-preview;
-                            hint: "{name} {class} {spec} {score} {seasonLv} {seasonStr} {imagine}";
+                            hint: "{classIcon} {name} {class} {spec} {score} {seasonLv} {seasonStr} {imagine}";
                             changed(t) => { root.set-str("name-template", t); }
                             reset => { root.reset-str("name-template"); }
                         }

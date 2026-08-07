@@ -182,6 +182,14 @@ pub struct Settings {
     pub overlay_shadow: bool,
     /// メイン窓最下部のフッター（お問い合わせ／GitHub報告リンク）を表示するか（既定 true）。
     pub show_footer: bool,
+    /// グローバルショートカット（issue #3）。保存/表示兼用文字列（例 "Ctrl+Shift+R"）。
+    /// 空文字 = 未割当。既定はすべて無効（ゲーム側キーバインドとの衝突事故を初期状態で
+    /// 起こさないため。ユーザーが明示的に割り当てるまでは何も奪わない）。
+    pub hotkey_reset: String,   // 計測を初期化
+    pub hotkey_pause: String,   // 集計の一時停止/再開
+    pub hotkey_measure: String, // 3分計測 開始/キャンセル
+    pub hotkey_copy: String,    // 一覧をコピー
+    pub hotkey_aot: String,     // 常に最前面 切替
 }
 
 impl Default for Settings {
@@ -250,6 +258,11 @@ impl Default for Settings {
             overlay_outline: true,
             overlay_shadow: false,
             show_footer: true,
+            hotkey_reset: String::new(),
+            hotkey_pause: String::new(),
+            hotkey_measure: String::new(),
+            hotkey_copy: String::new(),
+            hotkey_aot: String::new(),
         }
     }
 }

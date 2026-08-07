@@ -17,8 +17,9 @@ pub struct Tray {
 /// トレイを生成（イベントループ稼働後に呼ぶこと）。失敗時は None。
 /// メニュー文言は表示言語に追従（ja 以外は en。zh/ko は保留中のため en）。
 pub fn create() -> Option<Tray> {
-    use bpsr_core::engine::runtime_settings::{self, Lang};
-    let ja = runtime_settings::display_lang() == Lang::Ja;
+    // 表示言語の判定は main.rs の is_ja() に一本化（tray は main.rs の子モジュールなので
+    // crate::is_ja() で参照できる。hotkey.rs も同じ判定式を持たずここへ揃えている）。
+    let ja = crate::is_ja();
     let (s_click, s_show, s_quit) = if ja {
         ("クリックスルー", "メインを表示/非表示", "終了")
     } else {

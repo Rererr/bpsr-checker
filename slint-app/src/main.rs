@@ -10,6 +10,8 @@ mod buff_names;
 mod capture;
 mod consumable_names;
 mod format;
+#[cfg(windows)]
+mod hotkey;
 mod overlay;
 mod settings;
 #[cfg(windows)]
@@ -1203,6 +1205,22 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
     });
 }
 
+/// グローバルショートカットの現在値（保存文字列＋登録エラー）を UI へ反映する。
+/// 呼び出し箇所（apply() 直後・設定パネルを開いた時・起動時）で表示ロジックが分岐しない
+/// よう、ここに一本化する。hk が None（マネージャ未生成/生成失敗）のときは全行のエラーを空にする
+/// （その場合は apply() が全アクションへ初期化失敗のエラーを積んでいるはずなので通常は素通りしない）。
+#[cfg(windows)]
+fn push_shortcuts_to_ui(model: &VecModel<ShortcutUi>, hk: &Option<hotkey::Hotkeys>, c: &settings::Settings) {
+    let rows: Vec<ShortcutUi> = hotkey::ACTIONS
+        .iter()
+        .map(|&action| ShortcutUi {
+            key_text: action.key_text(c).to_string().into(),
+            error: hk.as_ref().map(|h| h.error_for(action)).unwrap_or("").into(),
+        })
+        .collect();
+    model.set_vec(rows);
+}
+
 /// オーバーレイ文字色文字列を実際の色へ解決する。
 /// プリセットキー（white/warm/cool/green/amber）または "#rrggbb" 形式を受け付ける。
 fn resolve_overlay_text_color(s: &str) -> slint::Color {
@@ -2134,6 +2152,36 @@ fn poll_tray_events(
     }
 }
 
+/// グローバルショートカット発火の処理。発火した（Pressedのみ）アクションを対応する既存
+/// コールバックの invoke へ回す（ボタン経由と完全に同じ経路を通す。専用の実処理関数へ
+/// 切り出す必要はない）。
+#[cfg(windows)]
+fn poll_hotkey_events(m: &MainWindow, hotkeys_holder: &RefCell<Option<hotkey::Hotkeys>>) {
+    // borrow は poll() 呼び出しの間だけに留め、invoke_* 実行中まで生存させない
+    // （invoke_* からショートカット再適用 = hotkeys_holder.borrow_mut() が増えた瞬間に
+    // BorrowMutError でパニックするのを避ける）。poll() は Vec<ShortcutAction> を
+    // 所有権ごと返すため、fired は hotkeys_holder を借用し続けない。
+    let fired = hotkeys_holder.borrow().as_ref().map(|hk| hk.poll()).unwrap_or_default();
+    // 多重防御（C1）: suspend/revalidate の運用が万一崩れて OS 側に登録が残っていても、
+    // ダイアログ表示中は発火を無視して本番アクションの誤爆だけは必ず止める。poll() 自体は
+    // 上で呼び済み（＝チャネルは drain 済み）なので、ここで早期 return してもダイアログを
+    // 閉じた直後に溜め込んだ分が一気に発火することはない。
+    if m.get_shortcut_dialog_open() {
+        return;
+    }
+    for action in fired {
+        match action {
+            hotkey::ShortcutAction::ResetEncounter => m.invoke_reset_encounter(),
+            hotkey::ShortcutAction::TogglePause => m.invoke_toggle_pause(),
+            hotkey::ShortcutAction::ToggleMeasure => m.invoke_toggle_measure(),
+            hotkey::ShortcutAction::CopyList => m.invoke_copy_list(),
+            hotkey::ShortcutAction::ToggleAlwaysOnTop => {
+                m.invoke_set_bool("aot".into(), !m.get_aot())
+            }
+        }
+    }
+}
+
 /// 起動/表示直後に Slint が preferred サイズを再アサートして保存サイズを上書きする
 /// ことがあるため、settle 期間中は毎tick 復元サイズを再適用する（サイズ一致なら no-op）。
 fn poll_window_settle(
@@ -2373,6 +2421,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 自キャラUID 候補モデル
     let uid_candidates = Rc::new(VecModel::<UidCandidate>::default());
     main.set_uid_candidates(uid_candidates.clone().into());
+
+    // グローバルショートカット（issue #3）。行順は hotkey::ACTIONS と一致（index対応）。
+    // モデル自体は全platform共通（ShortcutUiは.slint側の素の構造体）。実際のOS登録・ポーリングは
+    // Windows専用（hotkey.rs）。非Windowsではhotkeys_holderが無くモデルは空のまま残る。
+    let shortcuts_model = Rc::new(VecModel::<ShortcutUi>::default());
+    main.set_shortcuts(shortcuts_model.clone().into());
+    #[cfg(windows)]
+    let hotkeys_holder: Rc<RefCell<Option<hotkey::Hotkeys>>> = Rc::new(RefCell::new(None));
+    // 行数の正典は hotkey::ACTIONS（W3-4）。app.slint の shortcut-labels は @tr が必要なため
+    // 別建てせざるを得ない配列なので、件数がズレていないかを起動時に検知する
+    // （本番では黙って空ラベル行が出るだけになるため、開発中に気付けるよう debug_assert に留める）。
+    #[cfg(windows)]
+    debug_assert_eq!(
+        hotkey::ACTIONS.len(),
+        main.get_shortcut_label_count() as usize,
+        "hotkey::ACTIONS と app.slint の shortcut-labels の件数が一致していません"
+    );
 
     // バトルイマジン名メンテ一覧（別ウィンドウを開く時／編集時のみ再構築。戦闘ポーリングでは触らない）。
     // 開発者モード(BPSR_DEV=1)のときだけイマジン名列の編集・GitHub反映ボタンをUIに出す。
@@ -2768,18 +2833,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
-    // 設定パネルの開閉。開く瞬間にテンプレ入力欄・自キャラUID欄へ最新値を push。
+    // 設定パネルの開閉。開く瞬間にテンプレ入力欄・自キャラUID欄・ショートカット一覧へ最新値を push。
     {
         let w = main.as_weak();
         let cfg_ts = cfg.clone();
         let enc_ts = enc.clone();
         let cands_ts = uid_candidates.clone();
+        #[cfg(windows)]
+        let shortcuts_ts = shortcuts_model.clone();
+        #[cfg(windows)]
+        let hotkeys_ts = hotkeys_holder.clone();
         main.on_toggle_settings(move || {
             if let Some(m) = w.upgrade() {
                 let opening = !m.get_settings_open();
                 if opening {
                     refresh_templates(&m, &cfg_ts.borrow());
                     refresh_selected_uid(&m, &enc_ts, &cands_ts);
+                    #[cfg(windows)]
+                    push_shortcuts_to_ui(&shortcuts_ts, &hotkeys_ts.borrow(), &cfg_ts.borrow());
                 }
                 m.set_settings_open(opening);
             }
@@ -2934,6 +3005,151 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &imagine_expanded_if.borrow(),
                 &imagine_filter_if.borrow(),
             );
+        });
+    }
+    // グローバルショートカット（issue #3）: ダイアログの開閉・キャプチャ・解除・キー入力。
+    // 設定パネルのボタンから開くモーダル（別ウィンドウではない）。
+    // ダイアログを開いている間は割当済みキーが RegisterHotKey にシステム側で吸収され
+    // FocusScope へ届かない（＝再割当できない・代わりに本番アクションが誤発火する）ため、
+    // 開いている間は全ホットキーの登録を一時解除し、閉じたら復帰させる（C1）。
+    #[cfg(windows)]
+    {
+        let w = main.as_weak();
+        let hotkeys_od = hotkeys_holder.clone();
+        main.on_shortcut_open_dialog(move || {
+            if let Some(m) = w.upgrade() {
+                m.set_shortcut_dialog_open(true);
+            }
+            if let Some(hk) = hotkeys_od.borrow_mut().as_mut() {
+                hk.suspend();
+            }
+        });
+    }
+    #[cfg(windows)]
+    {
+        let w = main.as_weak();
+        let cfg_cd = cfg.clone();
+        let hotkeys_cd = hotkeys_holder.clone();
+        let shortcuts_cd = shortcuts_model.clone();
+        main.on_shortcut_close_dialog(move || {
+            if let Some(m) = w.upgrade() {
+                m.set_shortcut_dialog_open(false);
+                // ダイアログを閉じたら進行中のキャプチャも打ち切る（元の割当は変更されない）。
+                m.set_shortcut_capturing(-1);
+            }
+            // open 側で suspend() した分をここで復帰させる。
+            if let Some(hk) = hotkeys_cd.borrow_mut().as_mut() {
+                hk.apply(&cfg_cd.borrow());
+            }
+            push_shortcuts_to_ui(&shortcuts_cd, &hotkeys_cd.borrow(), &cfg_cd.borrow());
+        });
+    }
+    // 「変更」押下でキャプチャ開始。前回の一時エラー表示が残っていればクリアする。
+    #[cfg(windows)]
+    {
+        let w = main.as_weak();
+        let shortcuts_sc = shortcuts_model.clone();
+        main.on_shortcut_capture(move |idx| {
+            if let Some(m) = w.upgrade() {
+                m.set_shortcut_capturing(idx);
+            }
+            // 前回キャプチャの一時エラー（修飾キー無し/重複等）が対象を切り替えても
+            // 別行に残ったままにならないよう、対象行だけでなく全行を掃除する。
+            for i in 0..shortcuts_sc.row_count() {
+                if let Some(mut row) = shortcuts_sc.row_data(i) {
+                    if !row.error.is_empty() {
+                        row.error = "".into();
+                        shortcuts_sc.set_row_data(i, row);
+                    }
+                }
+            }
+        });
+    }
+    // 「解除」押下で当該アクションのキーを空にして保存・エラー再計算・UI反映。
+    // ダイアログを開いた時点で suspend 済みなので、ここでは revalidate() のみ（apply() は
+    // 呼ばない。呼ぶとダイアログ表示中に全ホットキーが再登録されてしまう。C1）。
+    // 実際の再登録はダイアログを閉じる（shortcut-close-dialog）まで行わない。
+    #[cfg(windows)]
+    {
+        let cfg_scl = cfg.clone();
+        let hotkeys_scl = hotkeys_holder.clone();
+        let shortcuts_scl = shortcuts_model.clone();
+        main.on_shortcut_clear(move |idx| {
+            let Some(action) = hotkey::ShortcutAction::from_index(idx as usize) else {
+                return;
+            };
+            {
+                let mut c = cfg_scl.borrow_mut();
+                action.set_key_text(&mut c, String::new());
+            }
+            settings::save(&cfg_scl.borrow());
+            if let Some(hk) = hotkeys_scl.borrow_mut().as_mut() {
+                hk.revalidate(&cfg_scl.borrow());
+            }
+            push_shortcuts_to_ui(&shortcuts_scl, &hotkeys_scl.borrow(), &cfg_scl.borrow());
+        });
+    }
+    // FocusScope の key-pressed から渡される1キー。キャプチャ中のみ判定する
+    // （shortcut-capturing が -1 なら待機していないので無視）。
+    #[cfg(windows)]
+    {
+        let w = main.as_weak();
+        let cfg_sk = cfg.clone();
+        let hotkeys_sk = hotkeys_holder.clone();
+        let shortcuts_sk = shortcuts_model.clone();
+        main.on_shortcut_key(move |text, ctrl, shift, alt, meta, repeat| {
+            let Some(m) = w.upgrade() else {
+                return;
+            };
+            let idx = m.get_shortcut_capturing();
+            if idx < 0 {
+                return;
+            }
+            let Some(action) = hotkey::ShortcutAction::from_index(idx as usize) else {
+                return;
+            };
+            match hotkey::capture_key(text.as_str(), ctrl, shift, alt, meta, repeat) {
+                hotkey::CaptureOutcome::Continue(err) => {
+                    // None(無視するキー)は何もしない。Some はエラー文言を出しつつ待機継続。
+                    if let Some(msg) = err {
+                        if let Some(mut row) = shortcuts_sk.row_data(idx as usize) {
+                            row.error = msg.into();
+                            shortcuts_sk.set_row_data(idx as usize, row);
+                        }
+                    }
+                }
+                hotkey::CaptureOutcome::Cancelled => {
+                    m.set_shortcut_capturing(-1);
+                    // 直前の一時エラー（修飾キー無し/重複等）が残ったままにならないようクリアする。
+                    if let Some(mut row) = shortcuts_sk.row_data(idx as usize) {
+                        row.error = "".into();
+                        shortcuts_sk.set_row_data(idx as usize, row);
+                    }
+                }
+                hotkey::CaptureOutcome::Captured(key_text) => {
+                    // 自プロセス内でも RegisterHotKey は同一キーの重複登録に失敗するため、
+                    // 保存前にアプリ内重複を検出して分かりやすく伝える（採用しない＝待機継続）。
+                    if hotkey::is_duplicate(&cfg_sk.borrow(), action, &key_text) {
+                        if let Some(mut row) = shortcuts_sk.row_data(idx as usize) {
+                            row.error = hotkey::msg_duplicate().into();
+                            shortcuts_sk.set_row_data(idx as usize, row);
+                        }
+                        return;
+                    }
+                    {
+                        let mut c = cfg_sk.borrow_mut();
+                        action.set_key_text(&mut c, key_text);
+                    }
+                    settings::save(&cfg_sk.borrow());
+                    // suspend 状態のまま静的エラーだけ再計算する（apply() は呼ばない。
+                    // ダイアログ表示中に全ホットキーが再登録されるのを防ぐ。C1）。
+                    if let Some(hk) = hotkeys_sk.borrow_mut().as_mut() {
+                        hk.revalidate(&cfg_sk.borrow());
+                    }
+                    m.set_shortcut_capturing(-1);
+                    push_shortcuts_to_ui(&shortcuts_sk, &hotkeys_sk.borrow(), &cfg_sk.borrow());
+                }
+            }
         });
     }
     // 設定トグル変更 → cfg 更新・即適用・保存
@@ -3702,6 +3918,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let click_through = Rc::new(Cell::new(false));
     #[cfg(windows)]
     let tray_holder: Rc<RefCell<Option<tray::Tray>>> = Rc::new(RefCell::new(None));
+    // グローバルショートカット（poll closure が move で保持。生成はイベントループ稼働後）。
+    #[cfg(windows)]
+    let hotkeys_holder_poll = hotkeys_holder.clone();
+    #[cfg(windows)]
+    let shortcuts_poll = shortcuts_model.clone();
     let poll_ms = cfg.borrow().poll_interval_ms.max(50.0) as u64;
     // オーバーレイ(バフ/ステータス/イマジン)はメイン表より低頻度で更新する。
     // 稼働中バフのアーク/バーは残量比から毎tick変化するため set_vec_if_changed では
@@ -3726,6 +3947,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             log::info!("tray created: {}", tray_holder.borrow().is_some());
             // 起動時のタスクバー常駐モードをメインへ適用（実体化後）。
             overlay::apply_taskbar_mode(m.window(), cfg_poll.borrow().show_in_taskbar);
+
+            // グローバルショートカット: winit イベントループ稼働後・トレイ生成と同じタイミングで
+            // GlobalHotKeyManager を生成する（Windows の RegisterHotKey はメッセージループの
+            // あるスレッドでのみ有効なため）。
+            let mut hk = hotkey::Hotkeys::new();
+            hk.apply(&cfg_poll.borrow());
+            *hotkeys_holder_poll.borrow_mut() = Some(hk);
+            push_shortcuts_to_ui(&shortcuts_poll, &hotkeys_holder_poll.borrow(), &cfg_poll.borrow());
         }
         #[cfg(not(windows))]
         let _ = just_setup;
@@ -3752,6 +3981,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &main_visible,
             &click_through,
         );
+
+        // グローバルショートカットの発火チェックは専用Timer（S4: 固定100ms）に分離済み
+        // （このTimerはユーザー設定で最大2000msまで間引かれるため相乗りすると検知が遅れる）。
 
         // 食事/シロップ残時間ストアを更新（戦闘終了をまたいで保持・失効除去）
         compute::refresh_consumables(&enc_poll);
@@ -4045,6 +4277,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &last_saved,
         );
     });
+
+    // グローバルショートカット専用ポーリング（issue #3 S4）。メインpollタイマーは設定で
+    // 最大2000msまで間引かれる（poll_interval_ms、上のスライダーで調整可）ため、相乗りすると
+    // 押下から検知まで最大2秒遅れうる。固定100msの専用Timerで受信する
+    // （try_recvは空チャネルへの非ブロッキング1回のみでコストは無視できる）。
+    #[cfg(windows)]
+    let hotkey_timer = Timer::default();
+    #[cfg(windows)]
+    {
+        let hotkey_w = main.as_weak();
+        let hotkeys_hk = hotkeys_holder.clone();
+        hotkey_timer.start(TimerMode::Repeated, Duration::from_millis(100), move || {
+            let Some(m) = hotkey_w.upgrade() else {
+                return;
+            };
+            poll_hotkey_events(&m, &hotkeys_hk);
+        });
+    }
 
     // トレイ格納（全ウィンドウ hide）でアプリが終了しないよう、最後のウィンドウが
     // 閉じてもループを止めない。終了はトレイ「終了」/ ×ボタンの quit_event_loop のみ。

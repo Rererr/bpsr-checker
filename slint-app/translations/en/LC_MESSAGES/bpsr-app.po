@@ -471,3 +471,44 @@ msgstr "DPS, healing and skill tracking are paused"
 
 msgid "専用モードを解除"
 msgstr "Turn off Imagine-only mode"
+
+# グローバルショートカット（issue #3・設定パネルの起動セクション＋メイン窓内モーダル）
+msgid "ショートカット"
+msgstr "Shortcuts"
+
+msgid "ショートカットキーを設定"
+msgstr "Configure shortcuts"
+
+msgid "計測操作にグローバルショートカットキーを割り当てます。"
+msgstr "Assign global shortcut keys to measurement actions."
+
+msgid "ゲームにフォーカスがある状態でも使えます。F1〜F12 以外は Ctrl / Alt / Win のいずれかと組み合わせてください。"
+msgstr "Works while the game window has focus. Keys other than F1-F12 must be combined with Ctrl, Alt, or Win."
+
+# アクション名（行順は hotkey.rs の ACTIONS と一致させること）
+msgid "計測を初期化"
+msgstr "Reset"
+
+msgid "一時停止/再開"
+msgstr "Pause / Resume"
+
+msgid "3分計測"
+msgstr "3-min run"
+
+msgid "一覧をコピー"
+msgstr "Copy list"
+
+msgid "常に最前面"
+msgstr "Always on top"
+
+msgid "キーを押してください…"
+msgstr "Press a key…"
+
+msgid "未設定"
+msgstr "Not set"
+
+msgid "変更"
+msgstr "Change"
+
+msgid "解除"
+msgstr "Clear"

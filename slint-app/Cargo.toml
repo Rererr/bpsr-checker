@@ -36,6 +36,7 @@ arboard = { version = "3", default-features = false, features = ["image-data"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 tray-icon = "0.19"
+global-hotkey = "0.8"
 windows = { version = "0.48", features = [
     "Win32_Foundation",
     "Win32_System_Threading",

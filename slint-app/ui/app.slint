@@ -213,6 +213,13 @@ struct ImagineNameRowUi {
     clone-skills: [string],
 }
 
+// グローバルショートカットの1行（Rust の hotkey::ACTIONS と同じ順序・件数で渡される。
+// 順序がズレると全く別の機能にキーが割り当たるため、index で対応付けること）。
+struct ShortcutUi {
+    key-text: string, // 保存/表示兼用文字列（例 "Ctrl+Shift+R"）。空なら未割当
+    error: string,    // 空なら正常。登録失敗などの理由を短く表示
+}
+
 // アクセントカラーテーマ。設定の accent-theme プリセットに応じて Rust が起動時/変更時に set する。
 // accent=文字・枠・選択ハイライト系 / accent-strong=塗りつぶし系（タブ・チェック・スライダー）。
 export global Theme {
@@ -235,6 +242,7 @@ global SettingsStyle {
     out property <length> row-label-size: 12px;
     out property <color> hint: #6f6f7e;
     out property <length> hint-size: 9px;
+    out property <color> error: #e57373; // エラー状態の文字色（ショートカット行の登録失敗表示等）
     // 操作系（トグル/ステッパー/セグ/入力欄の地・ホバー・角丸・行高）
     out property <color> control-bg: #ffffff14;
     out property <color> control-bg-hover: #ffffff28;
@@ -1863,6 +1871,105 @@ component ImagineNamesOpenSection inherits SectionCard {
     }
 }
 
+// グローバルショートカットの起動セクション（設定パネル・常に全幅）。本体はメイン窓内の
+// モーダルダイアログ（root.shortcut-dialog-open）。ここは説明文＋起動ボタンのみを置く。
+component ShortcutOpenSection inherits SectionCard {
+    callback open-dialog();
+    title: @tr("ショートカット");
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        padding-top: 2px;
+        padding-bottom: 2px;
+        spacing: 10px;
+        Text {
+            text: @tr("計測操作にグローバルショートカットキーを割り当てます。");
+            color: SettingsStyle.hint;
+            font-size: SettingsStyle.hint-size;
+            wrap: word-wrap;
+            horizontal-stretch: 1;
+            min-width: 0px;
+            vertical-alignment: center;
+        }
+        shortcut-open-btn := TouchArea {
+            width: 128px;
+            height: 26px;
+            clicked => { root.open-dialog(); }
+            Rectangle {
+                background: shortcut-open-btn.has-hover ? SettingsStyle.control-bg-hover : SettingsStyle.control-bg;
+                animate background { duration: 100ms; easing: ease-out; }
+                border-radius: SettingsStyle.radius;
+                Text { text: @tr("ショートカットキーを設定"); color: #cdd; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+            }
+        }
+    }
+}
+
+// グローバルショートカット設定ダイアログの1行。index で Rust 側の ACTIONS / shortcuts と対応する。
+component ShortcutRow inherits Rectangle {
+    in property <string> row-label;
+    in property <ShortcutUi> entry;
+    in property <bool> capturing; // この index をキャプチャ中か
+    callback change();
+    callback clear();
+    min-height: 40px; // エラー文言が2行に折り返しても隣行と重ならないよう固定 height にしない（S-b）
+    HorizontalLayout {
+        padding-left: 4px;
+        padding-right: 4px;
+        spacing: 8px;
+        Text {
+            text: root.row-label;
+            color: SettingsStyle.row-label;
+            font-size: SettingsStyle.row-label-size;
+            horizontal-stretch: 1;
+            min-width: 0px;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        VerticalLayout {
+            alignment: center;
+            width: 150px;
+            Text {
+                text: root.capturing ? @tr("キーを押してください…") : (root.entry.key-text == "" ? @tr("未設定") : root.entry.key-text);
+                color: root.capturing ? Theme.accent : (root.entry.key-text == "" ? SettingsStyle.hint : SettingsStyle.row-label);
+                font-size: 11px;
+                overflow: elide;
+            }
+            if root.entry.error != "": Text {
+                text: root.entry.error;
+                color: SettingsStyle.error;
+                font-size: 9px;
+                overflow: elide;
+                wrap: word-wrap;
+            }
+        }
+        change-btn := TouchArea {
+            width: 56px;
+            height: 24px;
+            clicked => { root.change(); }
+            Rectangle {
+                background: change-btn.has-hover ? SettingsStyle.control-bg-hover : SettingsStyle.control-bg;
+                animate background { duration: 100ms; easing: ease-out; }
+                border-radius: SettingsStyle.radius;
+                Text { text: @tr("変更"); color: #cdd; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+            }
+        }
+        clear-btn := TouchArea {
+            width: 56px;
+            height: 24px;
+            enabled: root.entry.key-text != "";
+            opacity: self.enabled ? 1.0 : 0.4;
+            clicked => { root.clear(); }
+            Rectangle {
+                background: clear-btn.has-hover ? SettingsStyle.control-bg-hover : SettingsStyle.control-bg;
+                animate background { duration: 100ms; easing: ease-out; }
+                border-radius: SettingsStyle.radius;
+                Text { text: @tr("解除"); color: #cdd; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+            }
+        }
+    }
+}
+
 // バトルイマジン名メンテ（別ウィンドウ・通常の OS タイトルバー付き）。MainWindow やバフ/
 // ステータス系オーバーレイと違い no-frame にせず always-on-top にもしない（タスクバーにも
 // 通常どおり表示される・OS が最小化/リサイズ/×閉じを扱う）。×閉じは Slint の既定挙動
@@ -2280,6 +2387,10 @@ export component MainWindow inherits Window {
     in property <bool> result-img-copied;    // 画像コピー直後の一時フィードバック
     in property <bool> result-is-new-record;    // 自キャラの自己ベスト更新（計測確定時のみ判定）
     in property <string> result-best-dps-text;  // 自己ベストDPSの表示用整形済み文字列（自キャラ不在/記録無しは空）
+    // グローバルショートカット（issue #3）。行順は hotkey::ACTIONS と一致させること。
+    in property <[ShortcutUi]> shortcuts;
+    in property <int> shortcut-capturing: -1;       // -1=非キャプチャ / 0.. = その行をキャプチャ中
+    in property <bool> shortcut-dialog-open: false; // ショートカット設定ダイアログの開閉
     callback quit();
     callback minimize();
     callback start-drag();
@@ -2315,6 +2426,12 @@ export component MainWindow inherits Window {
     callback imagine-open-window();                   // 「別ウィンドウで開く」ボタン→ ImagineNamesWindow を show()
     callback open-contact();                           // フッター「お問い合わせ」→ 既定ブラウザでポートフォリオサイトを開く
     callback open-github-issue();                       // フッター「GitHubで報告」→ 既定ブラウザでissue作成画面を開く
+    // グローバルショートカット（issue #3）
+    callback shortcut-open-dialog();          // 設定パネルのボタンから
+    callback shortcut-close-dialog();         // ×・背景クリック
+    callback shortcut-capture(int);           // 「変更」押下（index）
+    callback shortcut-clear(int);             // 「解除」押下（index）
+    callback shortcut-key(string, bool, bool, bool, bool, bool);  // text, ctrl, shift, alt, meta, repeat
 
     // ヘッダの固定幅合計（タブ＋ボタン）が収まらない幅ではアイコン/短縮ラベル表示に切り替える。
     // root.width への直接バインディングはヘッダ文字列経由で layoutinfo と循環するため、
@@ -2960,6 +3077,10 @@ export component MainWindow inherits Window {
                     ImagineNamesOpenSection {
                         open-window => { root.imagine-open-window(); }
                     }
+                    // ── グローバルショートカット（本体はメイン窓内モーダル。ここは起動ボタンのみ・常に全幅）──
+                    ShortcutOpenSection {
+                        open-dialog => { root.shortcut-open-dialog(); }
+                    }
                     // ── バージョン情報（設定パネル最下部）──
                     Text {
                         text: root.app-version;
@@ -3276,6 +3397,103 @@ export component MainWindow inherits Window {
                         height: 24px;
                         clicked => { root.close-result(); }
                         Rectangle { background: closebtn-r.has-hover ? Theme.accent.with-alpha(0.2) : Theme.accent.with-alpha(0.133); animate background { duration: 100ms; easing: ease-out; } border-width: 1px; border-color: Theme.accent.with-alpha(0.45); border-radius: 4px; Text { text: @tr("閉じる"); color: Theme.accent; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; } }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── ショートカット設定ダイアログ（最上層・背景クリックで閉じる）──
+    // 各行のラベルは Rust から渡さず @tr で持つ（Rust 経由だと @tr が効かないため）。
+    // 行数の正典は Rust 側 hotkey::ACTIONS（root.shortcuts の長さ）にし、下の for は
+    // shortcut-labels ではなく root.shortcuts を主に回す。shortcut-labels 側の追記漏れは
+    // 「空ラベル」として画面に出るため気付ける（逆に shortcut-labels を主にすると、行数の
+    // 正典が二重になり、ACTIONS に足しても行が出ない・順序がズレると別機能にキーが割り当たる
+    // というズレを防げない）。
+    property <[string]> shortcut-labels: [
+        @tr("計測を初期化"),
+        @tr("一時停止/再開"),
+        @tr("3分計測"),
+        @tr("一覧をコピー"),
+        @tr("常に最前面"),
+    ];
+    // hotkey::ACTIONS.len() との一致を起動時 debug_assert で確認するために公開する。
+    out property <int> shortcut-label-count: root.shortcut-labels.length;
+    if root.shortcut-dialog-open: Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #000000cc;
+        TouchArea { clicked => { root.shortcut-close-dialog(); } }
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: Math.min(480px, parent.width - 24px);
+            // 窓が低い（細長いDPSメーター運用で普通に起きる）ときにタイトル/×や最終行が
+            // 窓外へはみ出さないよう、自然な高さと使える高さの小さい方に留める。
+            // 収まらない分は下の Flickable がスクロールで吸収する（UI1）。
+            height: Math.min(sdcol.preferred-height + 24px, parent.height - 24px);
+            background: #14141ef7;
+            border-width: 1px;
+            border-color: #ffffff26;
+            border-radius: 8px;
+            TouchArea {} // カード内クリックを吸収し背景の close へ落とさない
+            key-scope := FocusScope {
+                // 開いた瞬間からフォーカスを持つ（直前に設定パネルの入力欄がフォーカスを
+                // 持っていた場合に、打鍵がそちらへ漏れるのを防ぐ）。
+                init => { self.focus(); }
+                key-pressed(event) => {
+                    if root.shortcut-capturing >= 0 {
+                        // キャプチャ中は全キーを飲み込む（背後に漏らさない）。
+                        root.shortcut-key(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt, event.modifiers.meta, event.repeat);
+                        return accept;
+                    }
+                    if event.text == Key.Escape {
+                        root.shortcut-close-dialog();
+                        return accept;
+                    }
+                    // ダイアログ表示中は背後へキーを漏らさない（reject だと Tab のフォーカス
+                    // 送りで key-scope がフォーカスを失い、背後の入力欄（テンプレ編集等）が
+                    // 打鍵で書き換わってしまう。このダイアログ内に Tab 移動先の入力要素は
+                    // 無いため、全キーを飲んでも機能低下は無い。C2）。
+                    accept
+                }
+                sdcol := VerticalLayout {
+                    padding: 12px;
+                    spacing: 8px;
+                    HorizontalLayout {
+                        Text { text: @tr("ショートカット"); color: Theme.accent; font-size: 13px; horizontal-stretch: 1; vertical-alignment: center; }
+                        sdclose := TouchArea {
+                            width: 24px;
+                            clicked => { root.shortcut-close-dialog(); }
+                            Rectangle {
+                                background: sdclose.has-hover ? #c0392b : transparent;
+                                animate background { duration: 100ms; easing: ease-out; }
+                                border-radius: 4px;
+                                Text { text: "×"; color: white; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; }
+                            }
+                        }
+                    }
+                    Text {
+                        text: @tr("ゲームにフォーカスがある状態でも使えます。F1〜F12 以外は Ctrl / Alt / Win のいずれかと組み合わせてください。");
+                        color: SettingsStyle.hint;
+                        font-size: SettingsStyle.hint-size;
+                        wrap: word-wrap;
+                    }
+                    // 行部分のみスクロール対象にする（タイトル/× と説明文は常に見える位置に固定）。
+                    sd-scroll := Flickable {
+                        vertical-stretch: 1;
+                        max-height: 100000px;
+                        viewport-height: sd-rows.preferred-height;
+                        sd-rows := VerticalLayout {
+                            spacing: 8px;
+                            for entry[i] in root.shortcuts: ShortcutRow {
+                                row-label: root.shortcut-labels[i];
+                                entry: entry;
+                                capturing: root.shortcut-capturing == i;
+                                change => { root.shortcut-capture(i); key-scope.focus(); }
+                                clear => { root.shortcut-clear(i); }
+                            }
+                        }
                     }
                 }
             }

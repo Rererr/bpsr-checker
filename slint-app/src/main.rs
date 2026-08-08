@@ -9,6 +9,7 @@ mod best_records;
 mod buff_names;
 mod capture;
 mod consumable_names;
+mod dps_bar;
 mod format;
 #[cfg(windows)]
 mod hotkey;
@@ -195,13 +196,32 @@ fn data_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(base).join("bpsr-checker")
 }
 
-/// タブ(0=dps 1=heal 2=taken 3=history)に応じてプレイヤー一覧を取得。
-/// history(3) は S5 実装まで dps を表示する暫定。
-fn fetch_players(enc: &EncounterMutex, tab: i32) -> bpsr_core::models::PlayersWindow {
+/// タブが表す集計指標の種別。タブ番号→意味の対応は `tab_stat` 1箇所に集約し、
+/// `fetch_players`（どの集計を取得するか）と `dps_bar_config`（固定基準モードで窓平均を
+/// 使ってよいか＝与ダメ系列のみ）が同じ判定から導出する（タブ追加時に片方だけ直しても
+/// 動いてしまう＝レビューで初めて発覚する類の乖離を防ぐ）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StatType {
+    Dmg,
+    Heal,
+    DmgTaken,
+}
+
+/// タブ番号(0=dps 1=heal 2=taken 3=history)→集計指標。history(3) は S5 実装まで dmg を暫定表示。
+fn tab_stat(tab: i32) -> StatType {
     match tab {
-        1 => compute::get_heal_players(enc),
-        2 => compute::get_dmg_taken_players(enc),
-        _ => compute::get_dps_players(enc),
+        1 => StatType::Heal,
+        2 => StatType::DmgTaken,
+        _ => StatType::Dmg,
+    }
+}
+
+/// タブに応じてプレイヤー一覧を取得。
+fn fetch_players(enc: &EncounterMutex, tab: i32) -> bpsr_core::models::PlayersWindow {
+    match tab_stat(tab) {
+        StatType::Heal => compute::get_heal_players(enc),
+        StatType::DmgTaken => compute::get_dmg_taken_players(enc),
+        StatType::Dmg => compute::get_dps_players(enc),
     }
 }
 
@@ -251,6 +271,7 @@ fn consumable_display(remaining_ms: f64, duration_ms: f64, base_id: i32) -> (boo
     (true, ratio, time, label)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_rows(
     pw: &bpsr_core::models::PlayersWindow,
     template: &str,
@@ -259,9 +280,13 @@ fn build_rows(
     watched: &[i64],
     graph_count: i32,
     graph_for_local: bool,
+    bar_cfg: &dps_bar::DpsBarConfig,
 ) -> Vec<Row> {
     let top = pw.top_value.max(1.0);
     let local = pw.local_player_uid;
+    // 自分基準モード以外では未使用だが、行数は高々十数人なので線形探索のコストは無視できる
+    // （モード判定を dps_bar::bar_pct 側の1箇所に集約するため、ここでは無条件に求める）。
+    let self_total = pw.player_rows.iter().find(|p| p.uid == local).map(|p| p.total_value);
     // 非ローカルの上位 graph_count 人＋（設定時）ローカルにグラフを出す。
     let mut non_local_above: i32 = 0;
     let mut out = Vec::with_capacity(pw.player_rows.len());
@@ -314,7 +339,7 @@ fn build_rows(
             dmg_text: format::format_number(p.total_value).into(),
             dps_text: format::format_dps(p.value_per_sec).into(),
             pct_text: format::format_pct(p.value_pct).into(),
-            pct: ((p.total_value / top) * 100.0) as f32,
+            pct: dps_bar::bar_pct(bar_cfg, p, top, self_total),
             is_local,
             crit_text: format::format_pct(p.crit_rate).into(),
             crit_value_text: format::format_pct(p.crit_value_rate).into(),
@@ -1069,6 +1094,18 @@ fn show_drill(
     m.set_view(1);
 }
 
+/// Settings → build_rows へ渡すバー表示方式の設定一式（呼び出し4箇所の重複を避ける）。
+/// 固定基準モードの窓平均は与ダメタブ（tab_stat(tab) == Dmg）でのみ使う
+/// （PlayerRow.time_series が常に与ダメ由来のため）。
+fn dps_bar_config(c: &settings::Settings, tab: i32) -> dps_bar::DpsBarConfig {
+    dps_bar::DpsBarConfig {
+        mode: dps_bar::DpsBarMode::parse(&c.dps_bar_mode),
+        fixed_max: c.dps_bar_fixed_max,
+        window_secs: c.dps_bar_window_secs,
+        dmg_tab: tab_stat(tab) == StatType::Dmg,
+    }
+}
+
 /// アクセントカラー設定 → (accent, accent-strong)（0xAARRGGBB）。
 /// "#rrggbb" 指定時は彩度を上げ明度を落とした派生色を accent-strong（塗り）に用いる。
 /// プリセット名（旧設定）も後方互換で受け付け、未知値は既定 sky にフォールバックする。
@@ -1180,6 +1217,7 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         overlay_outline: c.overlay_outline,
         overlay_shadow: c.overlay_shadow,
         show_footer: c.show_footer,
+        dps_bar_mode: c.dps_bar_mode.clone().into(),
     });
     // 文字色HSVピッカーの初期/同期位置（現在の文字色を HSV へ変換して反映）。
     {
@@ -1387,13 +1425,22 @@ fn template_previews(c: &settings::Settings) -> (slint::SharedString, slint::Sha
     (name.into(), copy.into())
 }
 
-/// テンプレ入力欄の value を push（パネル開時／リセット時のみ）＋プレビュー更新。
-fn refresh_templates(m: &MainWindow, c: &settings::Settings) {
+/// テンプレ入力欄・バー表示方式の数値入力欄の value を push（パネル開時／リセット時のみ）
+/// ＋プレビュー更新。編集中に呼ぶと入力中の文字をクロバーするため、呼び出し箇所を限定する。
+fn refresh_settings_inputs(m: &MainWindow, c: &settings::Settings) {
     m.set_name_template_value(c.name_template.clone().into());
     m.set_copy_template_value(c.copy_template.clone().into());
+    push_dps_bar_inputs(m, c);
     let (np, cp) = template_previews(c);
     m.set_name_preview(np);
     m.set_copy_preview(cp);
+}
+
+/// バー表示方式の数値入力欄の value のみ push（クランプ・拒否後の実効値を表示へ同期し直す）。
+/// 確定（Enter／フォーカスアウト）時に単独で呼ぶため、テンプレ側は触らない。
+fn push_dps_bar_inputs(m: &MainWindow, c: &settings::Settings) {
+    m.set_dps_bar_fixed_max_value(dps_bar::format_bar_num(c.dps_bar_fixed_max).into());
+    m.set_dps_bar_window_secs_value(dps_bar::format_bar_num(c.dps_bar_window_secs).into());
 }
 
 /// バトルイマジン名メンテ一覧の1行を構築する（filter は小文字化して部分一致・非空時のみ絞り込む）。
@@ -2645,6 +2692,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             &pin_uids,
                             c.graph_player_count as i32,
                             c.graph_for_local_player,
+                            &dps_bar_config(&c, n),
                         ),
                     );
                 }
@@ -2784,6 +2832,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         &pin_uids,
                         c.graph_player_count as i32,
                         c.graph_for_local_player,
+                        &dps_bar_config(&c, tab_t.get()),
                     ),
                 );
             }
@@ -2828,6 +2877,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         &pin_uids,
                         c.graph_player_count as i32,
                         c.graph_for_local_player,
+                        &dps_bar_config(&c, tab_cw.get()),
                     ),
                 );
             }
@@ -2847,7 +2897,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(m) = w.upgrade() {
                 let opening = !m.get_settings_open();
                 if opening {
-                    refresh_templates(&m, &cfg_ts.borrow());
+                    refresh_settings_inputs(&m, &cfg_ts.borrow());
                     refresh_selected_uid(&m, &enc_ts, &cands_ts);
                     #[cfg(windows)]
                     push_shortcuts_to_ui(&shortcuts_ts, &hotkeys_ts.borrow(), &cfg_ts.borrow());
@@ -3438,13 +3488,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         c.history_limit = (c.history_limit + d * 5.0).clamp(0.0, 100.0);
                         compute::set_history_limit(c.history_limit);
                     }
+                    // 保持期間(サンプル数×間隔)を変えると固定基準モードの平均窓秒の上限
+                    // (dps_bar::max_window_secs)も変わるため、既存の指定値を都度クランプし直す
+                    // （表示欄は下の apply_settings 後に push_dps_bar_inputs で追従させる）。
                     "ts-samples" => {
                         c.time_series_samples = (c.time_series_samples + d * 10.0).clamp(10.0, 200.0);
                         compute::set_time_series_config(c.time_series_samples, c.time_series_interval_ms);
+                        c.dps_bar_window_secs = dps_bar::clamp_window_secs(
+                            c.dps_bar_window_secs,
+                            c.time_series_samples,
+                            c.time_series_interval_ms,
+                        );
                     }
                     "ts-interval" => {
                         c.time_series_interval_ms = (c.time_series_interval_ms + d * 250.0).clamp(250.0, 5000.0);
                         compute::set_time_series_config(c.time_series_samples, c.time_series_interval_ms);
+                        c.dps_bar_window_secs = dps_bar::clamp_window_secs(
+                            c.dps_bar_window_secs,
+                            c.time_series_samples,
+                            c.time_series_interval_ms,
+                        );
                     }
                     "graph-count" => {
                         c.graph_player_count = (c.graph_player_count + d).clamp(0.0, 10.0);
@@ -3468,6 +3531,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let c = cfg_n.borrow();
             if let Some(m) = w.upgrade() {
                 apply_settings(&m, &c);
+                // ts-samples/ts-interval は保持期間経由で dps_bar_window_secs を再クランプしうる
+                // ため、表示欄も実効値へ同期する（他キーは無関係な上書きになるため対象外）。
+                if key.as_str() == "ts-samples" || key.as_str() == "ts-interval" {
+                    push_dps_bar_inputs(&m, &c);
+                }
             }
             apply_overlay_appearance(&c, &self_o, &buff_o, &stats_o);
             settings::save(&c);
@@ -3497,6 +3565,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "imagine-overlay-font" => c.imagine_overlay_font = val.to_string(),
                     "buff-overlay-font" => c.buff_overlay_font = val.to_string(),
                     "overlay-text-color" => c.overlay_text_color = val.to_string(),
+                    "dps-bar-mode" => c.dps_bar_mode = val.to_string(),
+                    // 不正入力（非数・0以下）は保存せず直前の値を維持する（SegButton の値送出とは
+                    // 異なりユーザーの自由入力のため、ここで検証する）。検証・クランプは
+                    // crate::dps_bar に一本化し、settings::load() の正規化処理と共用する。
+                    "dps-bar-fixed-max" => {
+                        if let Some(v) =
+                            val.trim().parse::<f64>().ok().filter(|v| dps_bar::is_positive_finite(*v))
+                        {
+                            c.dps_bar_fixed_max = v;
+                        }
+                    }
+                    "dps-bar-window-secs" => {
+                        if let Some(v) =
+                            val.trim().parse::<f64>().ok().filter(|v| dps_bar::is_positive_finite(*v))
+                        {
+                            c.dps_bar_window_secs = dps_bar::clamp_window_secs(
+                                v,
+                                c.time_series_samples,
+                                c.time_series_interval_ms,
+                            );
+                        }
+                    }
                     other => log::warn!("unknown str key: {other}"),
                 }
             }
@@ -3511,6 +3601,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             apply_overlay_appearance(&c, &self_o, &buff_o, &stats_o);
             settings::save(&c);
+        });
+    }
+    // バー表示方式の数値入力欄の確定（Enter／フォーカスアウト）。範囲外入力がクランプ・拒否
+    // された場合に表示だけ入力値のまま残る（実効値と乖離する）のを防ぐため、実効値へ再同期する。
+    {
+        let w = main.as_weak();
+        let cfg_c = cfg.clone();
+        main.on_commit_str(move |key| {
+            if let Some(m) = w.upgrade() {
+                match key.as_str() {
+                    "dps-bar-fixed-max" | "dps-bar-window-secs" => {
+                        push_dps_bar_inputs(&m, &cfg_c.borrow());
+                    }
+                    other => log::warn!("unknown commit key: {other}"),
+                }
+            }
         });
     }
     // テンプレ リセット。既定値へ戻し、value を push して入力欄も更新する。
@@ -3528,7 +3634,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             let c = cfg_r.borrow();
             if let Some(m) = w.upgrade() {
-                refresh_templates(&m, &c);
+                refresh_settings_inputs(&m, &c);
             }
             settings::save(&c);
         });
@@ -4142,6 +4248,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     &pin_uids,
                     c.graph_player_count as i32,
                     c.graph_for_local_player,
+                    &dps_bar_config(&c, cur_tab),
                 ),
             );
         }

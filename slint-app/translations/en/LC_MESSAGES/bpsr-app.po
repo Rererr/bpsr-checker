@@ -306,6 +306,42 @@ msgstr "Font size"
 msgid "起動時のタブ"
 msgstr "Startup tab"
 
+msgid "バー表示方式"
+msgstr "Bar scale mode"
+
+msgid "トップ比"
+msgstr "Top"
+
+msgid "全体比"
+msgstr "Share"
+
+msgid "固定基準"
+msgstr "Fixed"
+
+msgid "自分基準"
+msgstr "Self"
+
+msgid "トップ比: 最大DPSのプレイヤーを右端としてバー幅を決めます。"
+msgstr "Top: the highest-DPS player sets the right edge of the bar."
+
+msgid "全体比: パーティ全体に対する貢献割合(%)でバー幅を決めます。"
+msgstr "Share: bar width follows the player's contribution % of the party total."
+
+msgid "固定基準: 右端を基準DPSとし、直近の平均DPSでバー幅を決めます。目安はパーティのトップDPS程度です。"
+msgstr "Fixed: bar width scales against a fixed DPS target using the recent average DPS. As a rough guide, set the target near your party's top DPS."
+
+msgid "自分基準: 自分のDPSを50%の位置とし、2倍で右端に達します。"
+msgstr "Self: your own DPS sits at the 50% mark; twice your DPS reaches the right edge."
+
+msgid "基準DPS"
+msgstr "Target DPS"
+
+msgid "平均秒数"
+msgstr "Window (s)"
+
+msgid "基準DPSは0より大きい値、平均秒数は1秒〜グラフの保持期間(サンプル数×間隔)の範囲で指定できます。"
+msgstr "Target DPS must be greater than 0. The window accepts 1 second up to the graph's retention period (sample count x interval)."
+
 msgid "自分のグラフを表示"
 msgstr "Graph for self"
 

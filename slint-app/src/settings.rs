@@ -190,6 +190,17 @@ pub struct Settings {
     pub hotkey_measure: String, // 3分計測 開始/キャンセル
     pub hotkey_copy: String,    // 一覧をコピー
     pub hotkey_aot: String,     // 常に最前面 切替
+    /// DPS一覧の行バー幅比率の基準（Issue #5 由来。他メーターの模倣ではない独自実装）。
+    /// "top"(既定・現行のトップ比) / "share"(全体比) / "fixed"(固定基準) / "self"(自分基準)。
+    /// 定数・enum 表現は crate::dps_bar（MODE_* 定数・DpsBarMode::parse）に一本化している。
+    /// 不正値（手編集した settings.json 等）は load() で "top" へ正規化する。
+    pub dps_bar_mode: String,
+    /// 固定基準モードの右端DPS値 k（正の有限値のみ受理。検証は crate::dps_bar::is_positive_finite
+    /// に一本化し、main.rs on_set_str と load() の双方で使う）。
+    pub dps_bar_fixed_max: f64,
+    /// 固定基準モードの平均窓秒 s（1秒〜グラフの保持期間[time_series_samples×interval_ms]に
+    /// クランプ。範囲は crate::dps_bar::clamp_window_secs に一本化）。
+    pub dps_bar_window_secs: f64,
 }
 
 impl Default for Settings {
@@ -263,6 +274,9 @@ impl Default for Settings {
             hotkey_measure: String::new(),
             hotkey_copy: String::new(),
             hotkey_aot: String::new(),
+            dps_bar_mode: crate::dps_bar::MODE_TOP.to_string(),
+            dps_bar_fixed_max: 100_000.0,
+            dps_bar_window_secs: 10.0,
         }
     }
 }
@@ -286,6 +300,18 @@ pub fn load() -> Settings {
                 cfg.buff_overlay_font = cfg.main_font.clone();
                 cfg.buff_overlay_font_bold = cfg.main_font_bold;
             }
+            // DPS一覧バー表示方式: 手編集等による不正値をここで正規化する（未知モード文字列は
+            // 全SegButton非アクティブに、window_secs=0等は瞬間DPS化につながるため）。判定は
+            // crate::dps_bar に一本化し、main.rs on_set_str（ユーザーの自由入力）と共用する。
+            cfg.dps_bar_mode = crate::dps_bar::DpsBarMode::parse(&cfg.dps_bar_mode).as_str().to_string();
+            if !crate::dps_bar::is_positive_finite(cfg.dps_bar_fixed_max) {
+                cfg.dps_bar_fixed_max = Settings::default().dps_bar_fixed_max;
+            }
+            cfg.dps_bar_window_secs = crate::dps_bar::clamp_window_secs(
+                cfg.dps_bar_window_secs,
+                cfg.time_series_samples,
+                cfg.time_series_interval_ms,
+            );
             cfg
         }
         Err(_) => Settings::default(),

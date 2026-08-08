@@ -89,6 +89,7 @@ struct SettingsUi {
     overlay-outline: bool,             // オーバーレイ文字の縁取り（stroke）
     overlay-shadow: bool,              // オーバーレイ文字の影（ドロップシャドウ）
     show-footer: bool,                 // メイン窓最下部のフッター（お問い合わせ／GitHub報告リンク）
+    dps-bar-mode: string,              // DPS一覧の行バー幅比率の基準（"top"/"share"/"fixed"/"self"）
 }
 
 // 数値設定の表示用（Rust が cfg から整形して set）。ステッパーで増減する。
@@ -1471,9 +1472,18 @@ component DisplaySection inherits SectionCard {
     in property <float> accent-h;          // アクセント色ピッカーの色相(0..1)
     in property <float> accent-s;          // 同 彩度(0..1)
     in property <float> accent-v;          // 同 明度(0..1)
+    // in-out: TextInput の text <=> と繋ぐ双方向バインディング。in property の一方向 push だと
+    // ユーザーが1文字でも打った時点で Slint が内部的に text 側のバインディングを解除するため、
+    // 確定(commit-str)後に Rust から再 push しても表示が更新されない（PoC実証済み）。
+    in-out property <string> dps-bar-fixed-max-value;   // バー表示方式「固定基準」の基準DPS値入力欄
+    in-out property <string> dps-bar-window-secs-value; // 同・平均秒数入力欄
+    // バー表示方式「固定基準」が選択中か（説明文の出し分け・数値入力欄の表示条件で共用し、
+    // 同じ判定を2箇所に書かない）。
+    property <bool> is-fixed: root.cfg.dps-bar-mode == "fixed";
     callback set-bool(string, bool);
     callback bump-num(string, int);
     callback set-str(string, string);
+    callback commit-str(string); // 数値入力欄の確定（Enter／フォーカスアウト）時、表示を実効値へ再同期
     callback pick-accent(float, float, float); // アクセント色ピッカー操作(h,s,v)
     callback picker-dragging-changed(bool);    // ピッカー押下中→Flickableスクロール抑止
     title: @tr("表示");
@@ -1506,6 +1516,90 @@ component DisplaySection inherits SectionCard {
             // 余白を吸収し、固定幅セグボタンによる行の max-width(150px) 制限を解除する。
             // これがないと DisplaySection→中央列が ~150px で頭打ちになり伸縮しない。
             Rectangle { horizontal-stretch: 1; }
+        }
+    }
+    // バー表示方式（Issue #5 由来。DPS一覧の行バー幅比率の基準を選択。既定=トップ比＝現行の見た目）。
+    // 「固定基準」選択時のみ基準DPS値/平均秒数の数値入力欄を出す（他方式では不要なため隠す）。
+    VerticalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 3px;
+        Text { text: @tr("バー表示方式"); color: SettingsStyle.row-label; font-size: SettingsStyle.row-label-size; }
+        HorizontalLayout {
+            spacing: 6px;
+            SegButton { label: @tr("トップ比"); active: root.cfg.dps-bar-mode == "top"; clicked => { root.set-str("dps-bar-mode", "top"); } }
+            SegButton { label: @tr("全体比"); active: root.cfg.dps-bar-mode == "share"; clicked => { root.set-str("dps-bar-mode", "share"); } }
+            SegButton { label: @tr("固定基準"); active: root.cfg.dps-bar-mode == "fixed"; clicked => { root.set-str("dps-bar-mode", "fixed"); } }
+            SegButton { label: @tr("自分基準"); active: root.cfg.dps-bar-mode == "self"; clicked => { root.set-str("dps-bar-mode", "self"); } }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        Text {
+            text: root.cfg.dps-bar-mode == "share" ? @tr("全体比: パーティ全体に対する貢献割合(%)でバー幅を決めます。")
+                : root.is-fixed ? @tr("固定基準: 右端を基準DPSとし、直近の平均DPSでバー幅を決めます。目安はパーティのトップDPS程度です。")
+                : root.cfg.dps-bar-mode == "self" ? @tr("自分基準: 自分のDPSを50%の位置とし、2倍で右端に達します。")
+                : @tr("トップ比: 最大DPSのプレイヤーを右端としてバー幅を決めます。");
+            color: SettingsStyle.hint;
+            font-size: SettingsStyle.hint-size;
+            wrap: word-wrap;
+        }
+        if root.is-fixed: VerticalLayout {
+            spacing: 4px;
+            HorizontalLayout {
+                spacing: 6px;
+                Text { text: @tr("基準DPS"); color: SettingsStyle.row-label; font-size: SettingsStyle.row-label-size; vertical-alignment: center; width: 80px; overflow: elide; }
+                Rectangle {
+                    horizontal-stretch: 1;
+                    height: 26px;
+                    background: SettingsStyle.control-bg;
+                    border-width: 1px;
+                    border-color: fixed-max-ti.has-focus ? Theme.accent : #ffffff26;
+                    border-radius: SettingsStyle.radius;
+                    fixed-max-ti := TextInput {
+                        x: 5px;
+                        width: parent.width - 10px;
+                        height: 100%;
+                        vertical-alignment: center;
+                        single-line: true;
+                        color: #ddd;
+                        font-size: 11px;
+                        text <=> root.dps-bar-fixed-max-value;
+                        edited => { root.set-str("dps-bar-fixed-max", self.text); }
+                        accepted => { root.commit-str("dps-bar-fixed-max"); }
+                        changed has-focus => { if !self.has-focus { root.commit-str("dps-bar-fixed-max"); } }
+                    }
+                }
+            }
+            HorizontalLayout {
+                spacing: 6px;
+                Text { text: @tr("平均秒数"); color: SettingsStyle.row-label; font-size: SettingsStyle.row-label-size; vertical-alignment: center; width: 80px; overflow: elide; }
+                Rectangle {
+                    horizontal-stretch: 1;
+                    height: 26px;
+                    background: SettingsStyle.control-bg;
+                    border-width: 1px;
+                    border-color: window-secs-ti.has-focus ? Theme.accent : #ffffff26;
+                    border-radius: SettingsStyle.radius;
+                    window-secs-ti := TextInput {
+                        x: 5px;
+                        width: parent.width - 10px;
+                        height: 100%;
+                        vertical-alignment: center;
+                        single-line: true;
+                        color: #ddd;
+                        font-size: 11px;
+                        text <=> root.dps-bar-window-secs-value;
+                        edited => { root.set-str("dps-bar-window-secs", self.text); }
+                        accepted => { root.commit-str("dps-bar-window-secs"); }
+                        changed has-focus => { if !self.has-focus { root.commit-str("dps-bar-window-secs"); } }
+                    }
+                }
+            }
+            Text {
+                text: @tr("基準DPSは0より大きい値、平均秒数は1秒〜グラフの保持期間(サンプル数×間隔)の範囲で指定できます。");
+                color: SettingsStyle.hint;
+                font-size: SettingsStyle.hint-size;
+                wrap: word-wrap;
+            }
         }
     }
     // 言語: 選択は保存され、反映は次回起動時（Slint 1.16 は @tr リテラルを定数畳み込みするため
@@ -2332,6 +2426,9 @@ export component MainWindow inherits Window {
     in property <SettingsNumUi> nums;
     in property <string> name-template-value;
     in property <string> copy-template-value;
+    // in-out: DisplaySection の同名 in-out property と <=> で繋ぐ（詳細は DisplaySection 側コメント）。
+    in-out property <string> dps-bar-fixed-max-value;   // バー表示方式「固定基準」の基準DPS値入力欄
+    in-out property <string> dps-bar-window-secs-value; // 同・平均秒数入力欄
     in property <string> name-preview;
     in property <string> copy-preview;
     in property <string> selected-uid-value;  // 自キャラUID入力欄（開時/確定時に push）
@@ -2408,6 +2505,7 @@ export component MainWindow inherits Window {
     callback pick-accent(float, float, float);       // アクセント色HSVピッカー操作(h,s,v)
     callback bump-num(string, int);
     callback set-str(string, string);
+    callback commit-str(string); // 数値入力欄の確定（Enter／フォーカスアウト）。表示を実効値へ再同期
     callback reset-str(string);
     callback set-selected-uid(string); // 空文字=クリア
     callback copy-list();
@@ -3008,7 +3106,7 @@ export component MainWindow inherits Window {
                             spacing: 8px; // カード間の縦余白（セクション境界）
                             if root.scol(0) == 0: CharacterSection { uid-value: root.selected-uid-value; uid-name: root.selected-uid-name; candidates: root.uid-candidates; set-uid(u) => { root.set-selected-uid(u); } }
                             if root.scol(1) == 0: DisplayColsSection { cfg: root.cfg-ui; set-bool(k, v) => { root.set-bool(k, v); } }
-                            if root.scol(2) == 0: DisplaySection { cfg: root.cfg-ui; nums: root.nums; accent-h: root.accent-h; accent-s: root.accent-s; accent-v: root.accent-v; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } pick-accent(h, s, v) => { root.pick-accent(h, s, v); } picker-dragging-changed(d) => { root.picker-dragging = d; } }
+                            if root.scol(2) == 0: DisplaySection { cfg: root.cfg-ui; nums: root.nums; accent-h: root.accent-h; accent-s: root.accent-s; accent-v: root.accent-v; dps-bar-fixed-max-value <=> root.dps-bar-fixed-max-value; dps-bar-window-secs-value <=> root.dps-bar-window-secs-value; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } commit-str(k) => { root.commit-str(k); } pick-accent(h, s, v) => { root.pick-accent(h, s, v); } picker-dragging-changed(d) => { root.picker-dragging = d; } }
                             if root.scol(3) == 0: OverlaySection { cfg: root.cfg-ui; nums: root.nums; overlay-opacity: root.overlay-opacity; text-h: root.overlay-text-h; text-s: root.overlay-text-s; text-v: root.overlay-text-v; set-bool(k, v) => { root.set-bool(k, v); } set-overlay-opacity(v) => { root.set-overlay-opacity(v); } pick-text(h, s, v) => { root.pick-overlay-text(h, s, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } picker-dragging-changed(d) => { root.picker-dragging = d; } }
                             if root.scol(4) == 0: CombatSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
                             if root.scol(5) == 0: HistorySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
@@ -3024,7 +3122,7 @@ export component MainWindow inherits Window {
                             spacing: 8px; // カード間の縦余白（セクション境界）
                             if root.scol(0) == 1: CharacterSection { uid-value: root.selected-uid-value; uid-name: root.selected-uid-name; candidates: root.uid-candidates; set-uid(u) => { root.set-selected-uid(u); } }
                             if root.scol(1) == 1: DisplayColsSection { cfg: root.cfg-ui; set-bool(k, v) => { root.set-bool(k, v); } }
-                            if root.scol(2) == 1: DisplaySection { cfg: root.cfg-ui; nums: root.nums; accent-h: root.accent-h; accent-s: root.accent-s; accent-v: root.accent-v; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } pick-accent(h, s, v) => { root.pick-accent(h, s, v); } picker-dragging-changed(d) => { root.picker-dragging = d; } }
+                            if root.scol(2) == 1: DisplaySection { cfg: root.cfg-ui; nums: root.nums; accent-h: root.accent-h; accent-s: root.accent-s; accent-v: root.accent-v; dps-bar-fixed-max-value <=> root.dps-bar-fixed-max-value; dps-bar-window-secs-value <=> root.dps-bar-window-secs-value; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } commit-str(k) => { root.commit-str(k); } pick-accent(h, s, v) => { root.pick-accent(h, s, v); } picker-dragging-changed(d) => { root.picker-dragging = d; } }
                             if root.scol(3) == 1: OverlaySection { cfg: root.cfg-ui; nums: root.nums; overlay-opacity: root.overlay-opacity; text-h: root.overlay-text-h; text-s: root.overlay-text-s; text-v: root.overlay-text-v; set-bool(k, v) => { root.set-bool(k, v); } set-overlay-opacity(v) => { root.set-overlay-opacity(v); } pick-text(h, s, v) => { root.pick-overlay-text(h, s, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } picker-dragging-changed(d) => { root.picker-dragging = d; } }
                             if root.scol(4) == 1: CombatSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
                             if root.scol(5) == 1: HistorySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
@@ -3040,7 +3138,7 @@ export component MainWindow inherits Window {
                             spacing: 8px; // カード間の縦余白（セクション境界）
                             if root.scol(0) == 2: CharacterSection { uid-value: root.selected-uid-value; uid-name: root.selected-uid-name; candidates: root.uid-candidates; set-uid(u) => { root.set-selected-uid(u); } }
                             if root.scol(1) == 2: DisplayColsSection { cfg: root.cfg-ui; set-bool(k, v) => { root.set-bool(k, v); } }
-                            if root.scol(2) == 2: DisplaySection { cfg: root.cfg-ui; nums: root.nums; accent-h: root.accent-h; accent-s: root.accent-s; accent-v: root.accent-v; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } pick-accent(h, s, v) => { root.pick-accent(h, s, v); } picker-dragging-changed(d) => { root.picker-dragging = d; } }
+                            if root.scol(2) == 2: DisplaySection { cfg: root.cfg-ui; nums: root.nums; accent-h: root.accent-h; accent-s: root.accent-s; accent-v: root.accent-v; dps-bar-fixed-max-value <=> root.dps-bar-fixed-max-value; dps-bar-window-secs-value <=> root.dps-bar-window-secs-value; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } commit-str(k) => { root.commit-str(k); } pick-accent(h, s, v) => { root.pick-accent(h, s, v); } picker-dragging-changed(d) => { root.picker-dragging = d; } }
                             if root.scol(3) == 2: OverlaySection { cfg: root.cfg-ui; nums: root.nums; overlay-opacity: root.overlay-opacity; text-h: root.overlay-text-h; text-s: root.overlay-text-s; text-v: root.overlay-text-v; set-bool(k, v) => { root.set-bool(k, v); } set-overlay-opacity(v) => { root.set-overlay-opacity(v); } pick-text(h, s, v) => { root.pick-overlay-text(h, s, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } picker-dragging-changed(d) => { root.picker-dragging = d; } }
                             if root.scol(4) == 2: CombatSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
                             if root.scol(5) == 2: HistorySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }

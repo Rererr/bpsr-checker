@@ -15,7 +15,7 @@ use crate::protocol::pb::{self, EntityKind};
 use bytes::Bytes;
 use log::{debug, info, warn};
 use prost::Message;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Cursor;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
@@ -1474,31 +1474,50 @@ pub(crate) fn take_time_series_sample(encounter: &mut Encounter, ts: u128, force
         encounter.time_series.pop_front();
     }
 
-    // Per-entity sampling (only for entities that have dealt damage)
+    // Per-entity sampling (only for entities with activity on at least one of the 3 metrics)
     for entity in encounter.entities.values_mut() {
         if entity.entity_type != EntityKind::Player {
             continue;
         }
-        if entity.dmg_stats.total == 0 && entity.time_series.is_empty() {
+        let dmg_total = entity.dmg_stats.total;
+        let heal_total = entity.heal_stats.total;
+        let taken_total = entity.dmg_taken_stats.total;
+        let no_activity = dmg_total == 0
+            && entity.time_series.is_empty()
+            && heal_total == 0
+            && entity.heal_time_series.is_empty()
+            && taken_total == 0
+            && entity.dmg_taken_time_series.is_empty();
+        if no_activity {
             continue;
         }
-        let entity_delta = entity.dmg_stats.total - entity.last_sample_total_dmg;
-        let entity_dps = if interval_actual > 0 {
-            (entity_delta as f64) * 1000.0 / (interval_actual as f64)
-        } else {
-            0.0
-        };
-        entity
-            .time_series
-            .push_back(crate::models::TimeSeriesPoint {
-                t_ms: elapsed_since_start as f64,
-                total_dmg: entity.dmg_stats.total as f64,
-                total_dps: entity_dps.max(0.0),
-            });
-        while entity.time_series.len() > cap {
-            entity.time_series.pop_front();
-        }
-        entity.last_sample_total_dmg = entity.dmg_stats.total;
+        // 与ダメ/回復/被ダメの3指標を同時刻に独立採取する（回復タブの推移グラフ・固定基準バーが
+        // 与ダメ系列を誤って描く問題の根本解消。各指標は自身の total が非0か既存系列が非空の
+        // ときのみ採取＝未活動の指標に無駄な系列を作らない）。
+        sample_metric_series(
+            &mut entity.time_series,
+            &mut entity.last_sample_total_dmg,
+            dmg_total,
+            elapsed_since_start,
+            interval_actual,
+            cap,
+        );
+        sample_metric_series(
+            &mut entity.heal_time_series,
+            &mut entity.last_sample_total_heal,
+            heal_total,
+            elapsed_since_start,
+            interval_actual,
+            cap,
+        );
+        sample_metric_series(
+            &mut entity.dmg_taken_time_series,
+            &mut entity.last_sample_total_dmg_taken,
+            taken_total,
+            elapsed_since_start,
+            interval_actual,
+            cap,
+        );
 
         // Per-skill sampling（スキル別の累積/窓DPS を採取。借用衝突回避のため先に値を収集）
         let skill_samples: Vec<(i32, i64)> = entity
@@ -1529,6 +1548,38 @@ pub(crate) fn take_time_series_sample(encounter: &mut Encounter, ts: u128, force
 
     encounter.last_sample_ms = ts;
     encounter.last_sample_total_dmg = encounter.dmg_stats.total;
+}
+
+/// 1エンティティ・1指標ぶんの時系列サンプルを採取する（与ダメ/回復/被ダメの3系統で共通）。
+/// `total` が0かつ既存 `series` も空なら何もしない（その指標で一度も活動が無いエンティティに
+/// 系列を作らずメモリを節約する）。`take_time_series_sample` の per-entity ループから
+/// 3回（各指標1回）呼ぶことで、判定・採取ロジックを1箇所に集約し3重コピペを避ける。
+fn sample_metric_series(
+    series: &mut VecDeque<crate::models::TimeSeriesPoint>,
+    last_sample_total: &mut i64,
+    total: i64,
+    elapsed_since_start: u128,
+    interval_actual: u128,
+    cap: usize,
+) {
+    if total == 0 && series.is_empty() {
+        return;
+    }
+    let delta = total - *last_sample_total;
+    let dps = if interval_actual > 0 {
+        (delta as f64) * 1000.0 / (interval_actual as f64)
+    } else {
+        0.0
+    };
+    series.push_back(crate::models::TimeSeriesPoint {
+        t_ms: elapsed_since_start as f64,
+        total_dmg: total as f64,
+        total_dps: dps.max(0.0),
+    });
+    while series.len() > cap {
+        series.pop_front();
+    }
+    *last_sample_total = total;
 }
 
 /// EnterScene (自キャラ入場) の PlayerEnt.attrs を処理する。
@@ -1827,6 +1878,65 @@ mod tests {
         let p = &enc.entities[&1];
         assert_eq!(p.time_series.front().unwrap().t_ms, 0.0);
         assert_eq!(p.time_series.back().unwrap().t_ms, window_ms as f64);
+    }
+
+    // 与ダメが0のプレイヤー（純ヒーラー相当）でも、回復が非0なら heal_time_series が
+    // 独立して刻まれる（with dmg_time_series は空のまま）。旧実装は dmg_stats.total==0 の
+    // エンティティを丸ごと skip していたため、この観測が失われていた。
+    #[test]
+    fn heal_only_entity_samples_heal_series_independently_of_dmg() {
+        set_ts_config(60, 1000);
+        let mut enc = Encounter::default();
+        enc.entities.insert(1, player());
+
+        for i in 0..3u128 {
+            let ts = i * 1000;
+            enc.entities.get_mut(&1).unwrap().heal_stats.total += 500;
+            enc.time_last_combat_packet_ms = ts;
+            take_time_series_sample(&mut enc, ts, false);
+        }
+
+        let p = &enc.entities[&1];
+        assert_eq!(p.heal_time_series.len(), 3, "heal series should sample every tick");
+        assert!(p.time_series.is_empty(), "dmg series should stay empty (dmg total is 0)");
+        assert!(p.dmg_taken_time_series.is_empty(), "taken series should stay empty (taken total is 0)");
+        // 累計値(total_dmgフィールドを回復累計として流用)が正しく積み上がっている(500*3=1500)。
+        assert_eq!(p.heal_time_series.back().unwrap().total_dmg, 1500.0);
+    }
+
+    // 与ダメ/回復/被ダメが同時に発生するプレイヤー（タンク兼ヒーラー等）は3系統が
+    // 同時刻(t_ms)で独立に刻まれ、互いの値が混線しない。
+    #[test]
+    fn all_three_metrics_sample_independently_at_same_tick() {
+        set_ts_config(60, 1000);
+        let mut enc = Encounter::default();
+        enc.entities.insert(1, player());
+
+        for i in 0..3u128 {
+            let ts = i * 1000;
+            {
+                let e = enc.entities.get_mut(&1).unwrap();
+                e.dmg_stats.total += 100;
+                e.heal_stats.total += 200;
+                e.dmg_taken_stats.total += 300;
+            }
+            enc.time_last_combat_packet_ms = ts;
+            take_time_series_sample(&mut enc, ts, false);
+        }
+
+        let p = &enc.entities[&1];
+        assert_eq!(p.time_series.len(), 3);
+        assert_eq!(p.heal_time_series.len(), 3);
+        assert_eq!(p.dmg_taken_time_series.len(), 3);
+        // 同じ t_ms で3系統が刻まれている（採取タイミングが一致）。
+        for i in 0..3 {
+            assert_eq!(p.time_series[i].t_ms, p.heal_time_series[i].t_ms);
+            assert_eq!(p.time_series[i].t_ms, p.dmg_taken_time_series[i].t_ms);
+        }
+        // 累計値が指標ごとに正しく独立している(100/200/300刻みが混線しない)。
+        assert_eq!(p.time_series.back().unwrap().total_dmg, 300.0);
+        assert_eq!(p.heal_time_series.back().unwrap().total_dmg, 600.0);
+        assert_eq!(p.dmg_taken_time_series.back().unwrap().total_dmg, 900.0);
     }
 
     // 最後の戦闘パケットが間隔ゲート未満で通常サンプルされない場合でも、

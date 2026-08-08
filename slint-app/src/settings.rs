@@ -201,6 +201,14 @@ pub struct Settings {
     /// 固定基準モードの平均窓秒 s（1秒〜グラフの保持期間[time_series_samples×interval_ms]に
     /// クランプ。範囲は crate::dps_bar::clamp_window_secs に一本化）。
     pub dps_bar_window_secs: f64,
+    /// DPS一覧の行バーの濃度。"none"(非表示)/"subtle"(既定・現行のalpha0.22相当)/"strong"
+    /// (終端が読める見た目＋右端エッジ線)。不正値は load() で "subtle" へ正規化する。
+    pub dps_bar_intensity: String,
+    /// バー幅変化のアニメーション（250ms ease-out）を有効にするか。既定は false（実測に基づく）。
+    /// release ビルド・デモ8人が常時変動する条件で 60秒×2回計測（Task Manager 相当の単一コア
+    /// 正規化%）: animate ON ≈17.1% vs OFF ≈11.4-11.8%（差 +5.3〜5.7pt）。
+    /// 目安の「+1〜2pt以内」を明確に超えたため既定 OFF とした（ユーザーが設定パネルで有効化可能）。
+    pub dps_bar_animate: bool,
 }
 
 impl Default for Settings {
@@ -277,6 +285,8 @@ impl Default for Settings {
             dps_bar_mode: crate::dps_bar::MODE_TOP.to_string(),
             dps_bar_fixed_max: 100_000.0,
             dps_bar_window_secs: 10.0,
+            dps_bar_intensity: crate::dps_bar::INTENSITY_SUBTLE.to_string(),
+            dps_bar_animate: false,
         }
     }
 }
@@ -312,6 +322,8 @@ pub fn load() -> Settings {
                 cfg.time_series_samples,
                 cfg.time_series_interval_ms,
             );
+            cfg.dps_bar_intensity =
+                crate::dps_bar::BarIntensity::parse(&cfg.dps_bar_intensity).as_str().to_string();
             cfg
         }
         Err(_) => Settings::default(),

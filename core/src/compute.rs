@@ -120,8 +120,12 @@ fn skill_row_for(
     }
 }
 
+/// 集計指標の種別。`get_header_info` / `get_skills` の共通引数で、どの統計を集計対象にするかを
+/// 表す（旧実装はどちらも生の `tab: i32` を受けタブ番号→意味のマッピングを別々に持っていたため、
+/// タブ追加時に片方だけ直しても動いてしまう乖離があった）。slint-app 側の `tab_stat` がタブ番号
+/// からこの型へ変換する唯一の入口。
 #[derive(Debug, Clone, Copy)]
-enum StatType {
+pub enum StatType {
     Dmg,
     DmgBossOnly,
     Heal,
@@ -130,9 +134,8 @@ enum StatType {
 
 // ─── Header ──────────────────────────────────────────────────────────────────
 
-/// `tab`(0=dps 1=heal 2=taken。3=history は暫定で dps 扱い)に応じて合計DPS/合計値を切り替える。
-/// `fetch_players` (slint-app/src/main.rs) と同じタブ→統計種別マッピング。
-pub fn get_header_info(enc: &EncounterMutex, tab: i32) -> HeaderInfo {
+/// `stat` に応じて合計DPS/合計値を切り替える。
+pub fn get_header_info(enc: &EncounterMutex, stat: StatType) -> HeaderInfo {
     with_lock_or(enc, "get_header_info", HeaderInfo::default(), |encounter| {
         let selected = selected_uid::get();
         if selected.is_some() && !encounter.has_selected_participant {
@@ -144,10 +147,11 @@ pub fn get_header_info(enc: &EncounterMutex, tab: i32) -> HeaderInfo {
             .saturating_sub(encounter.time_fight_start_ms);
         let elapsed_secs = elapsed_ms as f64 / 1000.0;
 
-        let stats = match tab {
-            1 => &encounter.heal_stats,
-            2 => &encounter.dmg_taken_stats,
-            _ => &encounter.dmg_stats,
+        let stats = match stat {
+            StatType::Heal => &encounter.heal_stats,
+            StatType::DmgTaken => &encounter.dmg_taken_stats,
+            StatType::Dmg => &encounter.dmg_stats,
+            StatType::DmgBossOnly => &encounter.dmg_stats_boss_only,
         };
 
         HeaderInfo {
@@ -222,7 +226,7 @@ pub fn get_dmg_taken_attackers(
         player_stats,
         encounter_stats,
         elapsed_secs,
-        &player.time_series,
+        &player.dmg_taken_time_series,
         ConsumableTimes::default(), // inspected_player 見出しは食事/シロップ非表示
         format_imagine_suffix(
             &player.imagine_display_labels(),
@@ -294,7 +298,7 @@ pub fn get_dmg_taken_skills(
         player_stats,
         encounter_stats,
         elapsed_secs,
-        &player.time_series,
+        &player.dmg_taken_time_series,
         ConsumableTimes::default(), // inspected_player 見出しは食事/シロップ非表示
         format_imagine_suffix(
             &player.imagine_display_labels(),
@@ -391,6 +395,13 @@ fn build_players_window_unsorted(
             StatType::Heal => &entity.heal_stats,
             StatType::DmgTaken => &entity.dmg_taken_stats,
         };
+        // 推移グラフ・固定基準バーが指標(タブ)と一致した系列を見るように、stat_type に応じて
+        // 時系列も切り替える（boss-onlyは専用系列を持たず通常の与ダメ系列を流用する）。
+        let entity_time_series = match stat_type {
+            StatType::Dmg | StatType::DmgBossOnly => &entity.time_series,
+            StatType::Heal => &entity.heal_time_series,
+            StatType::DmgTaken => &entity.dmg_taken_time_series,
+        };
 
         if entity.entity_type != EntityKind::Player {
             continue;
@@ -434,7 +445,7 @@ fn build_players_window_unsorted(
             entity_stats,
             encounter_stats,
             elapsed_secs,
-            &entity.time_series,
+            entity_time_series,
             consumable,
             format_imagine_suffix(
                 &entity.imagine_display_labels(),
@@ -561,9 +572,20 @@ fn make_player_row(
 
 // ─── Skills window ───────────────────────────────────────────────────────────
 
+/// `stat`(Heal のみ回復基準。DmgTaken/DmgBossOnly を渡された場合も含め、それ以外はすべて
+/// 与ダメ基準へフォールバックする。被ダメの技別内訳は `get_dmg_taken_attackers` へ振り分ける
+/// 想定で、本関数が DmgTaken を受け取ることは無い)に応じてスキル別内訳を取得する。
+///
+/// 総計・内訳(SkillRow)は指標別に既に集計済みの `skill_uid_to_heal_stats` を使えるため
+/// heal タブでも正しい値を返せるが、**スキル別の推移グラフ(row.time_series)は現状
+/// 与ダメ専用の `skill_time_series` しか採取していない**ため、heal タブでは空にする
+/// （dmg 専用マップを heal の skill_uid で誤って引くと無関係なスキルの系列が出かねないため）。
+/// heal 版のスキル別時系列が要るなら `skill_heal_time_series: HashMap<i32, VecDeque<..>>` の
+/// 新設とサンプリング側の対応が要る（新規データ構造の追加＝別スコープ）。
 pub fn get_skills(
     enc: &EncounterMutex,
     player_uid: i64,
+    stat: StatType,
 ) -> Result<SkillsWindow, String> {
     let encounter = enc.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
 
@@ -576,8 +598,12 @@ pub fn get_skills(
         .saturating_sub(encounter.time_fight_start_ms);
     let elapsed_secs = elapsed_ms as f64 / 1000.0;
 
-    let player_stats = &player.dmg_stats;
-    let encounter_stats = &encounter.dmg_stats;
+    let is_heal = matches!(stat, StatType::Heal);
+    let player_stats = if is_heal { &player.heal_stats } else { &player.dmg_stats };
+    let encounter_stats = if is_heal { &encounter.heal_stats } else { &encounter.dmg_stats };
+    let player_time_series = if is_heal { &player.heal_time_series } else { &player.time_series };
+    let skill_stats_map =
+        if is_heal { &player.skill_uid_to_heal_stats } else { &player.skill_uid_to_dps_stats };
 
     let inspected_player = make_player_row(
         player_uid,
@@ -590,7 +616,7 @@ pub fn get_skills(
         player_stats,
         encounter_stats,
         elapsed_secs,
-        &player.time_series,
+        player_time_series,
         ConsumableTimes::default(), // inspected_player 見出しは食事/シロップ非表示
         format_imagine_suffix(
             &player.imagine_display_labels(),
@@ -605,7 +631,7 @@ pub fn get_skills(
         top_value: 0.0,
     };
 
-    for (&skill_uid, skill_stat) in &player.skill_uid_to_dps_stats {
+    for (&skill_uid, skill_stat) in skill_stats_map {
         skill_window.top_value = skill_window.top_value.max(skill_stat.total as f64);
         let meta = player.skill_meta.get(&skill_uid).copied().unwrap_or_default();
         let mut row = skill_row_for(
@@ -617,11 +643,14 @@ pub fn get_skills(
             elapsed_secs,
             player_stats.total,
         );
-        row.time_series = player
-            .skill_time_series
-            .get(&skill_uid)
-            .map(|d| d.iter().cloned().collect())
-            .unwrap_or_default();
+        // heal タブは per-skill 時系列を未収集のため空のまま（doc コメント参照）。
+        if !is_heal {
+            row.time_series = player
+                .skill_time_series
+                .get(&skill_uid)
+                .map(|d| d.iter().cloned().collect())
+                .unwrap_or_default();
+        }
         skill_window.skill_rows.push(row);
     }
     drop(encounter);
@@ -1446,5 +1475,91 @@ mod tests {
             "-ゴーストカニクモ/ティナ (R:アルーナ(3)/ファルファラ/鉄牙(1)/ムークボス)",
             "all 4 simultaneous role skill labels must be shown, none silently dropped"
         );
+    }
+
+    // build_players_window_unsorted が stat_type と一致する時系列を PlayerRow.time_series に
+    // 載せることを確認する（回復/被ダメタブの推移グラフ・固定基準バーが与ダメ系列を誤って
+    // 描いていた問題の回帰テスト）。
+    #[test]
+    fn player_row_time_series_matches_requested_stat_type() {
+        use crate::engine::entity::Entity;
+        use crate::protocol::pb::EntityKind;
+
+        const UID: i64 = 77;
+        let enc: EncounterMutex = std::sync::Mutex::new(Encounter::default());
+        {
+            let mut e = enc.lock().unwrap();
+            let mut p = Entity { entity_type: EntityKind::Player, ..Default::default() };
+            p.dmg_stats.total = 100;
+            p.heal_stats.total = 200;
+            p.dmg_taken_stats.total = 300;
+            p.time_series =
+                VecDeque::from(vec![TimeSeriesPoint { t_ms: 0.0, total_dmg: 100.0, total_dps: 10.0 }]);
+            p.heal_time_series =
+                VecDeque::from(vec![TimeSeriesPoint { t_ms: 0.0, total_dmg: 200.0, total_dps: 20.0 }]);
+            p.dmg_taken_time_series =
+                VecDeque::from(vec![TimeSeriesPoint { t_ms: 0.0, total_dmg: 300.0, total_dps: 30.0 }]);
+            e.entities.insert(UID, p);
+        }
+
+        let dmg_row = get_dps_players(&enc)
+            .player_rows
+            .into_iter()
+            .find(|r| r.uid as i64 == UID)
+            .expect("dmg row present");
+        assert_eq!(dmg_row.time_series.len(), 1);
+        assert_eq!(dmg_row.time_series[0].total_dps, 10.0, "dps tab must surface the dmg series");
+
+        let heal_row = get_heal_players(&enc)
+            .player_rows
+            .into_iter()
+            .find(|r| r.uid as i64 == UID)
+            .expect("heal row present");
+        assert_eq!(heal_row.time_series.len(), 1);
+        assert_eq!(
+            heal_row.time_series[0].total_dps, 20.0,
+            "heal tab must surface the heal series, not the dmg series"
+        );
+
+        let taken_row = get_dmg_taken_players(&enc)
+            .player_rows
+            .into_iter()
+            .find(|r| r.uid as i64 == UID)
+            .expect("taken row present");
+        assert_eq!(taken_row.time_series.len(), 1);
+        assert_eq!(
+            taken_row.time_series[0].total_dps, 30.0,
+            "taken tab must surface the taken series, not the dmg series"
+        );
+    }
+
+    // get_skills はタブ(0=dps/1=heal)に応じて集計元(dmg_stats/heal_stats・両スキルmap)を
+    // 切り替える。回復タブでも常に与ダメ基準になっていた既存バグの回帰テスト。
+    #[test]
+    fn get_skills_selects_stat_source_by_tab() {
+        use crate::engine::entity::Entity;
+        use crate::protocol::pb::EntityKind;
+
+        const UID: i64 = 88;
+        let enc: EncounterMutex = std::sync::Mutex::new(Encounter::default());
+        {
+            let mut e = enc.lock().unwrap();
+            let mut p = Entity { entity_type: EntityKind::Player, ..Default::default() };
+            p.dmg_stats.total = 1000;
+            p.heal_stats.total = 2000;
+            p.skill_uid_to_dps_stats.insert(1, CombatStats { total: 1000, ..Default::default() });
+            p.skill_uid_to_heal_stats.insert(2, CombatStats { total: 2000, ..Default::default() });
+            e.entities.insert(UID, p);
+        }
+
+        let dps_sw = get_skills(&enc, UID, StatType::Dmg).expect("dps skills");
+        assert_eq!(dps_sw.inspected_player.total_value, 1000.0);
+        assert_eq!(dps_sw.skill_rows.len(), 1);
+        assert_eq!(dps_sw.skill_rows[0].uid, 1.0);
+
+        let heal_sw = get_skills(&enc, UID, StatType::Heal).expect("heal skills");
+        assert_eq!(heal_sw.inspected_player.total_value, 2000.0);
+        assert_eq!(heal_sw.skill_rows.len(), 1);
+        assert_eq!(heal_sw.skill_rows[0].uid, 2.0, "heal tab must list heal skills, not dps skills");
     }
 }

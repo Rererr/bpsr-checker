@@ -123,9 +123,17 @@ pub struct Entity {
     pub curr_hp: Option<u64>,
     pub max_hp: Option<u64>,
 
-    // Per-entity DPS time series (sampled alongside encounter-wide series)
+    // Per-entity DPS time series (sampled alongside encounter-wide series)。与ダメ指標。
     pub time_series: VecDeque<TimeSeriesPoint>,
     pub last_sample_total_dmg: i64,
+
+    // 回復タブ用の指標別時系列（processor::take_time_series_sample が dmg と同時刻に採取）。
+    pub heal_time_series: VecDeque<TimeSeriesPoint>,
+    pub last_sample_total_heal: i64,
+
+    // 被ダメタブ用の指標別時系列（同上）。
+    pub dmg_taken_time_series: VecDeque<TimeSeriesPoint>,
+    pub last_sample_total_dmg_taken: i64,
 
     // Per-skill DPS time series（スキル別の推移グラフ用。entity の time_series と同タイミングで採取）
     pub skill_time_series: HashMap<i32, VecDeque<TimeSeriesPoint>>,

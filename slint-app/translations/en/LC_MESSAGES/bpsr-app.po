@@ -342,6 +342,33 @@ msgstr "Window (s)"
 msgid "基準DPSは0より大きい値、平均秒数は1秒〜グラフの保持期間(サンプル数×間隔)の範囲で指定できます。"
 msgstr "Target DPS must be greater than 0. The window accepts 1 second up to the graph's retention period (sample count x interval)."
 
+msgid "バー濃度"
+msgstr "Bar intensity"
+
+msgid "なし"
+msgstr "None"
+
+msgid "控えめ"
+msgstr "Subtle"
+
+msgid "くっきり"
+msgstr "Strong"
+
+msgid "なし: バーを表示しません(行背景のみ)。"
+msgstr "None: hides the bar entirely (row background only)."
+
+msgid "くっきり: 終端まで見える濃さにし、バー右端にクラス色の線を表示します。"
+msgstr "Strong: keeps the fill visible all the way to the end and adds a class-colored line at the bar's right edge."
+
+msgid "控えめ: 既定の見た目です。バー終端は透明にフェードします。"
+msgstr "Subtle: the default look. The bar fades to transparent at its end."
+
+msgid "バー幅の変化をアニメーション"
+msgstr "Animate bar width changes"
+
+msgid "有効にするとバー幅の変化が滑らかになりますが、CPU使用率が上がります。"
+msgstr "Smooths bar width changes when enabled, at the cost of higher CPU usage."
+
 msgid "自分のグラフを表示"
 msgstr "Graph for self"
 

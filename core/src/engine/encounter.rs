@@ -82,6 +82,10 @@ impl Encounter {
             entity.attacker_skill_to_dmg_taken_stats.clear();
             entity.time_series.clear();
             entity.last_sample_total_dmg = 0;
+            entity.heal_time_series.clear();
+            entity.last_sample_total_heal = 0;
+            entity.dmg_taken_time_series.clear();
+            entity.last_sample_total_dmg_taken = 0;
             entity.skill_time_series.clear();
             entity.skill_last_sample_total_dmg.clear();
         }

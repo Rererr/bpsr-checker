@@ -196,16 +196,11 @@ fn data_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(base).join("bpsr-checker")
 }
 
-/// タブが表す集計指標の種別。タブ番号→意味の対応は `tab_stat` 1箇所に集約し、
-/// `fetch_players`（どの集計を取得するか）と `dps_bar_config`（固定基準モードで窓平均を
-/// 使ってよいか＝与ダメ系列のみ）が同じ判定から導出する（タブ追加時に片方だけ直しても
+/// タブが表す集計指標の種別。タブ番号→意味の対応は `tab_stat` 1箇所に集約し、`fetch_players`
+/// （どの集計を取得するか）・`get_header_info`/`get_skills` 呼び出し（core 側の
+/// `bpsr_core::compute::StatType` を返す）が同じ判定から導出する（タブ追加時に片方だけ直しても
 /// 動いてしまう＝レビューで初めて発覚する類の乖離を防ぐ）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum StatType {
-    Dmg,
-    Heal,
-    DmgTaken,
-}
+use bpsr_core::compute::StatType;
 
 /// タブ番号(0=dps 1=heal 2=taken 3=history)→集計指標。history(3) は S5 実装まで dmg を暫定表示。
 fn tab_stat(tab: i32) -> StatType {
@@ -222,6 +217,8 @@ fn fetch_players(enc: &EncounterMutex, tab: i32) -> bpsr_core::models::PlayersWi
         StatType::Heal => compute::get_heal_players(enc),
         StatType::DmgTaken => compute::get_dmg_taken_players(enc),
         StatType::Dmg => compute::get_dps_players(enc),
+        // tab_stat は生成しないが、core と共有の StatType を網羅させる。
+        StatType::DmgBossOnly => compute::get_dps_boss_players(enc),
     }
 }
 
@@ -230,17 +227,22 @@ fn graph_col_active(c: &settings::Settings, tab: i32) -> bool {
     (c.graph_player_count > 0.0 || c.graph_for_local_player) && tab != 2
 }
 
-/// 通常 rows へ反映しつつ、軽量分割表示用に前半/後半カラムへも分配する。
+/// 通常 rows へ反映しつつ、軽量分割表示用に前半/後半カラムへも分配する。自分基準モードの
+/// 50%ガイド線表示可否（`build_rows` が計算した self_guide_has_data）も同時に反映する
+/// （バー計算のフォールバック条件とガイド線の表示条件を1つの値から導出するため）。
 fn apply_player_rows(
+    m: &MainWindow,
     rows: &slint::VecModel<Row>,
     left: &slint::VecModel<Row>,
     right: &slint::VecModel<Row>,
-    built: Vec<Row>,
+    built: (Vec<Row>, bool),
 ) {
+    let (built, self_guide_has_data) = built;
     let half = built.len().div_ceil(2);
     sync_rows(left, &built[..half]);
     sync_rows(right, &built[half..]);
     sync_rows(rows, &built);
+    m.set_self_guide_has_data(self_guide_has_data);
 }
 
 /// 行数が同じならデリゲートを再生成せず in-place 更新する。
@@ -281,12 +283,15 @@ fn build_rows(
     graph_count: i32,
     graph_for_local: bool,
     bar_cfg: &dps_bar::DpsBarConfig,
-) -> Vec<Row> {
+) -> (Vec<Row>, bool) {
     let top = pw.top_value.max(1.0);
     let local = pw.local_player_uid;
     // 自分基準モード以外では未使用だが、行数は高々十数人なので線形探索のコストは無視できる
     // （モード判定を dps_bar::bar_pct 側の1箇所に集約するため、ここでは無条件に求める）。
     let self_total = pw.player_rows.iter().find(|p| p.uid == local).map(|p| p.total_value);
+    // dps_bar::bar_pct の SelfRelative フォールバック条件と同一の判定（app.slint の
+    // self-guide-has-data へ渡し、ガイド線の表示条件をバー計算のフォールバックと一致させる）。
+    let self_guide_has_data = self_total.is_some_and(|s| s > 0.0);
     // 非ローカルの上位 graph_count 人＋（設定時）ローカルにグラフを出す。
     let mut non_local_above: i32 = 0;
     let mut out = Vec::with_capacity(pw.player_rows.len());
@@ -365,7 +370,7 @@ fn build_rows(
             syrup_label: syrup_label.into(),
         });
     }
-    out
+    (out, self_guide_has_data)
 }
 
 fn build_skill_rows(sw: &bpsr_core::models::SkillsWindow) -> Vec<SkillRowUi> {
@@ -1095,14 +1100,13 @@ fn show_drill(
 }
 
 /// Settings → build_rows へ渡すバー表示方式の設定一式（呼び出し4箇所の重複を避ける）。
-/// 固定基準モードの窓平均は与ダメタブ（tab_stat(tab) == Dmg）でのみ使う
-/// （PlayerRow.time_series が常に与ダメ由来のため）。
-fn dps_bar_config(c: &settings::Settings, tab: i32) -> dps_bar::DpsBarConfig {
+/// タブ非依存（PlayerRow.time_series は build_rows 呼び出し元が現在タブと一致する指標
+/// （与ダメ/回復/被ダメ）で取得済みのため、固定基準モードの窓平均も全タブで使える）。
+fn dps_bar_config(c: &settings::Settings) -> dps_bar::DpsBarConfig {
     dps_bar::DpsBarConfig {
         mode: dps_bar::DpsBarMode::parse(&c.dps_bar_mode),
         fixed_max: c.dps_bar_fixed_max,
         window_secs: c.dps_bar_window_secs,
-        dmg_tab: tab_stat(tab) == StatType::Dmg,
     }
 }
 
@@ -1218,6 +1222,8 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         overlay_shadow: c.overlay_shadow,
         show_footer: c.show_footer,
         dps_bar_mode: c.dps_bar_mode.clone().into(),
+        dps_bar_intensity: c.dps_bar_intensity.clone().into(),
+        dps_bar_animate: c.dps_bar_animate,
     });
     // 文字色HSVピッカーの初期/同期位置（現在の文字色を HSV へ変換して反映）。
     {
@@ -2681,6 +2687,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         pw.local_player_uid as i64,
                     );
                     apply_player_rows(
+                        &m,
                         &rows_sel,
                         &cl_sel,
                         &cr_sel,
@@ -2692,7 +2699,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             &pin_uids,
                             c.graph_player_count as i32,
                             c.graph_for_local_player,
-                            &dps_bar_config(&c, n),
+                            &dps_bar_config(&c),
                         ),
                     );
                 }
@@ -2723,7 +2730,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Err(e) => log::warn!("get_dmg_taken_attackers({uid}) failed: {e}"),
                 }
             } else {
-                match compute::get_skills(&enc_sk, uid) {
+                match compute::get_skills(&enc_sk, uid, tab_stat(tab_h.get())) {
                     Ok(sw) => {
                         drill_h.set(Drill::Skills(uid));
                         show_drill(&m, &sk_rows, &sw, false);
@@ -2806,7 +2813,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 wl.save();
             }
-            if w.upgrade().is_some() {
+            if let Some(m) = w.upgrade() {
                 let c = cfg_t.borrow();
                 let pw = fetch_players(&enc_t, tab_t.get());
                 let main_uids: Vec<i64> =
@@ -2821,6 +2828,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     pw.local_player_uid as i64,
                 );
                 apply_player_rows(
+                    &m,
                     &rows_t,
                     &cl_t,
                     &cr_t,
@@ -2832,7 +2840,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         &pin_uids,
                         c.graph_player_count as i32,
                         c.graph_for_local_player,
-                        &dps_bar_config(&c, tab_t.get()),
+                        &dps_bar_config(&c),
                     ),
                 );
             }
@@ -2852,7 +2860,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         main.on_clear_watchlist(move || {
             wl_cw.borrow_mut().clear_all();
             wl_cw.borrow().save();
-            if w.upgrade().is_some() {
+            if let Some(m) = w.upgrade() {
                 let c = cfg_cw.borrow();
                 let pw = fetch_players(&enc_cw, tab_cw.get());
                 let main_uids: Vec<i64> = pw.player_rows.iter().map(|p| p.uid as i64).collect();
@@ -2866,6 +2874,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     pw.local_player_uid as i64,
                 );
                 apply_player_rows(
+                    &m,
                     &rows_cw,
                     &cl_cw,
                     &cr_cw,
@@ -2877,7 +2886,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         &pin_uids,
                         c.graph_player_count as i32,
                         c.graph_for_local_player,
-                        &dps_bar_config(&c, tab_cw.get()),
+                        &dps_bar_config(&c),
                     ),
                 );
             }
@@ -3291,6 +3300,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "overlay-outline" => c.overlay_outline = val,
                     "overlay-shadow" => c.overlay_shadow = val,
                     "show-footer" => c.show_footer = val,
+                    "dps-bar-animate" => c.dps_bar_animate = val,
                     other => log::warn!("unknown setting key: {other}"),
                 }
             }
@@ -3566,6 +3576,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "buff-overlay-font" => c.buff_overlay_font = val.to_string(),
                     "overlay-text-color" => c.overlay_text_color = val.to_string(),
                     "dps-bar-mode" => c.dps_bar_mode = val.to_string(),
+                    "dps-bar-intensity" => c.dps_bar_intensity = val.to_string(),
                     // 不正入力（非数・0以下）は保存せず直前の値を維持する（SegButton の値送出とは
                     // 異なりユーザーの自由入力のため、ここで検証する）。検証・クランプは
                     // crate::dps_bar に一本化し、settings::load() の正規化処理と共用する。
@@ -4095,7 +4106,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         compute::refresh_consumables(&enc_poll);
 
         // ライブ集計を反映（共有セルの現在タブに応じて取得）
-        let header = compute::get_header_info(&enc_poll, tab_cell_poll.get());
+        let header = compute::get_header_info(&enc_poll, tab_stat(tab_cell_poll.get()));
         m.set_total_text(format::format_dps(header.total_dps).into());
         m.set_elapsed_text(format::format_elapsed(header.elapsed_ms).into());
 
@@ -4151,7 +4162,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 > = std::collections::HashMap::new();
                 for p in &pw.player_rows {
                     let uid = p.uid as i64;
-                    if let Ok(sw) = compute::get_skills(&enc_poll, uid) {
+                    // 3分計測は常にdps基準（get_dps_playersを直上で使っているのと揃える。
+                    // 現在表示中のタブとは無関係）。
+                    if let Ok(sw) = compute::get_skills(&enc_poll, uid, StatType::Dmg) {
                         skills.insert(uid, sw.skill_rows);
                     }
                 }
@@ -4237,6 +4250,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 main_local_uid,
             );
             apply_player_rows(
+                &m,
                 &rows,
                 &compact_left_poll,
                 &compact_right_poll,
@@ -4248,7 +4262,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     &pin_uids,
                     c.graph_player_count as i32,
                     c.graph_for_local_player,
-                    &dps_bar_config(&c, cur_tab),
+                    &dps_bar_config(&c),
                 ),
             );
         }
@@ -4256,7 +4270,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // ドリルダウン中はライブ更新
         match drill_poll.get() {
             Drill::Skills(uid) => {
-                if let Ok(sw) = compute::get_skills(&enc_poll, uid) {
+                // タブ切替でdrillはNoneへ戻るため(on_select_tab)、Skills中はcur_tabが
+                // 開いた時のタブのまま＝そのタブ基準で内訳を取り続けてよい。
+                if let Ok(sw) = compute::get_skills(&enc_poll, uid, tab_stat(cur_tab)) {
                     skill_rows_poll.set_vec(build_skill_rows(&sw));
                 }
             }

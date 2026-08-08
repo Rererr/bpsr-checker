@@ -48,6 +48,44 @@ impl DpsBarMode {
     }
 }
 
+pub const INTENSITY_NONE: &str = "none";
+pub const INTENSITY_SUBTLE: &str = "subtle";
+pub const INTENSITY_STRONG: &str = "strong";
+
+/// バー濃度。settings.rs の `dps_bar_intensity`（生文字列・既定 "subtle"）をパースした表現。
+/// 未知の文字列は Subtle（既定・現行の見た目相当）へフォールバックする（parse() 参照）。
+/// 値自体の描画（グラデーション alpha・エッジ線の有無）は app.slint 側の導出プロパティに
+/// 一本化し、判定文字列がそこかしこに散らばらないようにする（DpsBarMode と同じ方針）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BarIntensity {
+    /// なし: バー非表示（行背景のみ）
+    None,
+    /// 控えめ（既定・現行）: alpha 0.22 グラデーション、終端は transparent
+    Subtle,
+    /// くっきり: 終端まで視認できる alpha ＋ クラス色のエッジ線
+    Strong,
+}
+
+impl BarIntensity {
+    /// 設定文字列 → 濃度。未知の値は既定の Subtle。
+    pub fn parse(s: &str) -> Self {
+        match s {
+            INTENSITY_NONE => Self::None,
+            INTENSITY_STRONG => Self::Strong,
+            _ => Self::Subtle,
+        }
+    }
+
+    /// 濃度 → 正規化済み設定文字列（parse の逆）。settings::load() で不正値を書き戻す際に使う。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::None => INTENSITY_NONE,
+            Self::Subtle => INTENSITY_SUBTLE,
+            Self::Strong => INTENSITY_STRONG,
+        }
+    }
+}
+
 /// バー幅比率の計算に必要な設定値一式（Settings から都度構築する軽量なコピー）。
 #[derive(Debug, Clone, Copy)]
 pub struct DpsBarConfig {
@@ -56,10 +94,6 @@ pub struct DpsBarConfig {
     pub fixed_max: f64,
     /// 固定基準モードの平均窓秒 s。
     pub window_secs: f64,
-    /// 現在のタブが与ダメージ系か（fetch_players の分岐に合わせる。1=heal, 2=taken 以外）。
-    /// PlayerRow.time_series は常に与ダメージ由来のため、回復/被ダメタブでは固定基準モードの
-    /// 窓平均を使わず value_per_sec（そのタブの指標）へフォールバックする。
-    pub dmg_tab: bool,
 }
 
 /// 値が正の有限値か（固定基準の右端DPS・平均窓秒の入力検証で共用）。
@@ -115,8 +149,11 @@ fn top_pct(total_value: f64, top: f64) -> f32 {
 ///
 /// - Top: 現行どおり total_value / top * 100
 /// - Share: value_pct をそのまま使う（pct_text 列と同じ値。バー幅のみ変わる）
-/// - Fixed: 与ダメタブのみ直近 window_secs 秒の平均DPS、それ以外のタブ（回復/被ダメ）は
-///   value_per_sec（time_series が常に与ダメ由来のため）を fixed_max で正規化し 0..100 にクランプ
+/// - Fixed: 直近 window_secs 秒の平均DPS（導出不能なら value_per_sec）を fixed_max で
+///   正規化し 0..100 にクランプ。`p.time_series` は呼び出し元(build_rows)が現在タブと
+///   一致する指標（与ダメ/回復/被ダメ）の系列を渡す前提のため、ここでタブ判定は不要
+///   （旧実装は time_series が常に与ダメ由来だったため dmg_tab 特別扱いで回避していたが、
+///   core 側が指標別に系列を持つようになり不要化）。
 /// - SelfRelative: 自キャラの total_value（self_total）を基準に 50%位置固定。
 ///   自キャラ不在・0以下（self_total = None）なら Top へフォールバック
 pub fn bar_pct(cfg: &DpsBarConfig, p: &PlayerRow, top: f64, self_total: Option<f64>) -> f32 {
@@ -124,11 +161,7 @@ pub fn bar_pct(cfg: &DpsBarConfig, p: &PlayerRow, top: f64, self_total: Option<f
         DpsBarMode::Top => top_pct(p.total_value, top),
         DpsBarMode::Share => (p.value_pct as f32).clamp(0.0, 100.0),
         DpsBarMode::Fixed => {
-            let avg = cfg
-                .dmg_tab
-                .then(|| windowed_avg_dps(&p.time_series, cfg.window_secs))
-                .flatten()
-                .unwrap_or(p.value_per_sec);
+            let avg = windowed_avg_dps(&p.time_series, cfg.window_secs).unwrap_or(p.value_per_sec);
             let k = if is_positive_finite(cfg.fixed_max) { cfg.fixed_max } else { 1.0 };
             ((avg / k).clamp(0.0, 1.0) * 100.0) as f32
         }
@@ -248,6 +281,22 @@ mod tests {
     }
 
     #[test]
+    fn intensity_parse_unknown_falls_back_to_subtle() {
+        assert_eq!(BarIntensity::parse("none"), BarIntensity::None);
+        assert_eq!(BarIntensity::parse("subtle"), BarIntensity::Subtle);
+        assert_eq!(BarIntensity::parse("strong"), BarIntensity::Strong);
+        assert_eq!(BarIntensity::parse("garbage"), BarIntensity::Subtle);
+        assert_eq!(BarIntensity::parse(""), BarIntensity::Subtle);
+    }
+
+    #[test]
+    fn intensity_as_str_round_trips_through_parse() {
+        for i in [BarIntensity::None, BarIntensity::Subtle, BarIntensity::Strong] {
+            assert_eq!(BarIntensity::parse(i.as_str()), i);
+        }
+    }
+
+    #[test]
     fn max_window_secs_derives_from_retention() {
         // 既定60サンプル×1000ms = 60秒。
         assert_eq!(max_window_secs(60.0, 1000.0), 60.0);
@@ -266,7 +315,7 @@ mod tests {
     }
 
     fn cfg(mode: DpsBarMode) -> DpsBarConfig {
-        DpsBarConfig { mode, fixed_max: 100_000.0, window_secs: 10.0, dmg_tab: true }
+        DpsBarConfig { mode, fixed_max: 100_000.0, window_secs: 10.0 }
     }
 
     #[test]
@@ -306,26 +355,14 @@ mod tests {
     }
 
     #[test]
-    fn bar_pct_fixed_uses_windowed_avg_on_dmg_tab_when_available() {
-        // 与ダメタブでは、窓平均が導出できるならそちらを優先する(value_per_secより優先度が高い)。
+    fn bar_pct_fixed_uses_windowed_avg_when_available() {
+        // 窓平均が導出できるならそちらを優先する(value_per_secより優先度が高い)。タブに関係なく
+        // 呼び出し元(build_rows)が現在タブと一致する指標の time_series を渡す前提（コメント参照）。
         let series = vec![pt(0.0, 0.0), pt(10_000.0, 100_000.0)]; // 10s平均 = 10000/s
         let p = player(0.0, 0.0, 999_999.0, series);
         let pct = bar_pct(&cfg(DpsBarMode::Fixed), &p, 0.0, None);
         // 10000 / 100000 * 100 = 10 (value_per_sec の 999999 は使われない)
         assert_eq!(pct, 10.0);
-    }
-
-    #[test]
-    fn bar_pct_fixed_ignores_dmg_series_outside_dmg_tab() {
-        // 回復/被ダメタブ(dmg_tab=false)では time_series が与ダメ由来で指標と不一致なため、
-        // 窓平均を使わず value_per_sec(そのタブの指標)へ必ずフォールバックする。
-        let series = vec![pt(0.0, 0.0), pt(10_000.0, 100_000.0)]; // 窓平均を使えば10000/sになるはず
-        let p = player(0.0, 0.0, 40_000.0, series);
-        let mut c = cfg(DpsBarMode::Fixed);
-        c.dmg_tab = false;
-        let pct = bar_pct(&c, &p, 0.0, None);
-        // 40000 / 100000 * 100 = 40 (窓平均10000/sは使われない)
-        assert_eq!(pct, 40.0);
     }
 
     #[test]

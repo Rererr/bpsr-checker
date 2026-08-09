@@ -1,0 +1,19 @@
+{
+  "description": "Start the local Slint MCP sidecar when a Codex session opens in this repository.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "^(startup|resume)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"Set-Location (git rev-parse --show-toplevel); & '.\\scripts\\start-slint-mcp.ps1' -Port 8080 -Wait\"",
+            "commandWindows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"Set-Location (git rev-parse --show-toplevel); & '.\\scripts\\start-slint-mcp.ps1' -Port 8080 -Wait\"",
+            "statusMessage": "Starting Slint MCP server",
+            "timeout": 240
+          }
+        ]
+      }
+    ]
+  }
+}

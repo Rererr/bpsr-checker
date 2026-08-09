@@ -1,0 +1,7 @@
+[mcp_servers.bpsr-slint]
+command = "node"
+args = ["scripts/codex-slint-mcp.mjs"]
+cwd = ".." # Project config paths are relative to this .codex directory.
+startup_timeout_sec = 180
+tool_timeout_sec = 120
+default_tools_approval_mode = "auto"

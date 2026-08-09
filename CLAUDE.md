@@ -84,7 +84,9 @@ Slint femtovg はブラウザ（旧 WebView2）と描画特性が異なる（Cle
 
 ### MCP 経由の UI 検査・操作（Slint 埋め込み MCP サーバー）
 Slint テストバックエンド同梱の MCP サーバーで、起動中の UI を Claude Code 等から検査/操作できる
-（UIツリー探索・スクショ・クリック・入力）。`powershell -File scripts/run-mcp.ps1` で起動（既定 8080・デモモード）。
+（UIツリー探索・スクショ・クリック・入力）。Codex ではプロジェクトの `SessionStart` フックが
+`scripts/start-slint-mcp.ps1` を呼び出し、セッション開始時に実観測モードで自動起動する（UAC はセッション開始時に1回）。
+手動でデモモードを使う場合は `powershell -File scripts/run-mcp.ps1` を実行する。
 内部的には slint-app の opt-in feature `mcp`（`set_platform` 後に `mcp_server::init()` を自前呼出）+
 `SLINT_EMIT_DEBUG_INFO=1`（内省メタ埋め込み・ビルド時必須）+ `SLINT_MCP_PORT`（設定時のみ起動）。
 エンドポイントは `http://127.0.0.1:<port>/mcp`（localhost 限定）。
@@ -94,8 +96,8 @@ Slint テストバックエンド同梱の MCP サーバーで、起動中の UI
 **Slint の UI/UX を調査・レビューする際は、推測やソース読みだけで済ませず、この MCP（`slint-ui`）で
 実際に動作中の UI を検査すること**（要素ツリー・実寸/配置・`take_screenshot` での見た目確認、
 クリック/入力での挙動確認）。femtovg はブラウザと描画特性が異なり静的読みでは判断を誤りやすいため、
-実機 UI の観測を一次情報とする。MCP 接続は Claude Code 起動時に確立するので、`scripts/run-mcp.ps1` で
-アプリを起動した状態でセッションを開始する（起動済みアプリに後から接続したい場合はセッション再起動）。
+実機 UI の観測を一次情報とする。MCP 接続は Codex セッション開始時のフックで確立する。
+フックを追加・変更した直後は `/hooks` で内容を確認して trust すること。
 
 #### セッション再起動せずに使う（推奨・現セッションでそのまま観測する手順）
 セッション途中でアプリを起動した等で `slint-ui` ツールが当セッションに無くても、**セッション再起動は不要**。

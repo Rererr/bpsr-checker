@@ -143,7 +143,13 @@ fn already_running() -> bool {
     use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError};
     use windows::Win32::System::Threading::CreateMutexW;
     use windows::core::PCWSTR;
-    let name: Vec<u16> = "Global\\bpsr-checker-slint-instance\0"
+    // The MCP debug process must coexist with the normal UI process.
+    let mutex_name = if cfg!(feature = "mcp") && std::env::var_os("SLINT_MCP_PORT").is_some() {
+        "Global\\bpsr-checker-slint-mcp-instance\0"
+    } else {
+        "Global\\bpsr-checker-slint-instance\0"
+    };
+    let name: Vec<u16> = mutex_name
         .encode_utf16()
         .collect();
     unsafe {

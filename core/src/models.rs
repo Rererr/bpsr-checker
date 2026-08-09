@@ -84,6 +84,9 @@ pub struct EncounterSnapshot {
     pub total_dmg: f64,
     pub total_dps: f64,
     pub player_rows: Vec<PlayerRow>,
+    /// 履歴ビューで再表示するためのプレイヤー別DPSスキル内訳。
+    /// 旧 history.json には存在しないため、EncounterSnapshot の default で空になる。
+    pub player_skill_rows: Vec<PlayerSkillSnapshot>,
     pub time_series: Vec<TimeSeriesPoint>,
     pub participant_player_uids: Vec<f64>,
 }
@@ -217,4 +220,13 @@ pub struct SkillRow {
     // スキル別ダメージ推移（結果画面の折れ線グラフ用。3分計測の finalize 前に捕捉）
     #[serde(default)]
     pub time_series: Vec<TimeSeriesPoint>,
+}
+
+/// 履歴へ保存するプレイヤー別スキル内訳。
+/// PlayerRow 本体とは分離し、旧履歴のプレイヤー情報をそのまま読める形を保つ。
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default, Clone)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PlayerSkillSnapshot {
+    pub player_uid: f64,
+    pub skill_rows: Vec<SkillRow>,
 }

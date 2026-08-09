@@ -8,9 +8,9 @@ use crate::engine::name_cache;
 use crate::engine::selected_uid;
 use crate::engine::skill_names::get_skill_name;
 use crate::models::{
-    EncounterSnapshot, HeaderInfo, MeasureModeStatus, PlayerBuffSnapshot, PlayerRow, PlayersWindow,
-    SelfBuffSnapshot, SelfStatsData, SelfStatusData, SelfStatusEntry, SkillRow, SkillsWindow,
-    TimeSeriesPoint, TrackedBuffsData,
+    EncounterSnapshot, HeaderInfo, MeasureModeStatus, PlayerBuffSnapshot, PlayerRow,
+    PlayerSkillSnapshot, PlayersWindow, SelfBuffSnapshot, SelfStatsData, SelfStatusData,
+    SelfStatusEntry, SkillRow, SkillsWindow, TimeSeriesPoint, TrackedBuffsData,
 };
 use crate::protocol::pb::EntityKind;
 use log::info;
@@ -118,6 +118,52 @@ fn skill_row_for(
         hits_per_minute: rate_per_minute(stats.hit_count, elapsed_secs),
         time_series: Vec::new(),
     }
+}
+
+/// プレイヤーのスキル内訳を指標別に構築する。履歴保存では時系列を持たせず、
+/// ライブ/計測結果では既存のスキル別時系列も含める。
+fn build_skill_rows_for_player(
+    player: &crate::engine::entity::Entity,
+    elapsed_secs: f64,
+    is_heal: bool,
+    include_time_series: bool,
+) -> Vec<SkillRow> {
+    let player_stats = if is_heal {
+        &player.heal_stats
+    } else {
+        &player.dmg_stats
+    };
+    let skill_stats_map = if is_heal {
+        &player.skill_uid_to_heal_stats
+    } else {
+        &player.skill_uid_to_dps_stats
+    };
+
+    let mut skill_rows: Vec<SkillRow> = skill_stats_map
+        .iter()
+        .map(|(&skill_uid, skill_stat)| {
+            let meta = player.skill_meta.get(&skill_uid).copied().unwrap_or_default();
+            let mut row = skill_row_for(
+                f64::from(skill_uid),
+                get_skill_name(skill_uid),
+                meta.property,
+                meta.damage_mode,
+                skill_stat,
+                elapsed_secs,
+                player_stats.total,
+            );
+            if include_time_series && !is_heal {
+                row.time_series = player
+                    .skill_time_series
+                    .get(&skill_uid)
+                    .map(|d| d.iter().cloned().collect())
+                    .unwrap_or_default();
+            }
+            row
+        })
+        .collect();
+    sort_skill_rows_desc(&mut skill_rows);
+    skill_rows
 }
 
 /// 集計指標の種別。`get_header_info` / `get_skills` の共通引数で、どの統計を集計対象にするかを
@@ -602,8 +648,6 @@ pub fn get_skills(
     let player_stats = if is_heal { &player.heal_stats } else { &player.dmg_stats };
     let encounter_stats = if is_heal { &encounter.heal_stats } else { &encounter.dmg_stats };
     let player_time_series = if is_heal { &player.heal_time_series } else { &player.time_series };
-    let skill_stats_map =
-        if is_heal { &player.skill_uid_to_heal_stats } else { &player.skill_uid_to_dps_stats };
 
     let inspected_player = make_player_row(
         player_uid,
@@ -624,38 +668,19 @@ pub fn get_skills(
         ), // 見出しは使用イマジンを強制表示
     );
 
-    let mut skill_window = SkillsWindow {
+    let skill_rows = build_skill_rows_for_player(player, elapsed_secs, is_heal, true);
+    let top_value = skill_rows
+        .iter()
+        .map(|row| row.total_value)
+        .fold(0.0_f64, f64::max);
+
+    let skill_window = SkillsWindow {
         inspected_player,
-        skill_rows: Vec::new(),
+        skill_rows,
         local_player_uid: encounter.local_player_uid as f64,
-        top_value: 0.0,
+        top_value,
     };
-
-    for (&skill_uid, skill_stat) in skill_stats_map {
-        skill_window.top_value = skill_window.top_value.max(skill_stat.total as f64);
-        let meta = player.skill_meta.get(&skill_uid).copied().unwrap_or_default();
-        let mut row = skill_row_for(
-            f64::from(skill_uid),
-            get_skill_name(skill_uid),
-            meta.property,
-            meta.damage_mode,
-            skill_stat,
-            elapsed_secs,
-            player_stats.total,
-        );
-        // heal タブは per-skill 時系列を未収集のため空のまま（doc コメント参照）。
-        if !is_heal {
-            row.time_series = player
-                .skill_time_series
-                .get(&skill_uid)
-                .map(|d| d.iter().cloned().collect())
-                .unwrap_or_default();
-        }
-        skill_window.skill_rows.push(row);
-    }
     drop(encounter);
-
-    sort_skill_rows_desc(&mut skill_window.skill_rows);
 
     Ok(skill_window)
 }
@@ -750,6 +775,23 @@ pub fn build_encounter_snapshot(encounter: &Encounter) -> EncounterSnapshot {
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
+    let player_skill_rows = window
+        .player_rows
+        .iter()
+        .filter_map(|player_row| {
+            let player_uid = player_row.uid as i64;
+            let player = encounter.entities.get(&player_uid)?;
+            let skill_rows = build_skill_rows_for_player(player, elapsed_secs, false, false);
+            if skill_rows.is_empty() {
+                return None;
+            }
+            Some(PlayerSkillSnapshot {
+                player_uid: player_row.uid,
+                skill_rows,
+            })
+        })
+        .collect();
+
     EncounterSnapshot {
         id: 0.0,
         start_ms: encounter.time_fight_start_ms as f64,
@@ -758,6 +800,7 @@ pub fn build_encounter_snapshot(encounter: &Encounter) -> EncounterSnapshot {
         total_dmg,
         total_dps,
         player_rows: window.player_rows,
+        player_skill_rows,
         time_series: encounter.time_series.iter().cloned().collect(),
         participant_player_uids: encounter
             .participant_player_uids
@@ -1561,5 +1604,58 @@ mod tests {
         assert_eq!(heal_sw.inspected_player.total_value, 2000.0);
         assert_eq!(heal_sw.skill_rows.len(), 1);
         assert_eq!(heal_sw.skill_rows[0].uid, 2.0, "heal tab must list heal skills, not dps skills");
+    }
+
+    #[test]
+    fn history_skill_rows_are_sorted_and_omit_time_series() {
+        use crate::engine::entity::Entity;
+        use crate::protocol::pb::EntityKind;
+
+        let mut player = Entity {
+            entity_type: EntityKind::Player,
+            ..Default::default()
+        };
+        player.dmg_stats.total = 1000;
+        player.skill_uid_to_dps_stats.insert(
+            101,
+            CombatStats {
+                total: 300,
+                hit_count: 3,
+                ..Default::default()
+            },
+        );
+        player.skill_uid_to_dps_stats.insert(
+            102,
+            CombatStats {
+                total: 700,
+                hit_count: 7,
+                ..Default::default()
+            },
+        );
+        player.skill_time_series.insert(
+            102,
+            VecDeque::from(vec![TimeSeriesPoint {
+                t_ms: 100.0,
+                total_dmg: 700.0,
+                total_dps: 700.0,
+            }]),
+        );
+
+        let rows = build_skill_rows_for_player(&player, 10.0, false, false);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].uid, 102.0, "history skill rows stay damage-descending");
+        assert_eq!(rows[0].value_pct, 70.0);
+        assert!(rows[0].time_series.is_empty(), "history stores the breakdown, not graph samples");
+
+        let live_rows = build_skill_rows_for_player(&player, 10.0, false, true);
+        assert_eq!(live_rows[0].time_series.len(), 1);
+    }
+
+    #[test]
+    fn old_history_without_skill_rows_deserializes_as_empty() {
+        let snapshot: EncounterSnapshot =
+            serde_json::from_str(r#"{"id":7,"playerRows":[]}"#).expect("old history schema");
+        assert_eq!(snapshot.id, 7.0);
+        assert!(snapshot.player_skill_rows.is_empty());
     }
 }

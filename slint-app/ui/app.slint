@@ -1,10 +1,15 @@
 // メイン窓（S2: タブ + プレイヤーテーブル + スキル内訳ドリルダウン）。
 // 条件付き列・被ダメドリルダウンは後続増分。
 
+struct NamePart {
+    text: string,
+    class-icon: bool,
+}
+
 struct Row {
     rank: int,
     uid-str: string,   // f64 uid を精度落ちさせず Rust へ返すため文字列で持つ
-    name: string,
+    name-parts: [NamePart], // 名前列テンプレートを描画順のまま分割した要素
     class-color: color,
     class-icon-id: int, // 職アイコン用 ID（profession id。素材無し/不明クラスは 0=フォールバック表示）
     class-role-color: color, // 職アイコンの tint（アタッカー/タンク/ヒーラーの3色。名前やバーの class-color とは別系統）
@@ -41,7 +46,6 @@ struct ColumnFlags {
     hits: bool,
     hpm: bool,
     score: bool,
-    class-icon: bool,
 }
 
 // 設定パネルのトグル表示状態（Rust が cfg から set）
@@ -124,7 +128,9 @@ struct SkillRowUi {
 // 展開はネスト配列を避け、Rust 側で展開中のみプレイヤー行を差し込む。
 struct HistoryRowUi {
     is-header: bool,
+    is-skill: bool,
     snap-id: string,
+    toggle-key: string,
     expanded: bool,
     duration-text: string,
     dps-text: string,
@@ -136,6 +142,12 @@ struct HistoryRowUi {
     p-dps-text: string,
     p-pct-text: string,
     p-pct: float,
+    elem-id: int,
+    elem-color: color,
+    skill-total-text: string,
+    skill-dps-text: string,
+    skill-pct-text: string,
+    skill-pct: float,
 }
 
 // 自キャラUID 候補（現在のプレイヤーから）
@@ -417,6 +429,71 @@ component ClassIcon inherits Rectangle {
     }
 }
 
+// 名前列テンプレートの1要素。classIcon は画像、それ以外は文字列として描画する。
+// 要素を同じ HorizontalLayout に並べることで、テンプレート内のアイコン位置を保つ。
+component NamePartView inherits Rectangle {
+    in property <NamePart> part;
+    in property <int> class-icon-id;
+    in property <color> class-role-color;
+    in property <float> font-scale: 1.0;
+    in property <length> text-size: 12px;
+    in property <length> icon-box: 18px;
+    in property <length> min-text-width: 0px;
+    // classIcon を含むテンプレートでは、各パーツを固有幅で並べて不要な空白を作らない。
+    horizontal-stretch: 0;
+    min-width: root.part.class-icon ? root.icon-box : 0px;
+    preferred-width: root.part.class-icon ? root.icon-box : part_text.preferred-width;
+    clip: true;
+    height: 100%;
+    if root.part.class-icon: VerticalLayout {
+        alignment: center;
+        ClassIcon {
+            id: root.class-icon-id;
+            tint: root.class-role-color;
+            box: root.icon-box;
+        }
+    }
+    part_text := Text {
+        width: parent.width;
+        text: root.part.class-icon ? "" : root.part.text;
+        visible: !root.part.class-icon;
+        color: white;
+        font-size: root.text-size;
+        overflow: elide;
+        vertical-alignment: center;
+    }
+}
+
+// 名前列テンプレートの描画。classIcon がない場合は単一の文字列を伸縮させ、
+// 含む場合は各パーツを固有幅で順に配置する。
+component NameTemplate inherits Rectangle {
+    in property <[NamePart]> parts;
+    in property <int> class-icon-id;
+    in property <color> class-role-color;
+    in property <float> font-scale: 1.0;
+    in property <length> text-size: 12px;
+    in property <length> icon-box: 18px;
+    in property <length> min-text-width: 0px;
+    horizontal-stretch: 1;
+    min-width: root.min-text-width;
+    HorizontalLayout {
+        width: 100%;
+        height: 100%;
+        alignment: root.parts.length == 1 && !root.parts[0].class-icon ? stretch : start;
+        spacing: 5px;
+        for part in root.parts: NamePartView {
+            part: part;
+            class-icon-id: root.class-icon-id;
+            class-role-color: root.class-role-color;
+            font-scale: root.font-scale;
+            text-size: root.text-size;
+            icon-box: root.icon-box;
+            // 最小幅は NameTemplate 側だけに適用し、パーツごとの空き幅を作らない。
+            min-text-width: 0px;
+        }
+    }
+}
+
 // ヘッダの機能ボタン。狭幅時（show-icon）はテキストの代わりに Path アイコンを表示する。
 component HeaderButton inherits TouchArea {
     in property <string> label;
@@ -605,6 +682,7 @@ component PlayerRowItem inherits Rectangle {
     callback activate(string);
     callback toggle-watch(string);
     height: 20px * root.font-scale;
+    preferred-height: 20px * root.font-scale;
     background: rowta.has-hover ? #ffffff12 : transparent;
     animate background { duration: 100ms; easing: ease-out; }
 
@@ -645,23 +723,14 @@ component PlayerRowItem inherits Rectangle {
                 background: root.entry.class-color;
                 border-radius: 1px;
             }
-            if root.cols.class-icon: VerticalLayout { alignment: center; ClassIcon {
-                id: root.entry.class-icon-id;
-                tint: root.entry.class-role-color;
-                // 素材は非正方形（縦横比 0.71〜1.17）で、縦長のもの（ゲイルランサー=0.71）は
-                // contain で幅が痩せる。行高 20px*font-scale の上限いっぱいまで取って潰れを緩和する。
-                // ※ ここを max(14px, ...) のような複合式にすると `cargo test -p bpsr-app` の rustc が
-                //    STATUS_STACK_BUFFER_OVERRUN で落ちる（生成コードが肥大するため）。単項の式に留める。
-                box: 18px * root.font-scale;
-            } }
-            Text {
-                text: root.entry.name;
-                color: white;
-                font-size: 12px * root.font-scale;
-                overflow: elide;
-                vertical-alignment: center;
-                horizontal-stretch: 1;
-                min-width: 90px * root.font-scale;
+            NameTemplate {
+                parts: root.entry.name-parts;
+                class-icon-id: root.entry.class-icon-id;
+                class-role-color: root.entry.class-role-color;
+                font-scale: root.font-scale;
+                text-size: 12px * root.font-scale;
+                icon-box: 18px * root.font-scale;
+                min-text-width: 90px * root.font-scale;
             }
             // 食事/シロップ バフのタイマーアイコン（残量に応じて色が上から縦に抜ける・ホバーで詳細）
             if root.show-consumable: VerticalLayout { alignment: center; ConsumableBadge {
@@ -784,6 +853,7 @@ component CompactRowItem inherits Rectangle {
     in property <bool> show-self-guide; // 自分基準モード時のみ true（50%ガイド線を表示）
     callback activate(string);
     height: 18px;
+    preferred-height: 18px;
     background: cta.has-hover ? #ffffff12 : transparent;
     animate background { duration: 100ms; easing: ease-out; }
     RowPctBar {
@@ -811,7 +881,14 @@ component CompactRowItem inherits Rectangle {
             horizontal-stretch: 1;
             spacing: 4px;
             Rectangle { width: 2px; background: root.entry.class-color; border-radius: 1px; }
-            Text { text: root.entry.name; color: white; font-size: 11px * root.font-scale; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
+            NameTemplate {
+                parts: root.entry.name-parts;
+                class-icon-id: root.entry.class-icon-id;
+                class-role-color: root.entry.class-role-color;
+                font-scale: root.font-scale;
+                text-size: 11px * root.font-scale;
+                icon-box: 16px * root.font-scale;
+            }
         }
         Text { text: root.entry.dmg-text; color: #e6e6f0; font-size: 11px * root.font-scale; width: 56px; horizontal-alignment: right; vertical-alignment: center; }
         Text { text: root.entry.dps-text; color: Theme.accent; font-size: 11px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
@@ -874,44 +951,62 @@ component SkillRowItem inherits Rectangle {
     }
 }
 
-// 履歴の行（見出し or プレイヤー）。見出しはクリックで展開トグル。
+// 履歴の行（見出し / プレイヤー / スキル）。見出しとプレイヤーはクリックで展開トグル。
 component HistoryRowItem inherits Rectangle {
     in property <HistoryRowUi> e;
     in property <float> font-scale: 1.0;
     callback toggle(string);
-    height: root.e.is-header ? 24px : 18px;
-    background: (root.e.is-header && hta.has-hover) ? #ffffff14 : (root.e.is-header ? #ffffff08 : transparent);
+    height: root.e.is-header ? 24px : (root.e.is-skill ? 18px : 20px);
+    background: root.e.is-header
+        ? (hta.has-hover ? #ffffff14 : #ffffff08)
+        : ((!root.e.is-skill && hta.has-hover) ? #ffffff0d : transparent);
     animate background { duration: 100ms; easing: ease-out; }
 
     // プレイヤー行の割合バー
-    if !root.e.is-header: Rectangle {
+    if !root.e.is-header && !root.e.is-skill: Rectangle {
         x: 0;
         y: 0;
         width: parent.width * (root.e.p-pct / 100.0);
         height: 100%;
         background: @linear-gradient(90deg, root.e.class-color.with-alpha(0.18) 0%, transparent 100%);
     }
-    // 見出しのみクリック可（プレイヤー行では enabled:false で無反応）
+    // スキル行の割合バー
+    if root.e.is-skill: Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width * (root.e.skill-pct / 100.0);
+        height: 100%;
+        background: @linear-gradient(90deg, Theme.accent.with-alpha(0.16) 0%, transparent 100%);
+    }
+    // 見出しとスキル内訳を持つプレイヤー行だけクリック可。
     hta := TouchArea {
-        enabled: root.e.is-header;
-        mouse-cursor: root.e.is-header ? pointer : default;
-        clicked => { root.toggle(root.e.snap-id); }
+        enabled: root.e.toggle-key != "";
+        mouse-cursor: root.e.toggle-key != "" ? pointer : default;
+        clicked => { root.toggle(root.e.toggle-key); }
     }
     HorizontalLayout {
-        padding-left: root.e.is-header ? 8px : 18px;
+        padding-left: root.e.is-header ? 8px : (root.e.is-skill ? 38px : 18px);
         padding-right: 8px;
         spacing: 8px;
         // ── 見出し ──
+        if root.e.is-header: Text { text: root.e.name; color: #e6e6f0; font-size: 11px * root.font-scale; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
         if root.e.is-header: Text { text: root.e.duration-text; color: #888; font-size: 10px * root.font-scale; width: 40px; vertical-alignment: center; }
         if root.e.is-header: Text { text: root.e.dps-text + " DPS"; color: Theme.accent; font-size: 11px * root.font-scale; width: 90px; vertical-alignment: center; }
         if root.e.is-header: Text { text: root.e.dmg-text; color: #aaa; font-size: 10px * root.font-scale; width: 60px; vertical-alignment: center; }
-        if root.e.is-header: Text { text: root.e.count-text + @tr("人"); color: #666; font-size: 10px * root.font-scale; horizontal-stretch: 1; vertical-alignment: center; }
+        if root.e.is-header: Text { text: root.e.count-text + @tr("人"); color: #666; font-size: 10px * root.font-scale; width: 28px; vertical-alignment: center; }
         if root.e.is-header: Text { text: root.e.expanded ? "▲" : "▼"; color: #555; font-size: 9px * root.font-scale; vertical-alignment: center; }
         // ── プレイヤー行 ──
-        if !root.e.is-header: Text { text: root.e.rank-text; color: #555; font-size: 10px * root.font-scale; width: 18px; vertical-alignment: center; }
-        if !root.e.is-header: Text { text: root.e.name; color: root.e.class-color; font-size: 11px * root.font-scale; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
-        if !root.e.is-header: Text { text: root.e.p-dps-text; color: Theme.accent; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-        if !root.e.is-header: Text { text: root.e.p-pct-text; color: #aaa; font-size: 10px * root.font-scale; width: 40px; horizontal-alignment: right; vertical-alignment: center; }
+        if !root.e.is-header && !root.e.is-skill: Text { text: root.e.toggle-key == "" ? "" : (root.e.expanded ? "▼" : "▶"); color: #666; font-size: 9px * root.font-scale; width: 12px; vertical-alignment: center; }
+        if !root.e.is-header && !root.e.is-skill: Text { text: root.e.rank-text; color: #555; font-size: 10px * root.font-scale; width: 18px; vertical-alignment: center; }
+        if !root.e.is-header && !root.e.is-skill: Text { text: root.e.name; color: root.e.class-color; font-size: 11px * root.font-scale; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
+        if !root.e.is-header && !root.e.is-skill: Text { text: root.e.p-dps-text; color: Theme.accent; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+        if !root.e.is-header && !root.e.is-skill: Text { text: root.e.p-pct-text; color: #aaa; font-size: 10px * root.font-scale; width: 40px; horizontal-alignment: right; vertical-alignment: center; }
+        // ── スキル内訳 ──
+        if root.e.is-skill: VerticalLayout { alignment: center; width: 14px; ElementIcon { id: root.e.elem-id; tint: root.e.elem-color; box: 13px * root.font-scale; } }
+        if root.e.is-skill: Text { text: root.e.name; color: #d8d8e4; font-size: 10px * root.font-scale; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
+        if root.e.is-skill: Text { text: root.e.skill-total-text; color: #aaa; font-size: 10px * root.font-scale; width: 56px; horizontal-alignment: right; vertical-alignment: center; }
+        if root.e.is-skill: Text { text: root.e.skill-dps-text; color: Theme.accent; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+        if root.e.is-skill: Text { text: root.e.skill-pct-text; color: #888; font-size: 10px * root.font-scale; width: 40px; horizontal-alignment: right; vertical-alignment: center; }
     }
 }
 
@@ -2658,7 +2753,6 @@ export component MainWindow inherits Window {
         hits: root.cols.hits && root.col-level >= 3,
         hpm: root.cols.hpm && root.col-level >= 2,
         score: root.cols.score,
-        class-icon: root.cols.class-icon,
     };
     property <bool> effective-show-graph-col: root.show-graph-col && root.col-level >= 1;
     // 自キャラの total-value が有効(>0)か。dps_bar::bar_pct の SelfRelative フォールバック条件
@@ -2891,9 +2985,20 @@ export component MainWindow inherits Window {
             Flickable {
                 vertical-stretch: 1;
                 max-height: 100000px;
-                viewport-height: rowbox.preferred-height;
-                rowbox := VerticalLayout {
-                    for row in root.rows: PlayerRowItem {
+                viewport-height: root.rows.length > 0
+                    ? root.rows.length * 20px * root.font-scale
+                    : 200px;
+                rowbox := Rectangle {
+                    width: 100%;
+                    height: root.rows.length > 0
+                        ? root.rows.length * 20px * root.font-scale
+                        : 200px;
+                    // 動的リピーターを VerticalLayout に任せると、Flickable の内容高を
+                    // 行スロットへ誤配分するため、固定行高から位置を直接決める。
+                    for row[i] in root.rows: PlayerRowItem {
+                        x: 0;
+                        y: i * 20px * root.font-scale;
+                        width: 100%;
                         entry: row;
                         highlight-local: root.highlight-local;
                         cols: root.effective-cols;
@@ -2984,6 +3089,7 @@ export component MainWindow inherits Window {
                     // 左カラム（前半）
                     VerticalLayout {
                         horizontal-stretch: 1;
+                        alignment: start;
                         Rectangle {
                             height: 16px;
                             HorizontalLayout {
@@ -3008,6 +3114,7 @@ export component MainWindow inherits Window {
                     // 右カラム（後半）
                     VerticalLayout {
                         horizontal-stretch: 1;
+                        alignment: start;
                         Rectangle {
                             height: 16px;
                             HorizontalLayout {

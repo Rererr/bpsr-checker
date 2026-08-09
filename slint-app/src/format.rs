@@ -107,13 +107,15 @@ pub fn class_icon_id(class_name: &str) -> i32 {
         .unwrap_or(0)
 }
 
-/// 名前列テンプレートの職アイコン トークン。文字列へは展開されず（format_row_name で空に潰す）、
-/// 有無だけがアイコン列の表示可否になる。表示判定はこの1箇所に集約する。
-pub const CLASS_ICON_TOKEN: &str = "{classIcon}";
-
-/// 名前列テンプレートが職アイコンを含むか（アイコン表示の唯一の判定）。
-pub fn template_shows_class_icon(template: &str) -> bool {
-    template.contains(CLASS_ICON_TOKEN)
+/// 名前列テンプレートを構成する文字列または職アイコン。
+///
+/// `class_icon=true` の要素は文字列へ展開せず、UI 側で職アイコンとして描画する。
+/// 文字列とアイコンを同じ配列で保持することで、テンプレート内の配置をそのまま
+/// 描画順へ引き継ぐ。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NamePart {
+    pub text: String,
+    pub class_icon: bool,
 }
 
 /// 属性 → (短い表示名, 色)（utils.ts ELEMENT_TABLE）。
@@ -179,10 +181,10 @@ pub fn mask_player_name(uid: i64) -> String {
 
 const MISSING: &str = "—";
 
-/// 名前列テンプレート展開（utils.ts formatRowAsText のメタ系キー）。
+/// 名前列テンプレートを文字列とアイコンのパーツへ展開する。
 /// 既定テンプレート: "{name} {spec}({score} - {seasonLv} - {seasonStr})"
 #[allow(clippy::too_many_arguments)]
-pub fn format_row_name(
+pub fn format_row_name_parts(
     name: &str,
     class_name: &str,
     class_spec_name: &str,
@@ -193,7 +195,7 @@ pub fn format_row_name(
     rank: i32,
     template: &str,
     abbreviate: bool,
-) -> String {
+) -> Vec<NamePart> {
     let spec = if !class_spec_name.is_empty() && class_spec_name != "不明" {
         class_spec_name
     } else {
@@ -215,11 +217,12 @@ pub fn format_row_name(
         MISSING.to_string()
     };
 
-    let mut out = String::with_capacity(template.len() + 16);
+    let mut parts = Vec::with_capacity(3);
+    let mut text = String::with_capacity(template.len() + 16);
     let mut chars = template.chars().peekable();
     while let Some(c) = chars.next() {
         if c != '{' {
-            out.push(c);
+            text.push(c);
             continue;
         }
         let mut key = String::new();
@@ -232,25 +235,73 @@ pub fn format_row_name(
             chars.next();
         }
         match key.as_str() {
-            "rank" => out.push_str(&rank.to_string()),
-            "name" => out.push_str(name),
-            "class" => out.push_str(class_name),
-            "spec" => out.push_str(spec),
-            "score" => out.push_str(&score),
-            "seasonLv" => out.push_str(&season_lv),
-            "seasonStr" => out.push_str(&season_str),
-            "imagine" => out.push_str(imagine_suffix),
-            // アイコンは別要素で描くのでここでは空に潰す（設定のテンプレプレビューなど
-            // アイコン要素を持たない表示に生の {classIcon} を出さないため）。
-            "classIcon" => {}
+            "rank" => text.push_str(&rank.to_string()),
+            "name" => text.push_str(name),
+            "class" => text.push_str(class_name),
+            "spec" => text.push_str(spec),
+            "score" => text.push_str(&score),
+            "seasonLv" => text.push_str(&season_lv),
+            "seasonStr" => text.push_str(&season_str),
+            "imagine" => text.push_str(imagine_suffix),
+            "classIcon" => {
+                if !text.is_empty() {
+                    parts.push(NamePart {
+                        text: std::mem::take(&mut text),
+                        class_icon: false,
+                    });
+                }
+                parts.push(NamePart {
+                    text: String::new(),
+                    class_icon: true,
+                });
+            }
             other => {
-                out.push('{');
-                out.push_str(other);
-                out.push('}');
+                text.push('{');
+                text.push_str(other);
+                text.push('}');
             }
         }
     }
-    out
+    if !text.is_empty() {
+        parts.push(NamePart {
+            text,
+            class_icon: false,
+        });
+    }
+    parts
+}
+
+/// 名前列テンプレート展開（utils.ts formatRowAsText のメタ系キー）。
+/// アイコンは表示要素を持たない設定プレビューなどでは文字列へ含めない。
+#[allow(clippy::too_many_arguments)]
+pub fn format_row_name(
+    name: &str,
+    class_name: &str,
+    class_spec_name: &str,
+    ability_score: f64,
+    season_level: f64,
+    season_strength: f64,
+    imagine_suffix: &str,
+    rank: i32,
+    template: &str,
+    abbreviate: bool,
+) -> String {
+    format_row_name_parts(
+        name,
+        class_name,
+        class_spec_name,
+        ability_score,
+        season_level,
+        season_strength,
+        imagine_suffix,
+        rank,
+        template,
+        abbreviate,
+    )
+    .into_iter()
+    .filter(|part| !part.class_icon)
+    .map(|part| part.text)
+    .collect()
 }
 
 /// コピー用テンプレートの全キーを展開する元データ（utils.ts formatRowAsText 相当）。
@@ -344,7 +395,7 @@ pub fn format_row_template(d: &CopyRowData, template: &str, abbreviate: bool) ->
 mod tests {
     use super::{
         class_icon_id, class_role_color, format_consumable_remaining, format_row_name,
-        template_shows_class_icon, ALL_CLASSES,
+        format_row_name_parts, ALL_CLASSES,
     };
     use bpsr_core::engine::class::{Class, Role};
 
@@ -408,8 +459,7 @@ mod tests {
         }
     }
 
-    // {classIcon} は文字列へ展開されない（設定のテンプレプレビューに生の波括弧を出さない）。
-    // 未知キーが素通しされる仕様なので、専用の分岐が消えると即座にこのテストが落ちる。
+    // {classIcon} は設定のテンプレプレビューなど文字列だけの表示には含めない。
     #[test]
     fn class_icon_token_expands_to_nothing() {
         let name = |t: &str| {
@@ -428,23 +478,59 @@ mod tests {
         };
         assert_eq!(name("{classIcon}{name}"), "ソラ");
         assert_eq!(name("{name}"), name("{classIcon}{name}"));
-        // 既定テンプレートはアイコンありで、展開結果は旧既定（アイコン抜き）と一致する。
-        assert!(template_shows_class_icon(
-            crate::settings::DEFAULT_NAME_TEMPLATE
-        ));
+        // 既定テンプレートも文字列部分だけを取り出すと旧既定と一致する。
         assert_eq!(
             name(crate::settings::DEFAULT_NAME_TEMPLATE),
             name("{name} {spec}({score} - {seasonLv} - {seasonStr}){imagine}")
         );
     }
 
-    // アイコン表示の判定はトークンの有無だけで決まる。
     #[test]
-    fn template_shows_class_icon_detects_token() {
-        assert!(template_shows_class_icon("{classIcon}{name}"));
-        assert!(!template_shows_class_icon("{name} {spec}"));
-        // 別キーの部分一致で誤検出しないこと。
-        assert!(!template_shows_class_icon("{class}{name}"));
+    fn class_icon_token_preserves_template_position() {
+        let parts = format_row_name_parts(
+            "ソラ",
+            "ストームブレイド",
+            "雷刃型",
+            47421.0,
+            3184.0,
+            0.0,
+            "(ティナ)",
+            1,
+            "前{name}{classIcon}後{imagine}",
+            true,
+        );
+        assert_eq!(
+            parts,
+            vec![
+                super::NamePart { text: "前ソラ".to_string(), class_icon: false },
+                super::NamePart { text: String::new(), class_icon: true },
+                super::NamePart { text: "後(ティナ)".to_string(), class_icon: false },
+            ]
+        );
+    }
+
+    // 未知キーは従来どおりそのまま残し、classIcon の部分一致を誤ってアイコンにしない。
+    #[test]
+    fn class_icon_token_requires_exact_key() {
+        let parts = format_row_name_parts(
+            "ソラ",
+            "ストームブレイド",
+            "雷刃型",
+            47421.0,
+            3184.0,
+            0.0,
+            "",
+            1,
+            "{class}{classIconName}{name}",
+            true,
+        );
+        assert_eq!(
+            parts,
+            vec![super::NamePart {
+                text: "ストームブレイド{classIconName}ソラ".to_string(),
+                class_icon: false,
+            }]
+        );
     }
 
     // アイコン tint は ja/en どちらの表記でも同じ色になること。

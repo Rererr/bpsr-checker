@@ -259,6 +259,19 @@ fn sync_rows(model: &slint::VecModel<Row>, data: &[Row]) {
     }
 }
 
+/// テンプレート展開結果を Slint の名前列モデルへ変換する。
+fn ui_name_parts(parts: Vec<format::NamePart>) -> slint::ModelRc<NamePart> {
+    slint::ModelRc::new(VecModel::from(
+        parts
+            .into_iter()
+            .map(|part| NamePart {
+                text: part.text.into(),
+                class_icon: part.class_icon,
+            })
+            .collect::<Vec<_>>(),
+    ))
+}
+
 #[allow(clippy::too_many_arguments)]
 /// 食事/シロップ等の消耗バフの表示用派生値を計算する。
 /// 戻り値: (アクティブか, 残量割合0..1, 残り時間テキスト, 種類ラベル)。
@@ -325,7 +338,7 @@ fn build_rows(
         out.push(Row {
             rank,
             uid_str: format!("{}", p.uid as i64).into(),
-            name: format::format_row_name(
+            name_parts: ui_name_parts(format::format_row_name_parts(
                 &display,
                 &p.class_name,
                 &p.class_spec_name,
@@ -336,8 +349,7 @@ fn build_rows(
                 rank,
                 template,
                 abbreviate,
-            )
-            .into(),
+            )),
             class_color: format::class_color(&p.class_name),
             class_icon_id: format::class_icon_id(&p.class_name),
             class_role_color: format::class_role_color(&p.class_name),
@@ -393,24 +405,40 @@ fn build_skill_rows(sw: &bpsr_core::models::SkillsWindow) -> Vec<SkillRowUi> {
         .collect()
 }
 
-/// 履歴ビューのフラット行を構築（見出し＋展開中のみプレイヤー行）。
+/// 履歴ビューのフラット行を構築（見出し → プレイヤー → スキル）。
 fn build_history_rows(
     hist: &[bpsr_core::models::EncounterSnapshot],
     expanded: Option<i64>,
+    expanded_player: Option<(i64, i64)>,
     privacy: bool,
 ) -> Vec<HistoryRowUi> {
     let mut out = Vec::new();
     for snap in hist {
         let id = snap.id as i64;
         let is_exp = expanded == Some(id);
+        let player_names = snap
+            .player_rows
+            .iter()
+            .map(|p| {
+                if privacy {
+                    format::mask_player_name(p.uid as i64)
+                } else {
+                    p.name.clone()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" / ");
         out.push(HistoryRowUi {
             is_header: true,
+            is_skill: false,
             snap_id: format!("{id}").into(),
+            toggle_key: format!("h:{id}").into(),
             expanded: is_exp,
             duration_text: format::format_elapsed(snap.duration_ms).into(),
             dps_text: format::format_dps(snap.total_dps).into(),
             dmg_text: format::format_number(snap.total_dmg).into(),
             count_text: format!("{}", snap.player_rows.len()).into(),
+            name: player_names.into(),
             ..Default::default()
         });
         if is_exp {
@@ -426,16 +454,54 @@ fn build_history_rows(
                 } else {
                     p.name.clone()
                 };
+                let player_uid = p.uid as i64;
+                let has_skills = snap
+                    .player_skill_rows
+                    .iter()
+                    .find(|s| s.player_uid as i64 == player_uid)
+                    .is_some_and(|s| !s.skill_rows.is_empty());
+                let player_is_expanded = has_skills && expanded_player == Some((id, player_uid));
                 out.push(HistoryRowUi {
                     is_header: false,
+                    is_skill: false,
                     rank_text: format!("{}.", i + 1).into(),
                     name: name.into(),
                     class_color: format::class_color(&p.class_name),
                     p_dps_text: format::format_dps(p.value_per_sec).into(),
                     p_pct_text: format::format_pct(p.value_pct).into(),
                     p_pct: ((p.total_value / top) * 100.0) as f32,
+                    toggle_key: if has_skills {
+                        format!("p:{id}:{player_uid}").into()
+                    } else {
+                        String::new().into()
+                    },
+                    expanded: player_is_expanded,
                     ..Default::default()
                 });
+
+                if player_is_expanded {
+                    if let Some(skill_snapshot) = snap
+                        .player_skill_rows
+                        .iter()
+                        .find(|s| s.player_uid as i64 == player_uid)
+                    {
+                        for skill in &skill_snapshot.skill_rows {
+                            let (_, elem_color) = format::element_label(skill.element);
+                            out.push(HistoryRowUi {
+                                is_header: false,
+                                is_skill: true,
+                                name: skill.name.clone().into(),
+                                elem_id: skill.element as i32,
+                                elem_color,
+                                skill_total_text: format::format_number(skill.total_value).into(),
+                                skill_dps_text: format::format_dps(skill.value_per_sec).into(),
+                                skill_pct_text: format::format_pct(skill.value_pct).into(),
+                                skill_pct: skill.value_pct.clamp(0.0, 100.0) as f32,
+                                ..Default::default()
+                            });
+                        }
+                    }
+                }
             }
         }
     }
@@ -1166,7 +1232,6 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         hits: c.show_hits,
         hpm: c.show_hpm,
         score: c.show_score,
-        class_icon: format::template_shows_class_icon(&c.name_template),
     });
     m.set_highlight_local(c.highlight_local_player);
     m.set_aot(c.always_on_top);
@@ -2430,10 +2495,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     main.set_skill_rows(skill_rows.clone().into());
     let drill = Rc::new(Cell::new(Drill::None));
 
-    // 履歴ビュー用モデル＋展開中エンカウンタ id（None=折りたたみ）
+    // 履歴ビュー用モデル＋展開中エンカウンタ/プレイヤー（各 None=折りたたみ）
     let history_rows = Rc::new(VecModel::<HistoryRowUi>::default());
     main.set_history_rows(history_rows.clone().into());
     let history_expanded = Rc::new(Cell::new(None::<i64>));
+    let history_player_expanded = Rc::new(Cell::new(None::<(i64, i64)>));
 
     // 3分計測 結果パネル用モデル＋最後の結果スナップショット（コピー/再計測で参照）
     let result_rows = Rc::new(VecModel::<ResultRowUi>::default());
@@ -2654,6 +2720,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let drill_sel = drill.clone();
         let hist_rows_sel = history_rows.clone();
         let hist_exp_sel = history_expanded.clone();
+        let hist_player_exp_sel = history_player_expanded.clone();
         let cl_sel = compact_left.clone();
         let cr_sel = compact_right.clone();
         main.on_select_tab(move |n| {
@@ -2667,6 +2734,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     hist_rows_sel.set_vec(build_history_rows(
                         &hist,
                         hist_exp_sel.get(),
+                        hist_player_exp_sel.get(),
                         cfg_sel.borrow().privacy_mask_names,
                     ));
                 } else {
@@ -3711,20 +3779,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
-    // 履歴: 見出しクリックで展開トグル（単一展開）。
+    // 履歴: 見出し/プレイヤー行クリックで展開トグル（各単一展開）。
     {
         let w = main.as_weak();
         let hr = history_rows.clone();
         let he = history_expanded.clone();
+        let hpe = history_player_expanded.clone();
         let cfg_h = cfg.clone();
-        main.on_toggle_history(move |id_str| {
-            let id: i64 = id_str.as_str().parse().unwrap_or(0);
-            he.set(if he.get() == Some(id) { None } else { Some(id) });
+        main.on_toggle_history(move |key| {
+            let key = key.as_str();
+            if let Some(id_text) = key.strip_prefix("h:") {
+                let id: i64 = id_text.parse().unwrap_or(0);
+                if id != 0 {
+                    let next = if he.get() == Some(id) { None } else { Some(id) };
+                    he.set(next);
+                    // エンカウンタを切り替えた/閉じたら、前のプレイヤー内訳も閉じる。
+                    if next.is_none() {
+                        hpe.set(None);
+                    } else if hpe.get().is_some_and(|(snap_id, _)| snap_id != id) {
+                        hpe.set(None);
+                    }
+                }
+            } else if let Some(rest) = key.strip_prefix("p:") {
+                let mut parts = rest.split(':');
+                let id = parts.next().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
+                let uid = parts.next().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
+                if id != 0 && uid != 0 && he.get() == Some(id) {
+                    hpe.set(if hpe.get() == Some((id, uid)) {
+                        None
+                    } else {
+                        Some((id, uid))
+                    });
+                }
+            }
             if w.upgrade().is_some() {
                 let hist = compute::get_history();
                 hr.set_vec(build_history_rows(
                     &hist,
                     he.get(),
+                    hpe.get(),
                     cfg_h.borrow().privacy_mask_names,
                 ));
             }
@@ -3734,11 +3827,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let hr = history_rows.clone();
         let he = history_expanded.clone();
+        let hpe = history_player_expanded.clone();
         let enc_ch = enc.clone();
         main.on_clear_history(move || {
             compute::clear_history();
             compute::clear_consumables(&enc_ch);
             he.set(None);
+            hpe.set(None);
             hr.set_vec(Vec::new());
         });
     }
@@ -4015,6 +4110,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let wl_poll = wl.clone();
     let history_rows_poll = history_rows.clone();
     let history_expanded_poll = history_expanded.clone();
+    let history_player_expanded_poll = history_player_expanded.clone();
     let result_rows_poll = result_rows.clone();
     let result_skill_rows_poll = result_skill_rows.clone();
     let result_pie_poll = result_pie.clone();
@@ -4231,6 +4327,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             history_rows_poll.set_vec(build_history_rows(
                 &hist,
                 history_expanded_poll.get(),
+                history_player_expanded_poll.get(),
                 privacy,
             ));
         } else {

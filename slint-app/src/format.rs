@@ -116,7 +116,20 @@ pub fn class_icon_id(class_name: &str) -> i32 {
 pub struct NamePart {
     pub text: String,
     pub class_icon: bool,
+    /// 列幅が足りないときに省略される順序。大きいほど先に削られる
+    /// （[`SHRINK_RANK_BODY`] < [`SHRINK_RANK_IMAGINE`] < [`SHRINK_RANK_ROLE_SKILL`]）。
+    /// UI 側はこの値を HorizontalLayout の horizontal-stretch へ写して縮小順を決める。
+    pub shrink_rank: i32,
+    /// `{name}` を含むパーツ。幅が尽きても最低限の文字数は残す（UI 側で min-width を与える）。
+    pub has_name: bool,
 }
+
+/// 名前を含む本体（`{name}`/`{spec}`/`{score}` 等）。最後まで削らない。
+pub const SHRINK_RANK_BODY: i32 = 0;
+/// `{imagine}`（装備中バトルイマジン）。本体より先に削る。
+pub const SHRINK_RANK_IMAGINE: i32 = 1;
+/// `{roleSkill}`（ロールスキル＝簡易版バトルイマジン）。最初に削る。
+pub const SHRINK_RANK_ROLE_SKILL: i32 = 2;
 
 /// 属性 → (短い表示名, 色)（utils.ts ELEMENT_TABLE）。
 pub fn element_label(e: u8) -> (&'static str, Color) {
@@ -181,8 +194,48 @@ pub fn mask_player_name(uid: i64) -> String {
 
 const MISSING: &str = "—";
 
+/// 溜めた文字列を本体パーツとして確定する（空なら何もしない）。
+/// `{classIcon}`/`{imagine}`/`{roleSkill}` は独立パーツになるため、その手前で呼ぶ。
+fn flush_body(parts: &mut Vec<NamePart>, text: &mut String, has_name: &mut bool) {
+    if text.is_empty() {
+        // 名前トークンだけが空展開だった場合に has_name を次パーツへ持ち越さない。
+        *has_name = false;
+        return;
+    }
+    parts.push(NamePart {
+        text: std::mem::take(text),
+        class_icon: false,
+        shrink_rank: SHRINK_RANK_BODY,
+        has_name: std::mem::replace(has_name, false),
+    });
+}
+
+/// イマジン系サフィックスを独立パーツとして追加する（空文字なら追加しない）。
+/// 本体と別パーツにすることで、幅不足時に本体より先に縮められる。
+fn push_suffix(
+    parts: &mut Vec<NamePart>,
+    text: &mut String,
+    has_name: &mut bool,
+    suffix: &str,
+    shrink_rank: i32,
+) {
+    if suffix.is_empty() {
+        return;
+    }
+    flush_body(parts, text, has_name);
+    parts.push(NamePart {
+        text: suffix.to_string(),
+        class_icon: false,
+        shrink_rank,
+        has_name: false,
+    });
+}
+
 /// 名前列テンプレートを文字列とアイコンのパーツへ展開する。
-/// 既定テンプレート: "{name} {spec}({score} - {seasonLv} - {seasonStr})"
+/// 既定テンプレート: "{classIcon}{name} {spec}({score} - {seasonLv} - {seasonStr}){imagine}{roleSkill}"
+///
+/// `{imagine}`/`{roleSkill}` は本体と別パーツに切り出す（[`NamePart::shrink_rank`]）。UI 側は
+/// この単位で幅を配分するため、列幅が足りないときはロールスキル→イマジン→本体の順に省略される。
 #[allow(clippy::too_many_arguments)]
 pub fn format_row_name_parts(
     name: &str,
@@ -192,6 +245,7 @@ pub fn format_row_name_parts(
     season_level: f64,
     season_strength: f64,
     imagine_suffix: &str,
+    role_skill_suffix: &str,
     rank: i32,
     template: &str,
     abbreviate: bool,
@@ -217,8 +271,9 @@ pub fn format_row_name_parts(
         MISSING.to_string()
     };
 
-    let mut parts = Vec::with_capacity(3);
+    let mut parts = Vec::with_capacity(4);
     let mut text = String::with_capacity(template.len() + 16);
+    let mut has_name = false;
     let mut chars = template.chars().peekable();
     while let Some(c) = chars.next() {
         if c != '{' {
@@ -236,23 +291,36 @@ pub fn format_row_name_parts(
         }
         match key.as_str() {
             "rank" => text.push_str(&rank.to_string()),
-            "name" => text.push_str(name),
+            "name" => {
+                text.push_str(name);
+                has_name = true;
+            }
             "class" => text.push_str(class_name),
             "spec" => text.push_str(spec),
             "score" => text.push_str(&score),
             "seasonLv" => text.push_str(&season_lv),
             "seasonStr" => text.push_str(&season_str),
-            "imagine" => text.push_str(imagine_suffix),
+            "imagine" => push_suffix(
+                &mut parts,
+                &mut text,
+                &mut has_name,
+                imagine_suffix,
+                SHRINK_RANK_IMAGINE,
+            ),
+            "roleSkill" => push_suffix(
+                &mut parts,
+                &mut text,
+                &mut has_name,
+                role_skill_suffix,
+                SHRINK_RANK_ROLE_SKILL,
+            ),
             "classIcon" => {
-                if !text.is_empty() {
-                    parts.push(NamePart {
-                        text: std::mem::take(&mut text),
-                        class_icon: false,
-                    });
-                }
+                flush_body(&mut parts, &mut text, &mut has_name);
                 parts.push(NamePart {
                     text: String::new(),
                     class_icon: true,
+                    shrink_rank: SHRINK_RANK_BODY,
+                    has_name: false,
                 });
             }
             other => {
@@ -262,12 +330,7 @@ pub fn format_row_name_parts(
             }
         }
     }
-    if !text.is_empty() {
-        parts.push(NamePart {
-            text,
-            class_icon: false,
-        });
-    }
+    flush_body(&mut parts, &mut text, &mut has_name);
     parts
 }
 
@@ -282,6 +345,7 @@ pub fn format_row_name(
     season_level: f64,
     season_strength: f64,
     imagine_suffix: &str,
+    role_skill_suffix: &str,
     rank: i32,
     template: &str,
     abbreviate: bool,
@@ -294,6 +358,7 @@ pub fn format_row_name(
         season_level,
         season_strength,
         imagine_suffix,
+        role_skill_suffix,
         rank,
         template,
         abbreviate,
@@ -459,6 +524,41 @@ mod tests {
         }
     }
 
+    // テスト用のパーツ生成（イマジン/ロールスキルのサフィックスを明示して渡す）。
+    fn parts_of(imagine: &str, role_skill: &str, template: &str) -> Vec<super::NamePart> {
+        format_row_name_parts(
+            "ソラ",
+            "ストームブレイド",
+            "雷刃型",
+            47421.0,
+            3184.0,
+            0.0,
+            imagine,
+            role_skill,
+            1,
+            template,
+            true,
+        )
+    }
+
+    fn body(text: &str, has_name: bool) -> super::NamePart {
+        super::NamePart {
+            text: text.to_string(),
+            class_icon: false,
+            shrink_rank: super::SHRINK_RANK_BODY,
+            has_name,
+        }
+    }
+
+    fn icon() -> super::NamePart {
+        super::NamePart {
+            text: String::new(),
+            class_icon: true,
+            shrink_rank: super::SHRINK_RANK_BODY,
+            has_name: false,
+        }
+    }
+
     // {classIcon} は設定のテンプレプレビューなど文字列だけの表示には含めない。
     #[test]
     fn class_icon_token_expands_to_nothing() {
@@ -471,6 +571,7 @@ mod tests {
                 3184.0,
                 0.0,
                 "",
+                "",
                 1,
                 t,
                 true,
@@ -481,30 +582,24 @@ mod tests {
         // 既定テンプレートも文字列部分だけを取り出すと旧既定と一致する。
         assert_eq!(
             name(crate::settings::DEFAULT_NAME_TEMPLATE),
-            name("{name} {spec}({score} - {seasonLv} - {seasonStr}){imagine}")
+            name("{name} {spec}({score} - {seasonLv} - {seasonStr}){imagine}{roleSkill}")
         );
     }
 
     #[test]
     fn class_icon_token_preserves_template_position() {
-        let parts = format_row_name_parts(
-            "ソラ",
-            "ストームブレイド",
-            "雷刃型",
-            47421.0,
-            3184.0,
-            0.0,
-            "(ティナ)",
-            1,
-            "前{name}{classIcon}後{imagine}",
-            true,
-        );
         assert_eq!(
-            parts,
+            parts_of("(ティナ)", "", "前{name}{classIcon}後{imagine}"),
             vec![
-                super::NamePart { text: "前ソラ".to_string(), class_icon: false },
-                super::NamePart { text: String::new(), class_icon: true },
-                super::NamePart { text: "後(ティナ)".to_string(), class_icon: false },
+                body("前ソラ", true),
+                icon(),
+                body("後", false),
+                super::NamePart {
+                    text: "(ティナ)".to_string(),
+                    class_icon: false,
+                    shrink_rank: super::SHRINK_RANK_IMAGINE,
+                    has_name: false,
+                },
             ]
         );
     }
@@ -512,25 +607,58 @@ mod tests {
     // 未知キーは従来どおりそのまま残し、classIcon の部分一致を誤ってアイコンにしない。
     #[test]
     fn class_icon_token_requires_exact_key() {
-        let parts = format_row_name_parts(
-            "ソラ",
-            "ストームブレイド",
-            "雷刃型",
-            47421.0,
-            3184.0,
-            0.0,
-            "",
-            1,
-            "{class}{classIconName}{name}",
-            true,
+        assert_eq!(
+            parts_of("", "", "{class}{classIconName}{name}"),
+            vec![body("ストームブレイド{classIconName}ソラ", true)]
         );
+    }
+
+    // {imagine}/{roleSkill} は本体と別パーツになり、省略順位（本体 < イマジン < ロールスキル）を持つ。
+    // UI 側はこの順位を stretch へ写して「ロールスキルから先に削る」配分を作る。
+    #[test]
+    fn imagine_and_role_skill_become_separate_ranked_parts() {
+        let parts = parts_of("-ティナ/アルーナ", " (R:ファルファラ)", "{name}{imagine}{roleSkill}");
         assert_eq!(
             parts,
-            vec![super::NamePart {
-                text: "ストームブレイド{classIconName}ソラ".to_string(),
-                class_icon: false,
-            }]
+            vec![
+                body("ソラ", true),
+                super::NamePart {
+                    text: "-ティナ/アルーナ".to_string(),
+                    class_icon: false,
+                    shrink_rank: super::SHRINK_RANK_IMAGINE,
+                    has_name: false,
+                },
+                super::NamePart {
+                    text: " (R:ファルファラ)".to_string(),
+                    class_icon: false,
+                    shrink_rank: super::SHRINK_RANK_ROLE_SKILL,
+                    has_name: false,
+                },
+            ]
         );
+        // 文字列版（コピー/プレビュー）は分割前と同じ連結結果になる。
+        assert_eq!(
+            parts.iter().map(|p| p.text.as_str()).collect::<String>(),
+            "ソラ-ティナ/アルーナ (R:ファルファラ)"
+        );
+    }
+
+    // 未装備（空文字）のイマジン/ロールスキルはパーツを作らず、前後の文字列も分断しない。
+    // 空パーツを残すと UI 側で無駄な間隔と min-width を消費するため。
+    #[test]
+    fn empty_imagine_tokens_do_not_split_body() {
+        assert_eq!(
+            parts_of("", "", "{name}{imagine}{roleSkill}({score})"),
+            vec![body("ソラ(47.4K)", true)]
+        );
+    }
+
+    // 名前を含まないパーツ（アイコン・イマジン・{name} を使わないテンプレ）に has_name を立てない。
+    #[test]
+    fn has_name_marks_only_the_part_holding_the_name() {
+        let parts = parts_of("-ティナ", "", "{classIcon}{class} {name}{imagine}");
+        assert_eq!(parts.iter().filter(|p| p.has_name).count(), 1);
+        assert!(parts.iter().find(|p| p.has_name).unwrap().text.contains("ソラ"));
     }
 
     // アイコン tint は ja/en どちらの表記でも同じ色になること。

@@ -273,6 +273,8 @@ fn ui_name_parts(parts: Vec<format::NamePart>) -> slint::ModelRc<NamePart> {
             .map(|part| NamePart {
                 text: part.text.into(),
                 class_icon: part.class_icon,
+                shrink_rank: part.shrink_rank,
+                has_name: part.has_name,
             })
             .collect::<Vec<_>>(),
     ))
@@ -352,6 +354,7 @@ fn build_rows(
                 p.season_level,
                 p.season_strength,
                 &p.imagine_suffix,
+                &p.role_skill_suffix,
                 rank,
                 template,
                 abbreviate,
@@ -1158,11 +1161,14 @@ fn show_drill(
     sw: &bpsr_core::models::SkillsWindow,
     clickable: bool,
 ) {
-    // 名前列テンプレートで {imagine} が消されていても、見出しは装備中イマジンを強制表示する。
+    // 名前列テンプレートで {imagine}/{roleSkill} が消されていても、見出しは装備中イマジンと
+    // ロールスキルを強制表示する（compute 側で別フィールドに分けているため両方を連結する）。
     m.set_inspected_name(
         format!(
-            "{}{}",
-            sw.inspected_player.name, sw.inspected_player.imagine_suffix
+            "{}{}{}",
+            sw.inspected_player.name,
+            sw.inspected_player.imagine_suffix,
+            sw.inspected_player.role_skill_suffix
         )
         .into(),
     );
@@ -1473,6 +1479,7 @@ fn template_previews(c: &settings::Settings) -> (slint::SharedString, slint::Sha
         38.0,
         8200.0,
         "-タータ/アルーナ",
+        " (R:ファルファラ)",
         1,
         &c.name_template,
         c.abbreviate_scores,

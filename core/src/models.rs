@@ -61,6 +61,11 @@ pub struct PlayerRow {
     /// 名前列テンプレートの {imagine} トークンで展開する。
     #[serde(default)]
     pub imagine_suffix: String,
+    /// ロールスキル(簡易版バトルイマジン)名（" (R:アルーナ/ファルファラ)"形式。無ければ空文字）。
+    /// 名前列テンプレートの {roleSkill} トークンで展開する。実イマジンと別トークンにすることで、
+    /// テンプレートで位置・有無を個別に指定でき、幅不足時の省略もロールスキル側から先に効く。
+    #[serde(default)]
+    pub role_skill_suffix: String,
     pub time_series: Vec<TimeSeriesPoint>,
 }
 

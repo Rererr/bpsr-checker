@@ -6,6 +6,13 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 pub const DEFAULT_NAME_TEMPLATE: &str =
+    "{classIcon}{name} {spec}({score} - {seasonLv} - {seasonStr}){imagine}{roleSkill}";
+
+/// v1.23.1 以前の既定テンプレート。当時の `{imagine}` はロールスキル(簡易版バトルイマジン)も
+/// 連結して展開していたため、そのままではロールスキル表示が黙って消える。既定値のままの設定
+/// だけを新既定へ移行する（カスタム済みのテンプレートは書き換えず、設定画面のヒントで
+/// `{roleSkill}` を案内する）。
+const LEGACY_NAME_TEMPLATE: &str =
     "{classIcon}{name} {spec}({score} - {seasonLv} - {seasonStr}){imagine}";
 pub const DEFAULT_COPY_TEMPLATE: &str = "{rank}. {name} ({class}) {dmg} / {dps} DPS ({pct})";
 
@@ -324,6 +331,11 @@ pub fn load() -> Settings {
             );
             cfg.dps_bar_intensity =
                 crate::dps_bar::BarIntensity::parse(&cfg.dps_bar_intensity).as_str().to_string();
+            // 旧既定テンプレートからの移行: {imagine} からロールスキルを分離した分、既定値のまま
+            // 使っていた設定へ {roleSkill} を足して従来と同じ表示を保つ。
+            if cfg.name_template == LEGACY_NAME_TEMPLATE {
+                cfg.name_template = DEFAULT_NAME_TEMPLATE.to_string();
+            }
             cfg
         }
         Err(_) => Settings::default(),

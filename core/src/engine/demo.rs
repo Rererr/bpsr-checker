@@ -284,6 +284,17 @@ const IMAGINE_ROSTER: &[(i64, &[(&str, i32)])] = &[
     (90008, &[("アルーナ", 3), ("ティナ", 1)]),
 ];
 
+/// 名前列 {roleSkill} 展開の確認用に、ロールスキル(簡易版バトルイマジン・最大4枠)を注入する。
+/// 書式は [`IMAGINE_ROSTER`] と同じ。90002 は4枠フル＝名前列が最も長くなるケースで、列幅が
+/// 足りないときの省略順（ロールスキル→イマジン→名前）を実機で確認するための行。
+const ROLE_SKILL_ROSTER: &[(i64, &[(&str, i32)])] = &[
+    (
+        90002,
+        &[("アルーナ", 3), ("ファルファラ", 0), ("サンダーオーガ", 1), ("ムークボス", 0)],
+    ),
+    (90004, &[("アルーナ", 0)]),
+];
+
 /// 食事/シロップ（ConsumableBuffIds.json 収録 ID）。
 /// (対象uid, base_id, 総持続ms, 消費済み割合)
 const CONSUMABLES: &[(i64, i32, i64, f64)] = &[
@@ -418,19 +429,28 @@ fn prime_entities(enc: &EncounterMutex) {
             ent.crit_dmg = Some(5_000); // 会心ダメージ 50%
             ent.lucky_dmg = Some(4_158); // 幸運の一撃倍率 41.58%
         }
-        // 他プレイヤーには表示名を直接注入（名前列 {imagine} 展開・見出し確認用）。
+        // 他プレイヤーには表示名を直接注入（名前列 {imagine}/{roleSkill} 展開・見出し確認用）。
+        // 実イマジン2枠とロールスキル4枠は別フィールドだが、注入する枠の形は同じ。
+        let slots = |names: &[(&str, i32)]| -> Vec<crate::engine::entity::ImagineSlot> {
+            names
+                .iter()
+                .enumerate()
+                .map(|(i, &(name, tier))| crate::engine::entity::ImagineSlot {
+                    name: name.to_string(),
+                    last_seen: i as u64,
+                    tier,
+                    pending_hits: 0,
+                })
+                .collect()
+        };
         for &(uid, names) in IMAGINE_ROSTER {
             if let Some(ent) = e.entities.get_mut(&uid) {
-                ent.imagines = names
-                    .iter()
-                    .enumerate()
-                    .map(|(i, &(name, tier))| crate::engine::entity::ImagineSlot {
-                        name: name.to_string(),
-                        last_seen: i as u64,
-                        tier,
-                        pending_hits: 0,
-                    })
-                    .collect();
+                ent.imagines = slots(names);
+            }
+        }
+        for &(uid, names) in ROLE_SKILL_ROSTER {
+            if let Some(ent) = e.entities.get_mut(&uid) {
+                ent.role_skill_imagines = slots(names);
             }
         }
     }

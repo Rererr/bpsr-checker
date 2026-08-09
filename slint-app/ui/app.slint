@@ -4,6 +4,11 @@
 struct NamePart {
     text: string,
     class-icon: bool,
+    // 列幅が足りないときに省略される順序（0=名前を含む本体 1={imagine} 2={roleSkill}）。
+    // format.rs の SHRINK_RANK_* と対応。NamePartView が horizontal-stretch へ写す。
+    shrink-rank: int,
+    // {name} を含むパーツ。幅が尽きても最低限の文字数を残す（NamePartView の min-width）。
+    has-name: bool,
 }
 
 struct Row {
@@ -438,14 +443,27 @@ component NamePartView inherits Rectangle {
     in property <float> font-scale: 1.0;
     in property <length> text-size: 12px;
     in property <length> icon-box: 18px;
-    in property <length> min-text-width: 0px;
-    // classIcon を含むテンプレートでは、各パーツを固有幅で並べて不要な空白を作らない。
-    horizontal-stretch: 0;
-    min-width: root.part.class-icon ? root.icon-box : 0px;
-    preferred-width: root.part.class-icon ? root.icon-box : part_text.preferred-width;
+    // 直前のパーツとの間隔。アイコンと文字の境界にだけ入れ、テンプレート上で直結している
+    // 文字同士（例 "{seasonStr}){imagine}"）は隙間なしで繋ぐ（レイアウトの一律 spacing だと
+    // イマジンを別パーツに切り出した時点で余計な隙間が入るため、パーツ側で持たせる）。
+    in property <length> gap-before: 0px;
+    // 名前を含むパーツの下限幅。全角2文字＋省略記号ぶんを残し、「ああ…」までは読めるようにする
+    // （名前自体がこれより短ければその自然幅が下限）。
+    property <length> name-floor: root.text-size * 3;
+    // 幅が足りないときに削られる順序。Slint の box layout は不足分を stretch 比で配分し、
+    // stretch=0 の要素は他に縮み代がある限り縮まない（i-slint-core layout.rs の Shrink）。
+    // これでロールスキル→イマジン→本体の順に省略される。
+    horizontal-stretch: root.part.shrink-rank == 0 ? 0 : (root.part.shrink-rank == 1 ? 1 : 1000);
+    min-width: root.gap-before + (root.part.class-icon
+        ? root.icon-box
+        : (root.part.has-name ? min(root.name-floor, part_text.preferred-width) : 0px));
+    preferred-width: root.gap-before
+        + (root.part.class-icon ? root.icon-box : part_text.preferred-width);
     clip: true;
     height: 100%;
     if root.part.class-icon: VerticalLayout {
+        x: root.gap-before;
+        width: root.icon-box;
         alignment: center;
         ClassIcon {
             id: root.class-icon-id;
@@ -454,7 +472,8 @@ component NamePartView inherits Rectangle {
         }
     }
     part_text := Text {
-        width: parent.width;
+        x: root.gap-before;
+        width: parent.width - root.gap-before;
         text: root.part.class-icon ? "" : root.part.text;
         visible: !root.part.class-icon;
         color: white;
@@ -480,16 +499,19 @@ component NameTemplate inherits Rectangle {
         width: 100%;
         height: 100%;
         alignment: root.parts.length == 1 && !root.parts[0].class-icon ? stretch : start;
-        spacing: 5px;
-        for part in root.parts: NamePartView {
+        // 間隔はパーツ側の gap-before が持つ（一律 spacing だと {imagine} の切り出しで
+        // テンプレートに無い隙間が入る）。
+        spacing: 0px;
+        for part[idx] in root.parts: NamePartView {
             part: part;
+            gap-before: idx == 0
+                ? 0px
+                : ((part.class-icon || root.parts[idx - 1].class-icon) ? 5px : 0px);
             class-icon-id: root.class-icon-id;
             class-role-color: root.class-role-color;
             font-scale: root.font-scale;
             text-size: root.text-size;
             icon-box: root.icon-box;
-            // 最小幅は NameTemplate 側だけに適用し、パーツごとの空き幅を作らない。
-            min-text-width: 0px;
         }
     }
 }
@@ -3382,7 +3404,7 @@ export component MainWindow inherits Window {
                             label: @tr("名前列テンプレ");
                             value: root.name-template-value;
                             preview: root.name-preview;
-                            hint: "{classIcon} {name} {class} {spec} {score} {seasonLv} {seasonStr} {imagine}";
+                            hint: "{classIcon} {name} {class} {spec} {score} {seasonLv} {seasonStr} {imagine} {roleSkill}";
                             changed(t) => { root.set-str("name-template", t); }
                             reset => { root.reset-str("name-template"); }
                         }

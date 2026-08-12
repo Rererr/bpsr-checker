@@ -1,4 +1,4 @@
-; bpsr-checker (Slint版) スタンドアロン NSIS インストーラ。
+﻿; bpsr-checker (Slint版) スタンドアロン NSIS インストーラ。
 ; Tauri 生成の NSIS を置き換える。WinDivert 同梱・管理者インストール・
 ; インストール/アンインストール時にアプリ強制終了＋WinDivertドライバ停止。
 ;

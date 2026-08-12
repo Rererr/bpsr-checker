@@ -1,4 +1,4 @@
-# dev 専用: WinDivert ドライバを停止し、ロックされた .sys を解放する。
+﻿# dev 専用: WinDivert ドライバを停止し、ロックされた .sys を解放する。
 #
 # 駆動中（サービス RUNNING）はその WinDivert64.sys がカーネルにロックされ、次回の
 # `cargo build` でのドライバ再コピー（target/**/WinDivert64.sys）が失敗する。rebuild の

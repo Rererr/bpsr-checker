@@ -1,4 +1,4 @@
-# Slint 版 (bpsr-app) のポータブル配布物を作る。
+﻿# Slint 版 (bpsr-app) のポータブル配布物を作る。
 #   - release ビルド
 #   - exe を bpsr-checker.exe にリネームして WinDivert を同梱
 #   - zip 化

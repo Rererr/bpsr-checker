@@ -1,4 +1,4 @@
-# bpsr-app を Slint 埋め込み MCP サーバー付きで起動するローカル開発用ヘルパー。
+﻿# bpsr-app を Slint 埋め込み MCP サーバー付きで起動するローカル開発用ヘルパー。
 #
 # Slint テストバックエンド (i-slint-backend-testing) 同梱の MCP サーバーを有効化し、
 # Claude Code などの MCP クライアントから起動中の UI を検査・操作できるようにする。

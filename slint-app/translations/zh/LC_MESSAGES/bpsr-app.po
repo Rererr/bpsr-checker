@@ -357,8 +357,8 @@ msgstr "等待游戏通信中"
 msgid "戦闘を開始すると自動的に表示されます"
 msgstr "开始战斗后会自动显示"
 
-msgid "検出されない場合はゾーン移動か再ログインで検出が始まります"
-msgstr "若未检测到，切换区域或重新登录即可开始检测"
+msgid "検出されない場合は読み込みが入る移動か再ログインで検出が始まります"
+msgstr "若未检测到，进行一次有读取画面的移动或重新登录即可开始检测"
 
 msgid "VPN / ExitLag / NoPing 等の使用中は検出できないことがあります"
 msgstr "使用 VPN / ExitLag / NoPing 等时可能无法检测"
@@ -368,6 +368,12 @@ msgstr "请确认以管理员权限运行"
 
 msgid "WinDivert.dll / WinDivert64.sys が exe と同じフォルダにあるか確認してください"
 msgstr "请确认 WinDivert.dll / WinDivert64.sys 与 exe 位于同一文件夹"
+
+msgid "自分の名前が未取得です。読み込みが入る移動か再ログインで表示されます"
+msgstr "尚未获取到自己的名字。进行一次有读取画面的移动或重新登录后即会显示"
+
+msgid "この案内を閉じる"
+msgstr "关闭此提示"
 
 msgid "表示する項目"
 msgstr "显示项目"

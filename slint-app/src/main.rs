@@ -233,22 +233,22 @@ fn graph_col_active(c: &settings::Settings, tab: i32) -> bool {
     (c.graph_player_count > 0.0 || c.graph_for_local_player) && tab != 2
 }
 
-/// 通常 rows へ反映しつつ、軽量分割表示用に前半/後半カラムへも分配する。自分基準モードの
-/// 50%ガイド線表示可否（`build_rows` が計算した self_guide_has_data）も同時に反映する
+/// 通常 rows へ反映しつつ、軽量分割表示用に前半/後半カラムへも分配する。行の集合からしか
+/// 導けない表示フラグ（自分基準ガイド線・自キャラ名の未取得ヒント）も同時に反映する
 /// （バー計算のフォールバック条件とガイド線の表示条件を1つの値から導出するため）。
 fn apply_player_rows(
     m: &MainWindow,
     rows: &slint::VecModel<Row>,
     left: &slint::VecModel<Row>,
     right: &slint::VecModel<Row>,
-    built: (Vec<Row>, bool),
+    built: BuiltPlayerRows,
 ) {
-    let (built, self_guide_has_data) = built;
-    let half = built.len().div_ceil(2);
-    sync_rows(left, &built[..half]);
-    sync_rows(right, &built[half..]);
-    sync_rows(rows, &built);
-    m.set_self_guide_has_data(self_guide_has_data);
+    let half = built.rows.len().div_ceil(2);
+    sync_rows(left, &built.rows[..half]);
+    sync_rows(right, &built.rows[half..]);
+    sync_rows(rows, &built.rows);
+    m.set_self_guide_has_data(built.self_guide_has_data);
+    m.set_local_name_unresolved(built.local_name_unresolved);
 }
 
 /// 行数が同じならデリゲートを再生成せず in-place 更新する。
@@ -294,6 +294,19 @@ fn consumable_display(remaining_ms: f64, duration_ms: f64, base_id: i32) -> (boo
     (true, ratio, time, label)
 }
 
+/// [`build_rows`] の結果。行データに加えて、行の集合からしか導けない表示フラグを返す。
+struct BuiltPlayerRows {
+    rows: Vec<Row>,
+    /// 自分基準モードの 50% ガイド線を出せるか（＝自キャラの実績があるか）。
+    self_guide_has_data: bool,
+    /// 自キャラの名前が未取得（「プレイヤー#XXXX」表示のまま）か。名前の取得経路は入場時の
+    /// EnterScene / SyncContainerData だけで、他プレイヤーのように視界の出入りでは補充されない。
+    /// このためゲーム起動後にアプリを立ち上げると自分の名前だけ埋まらず、ゾーン入場
+    /// （＝読み込みが入る移動・再ログイン）まで回復しない。
+    /// 名前マスク中は伏せ字が正常な状態なのでヒントを出さない。
+    local_name_unresolved: bool,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn build_rows(
     pw: &bpsr_core::models::PlayersWindow,
@@ -304,7 +317,7 @@ fn build_rows(
     graph_count: i32,
     graph_for_local: bool,
     bar_cfg: &dps_bar::DpsBarConfig,
-) -> (Vec<Row>, bool) {
+) -> BuiltPlayerRows {
     let top = pw.top_value.max(1.0);
     let local = pw.local_player_uid;
     // 自分基準モード以外では未使用だが、行数は高々十数人なので線形探索のコストは無視できる
@@ -315,10 +328,14 @@ fn build_rows(
     let self_guide_has_data = self_total.is_some_and(|s| s > 0.0);
     // 非ローカルの上位 graph_count 人＋（設定時）ローカルにグラフを出す。
     let mut non_local_above: i32 = 0;
+    let mut local_name_unresolved = false;
     let mut out = Vec::with_capacity(pw.player_rows.len());
     for (i, p) in pw.player_rows.iter().enumerate() {
         let rank = (i + 1) as i32;
         let is_local = p.uid == local;
+        if is_local && !p.name_resolved {
+            local_name_unresolved = true;
+        }
         let show_spark = if is_local {
             graph_for_local
         } else {
@@ -391,7 +408,12 @@ fn build_rows(
             syrup_label: syrup_label.into(),
         });
     }
-    (out, self_guide_has_data)
+    BuiltPlayerRows {
+        rows: out,
+        self_guide_has_data,
+        // マスク中は全員が伏せ字＝自分だけ名前が出ない状態ではないため、ヒントは出さない。
+        local_name_unresolved: local_name_unresolved && !privacy,
+    }
 }
 
 fn build_skill_rows(sw: &bpsr_core::models::SkillsWindow) -> Vec<SkillRowUi> {
@@ -4335,6 +4357,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let cur_tab = tab_cell_poll.get();
         if cur_tab == 3 {
             // 履歴タブ: 確定済みエンカウンタ一覧を反映（展開状態は維持）。
+            // このタブでは一覧を組み立てないため、自キャラ名の未取得ヒント
+            // (local-name-unresolved) は直近の一覧タブでの値を据え置く。名前は入場時にしか
+            // 変わらないので陳腐化の実害が小さく、この判定のためだけに毎 tick 集計を回さない。
             let privacy = cfg_poll.borrow().privacy_mask_names;
             let hist = compute::get_history();
             history_rows_poll.set_vec(build_history_rows(

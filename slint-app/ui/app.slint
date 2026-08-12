@@ -2623,6 +2623,45 @@ component ImagineOnlyNotice inherits VerticalLayout {
     }
 }
 
+// 自キャラ名が未取得のときの案内バー（ヘッダ直下）。他プレイヤーの名前は視界の出入りで
+// 何度でも届くのに対し、自キャラの名前はゾーン入場時（EnterScene / SyncContainerData）に
+// しか流れないため、ゲームを起動した後にアプリを立ち上げると自分の行だけ「プレイヤー#XXXX」
+// のまま残る。放置しても直らないので回復手段を併記する。文面で「ゾーン移動」と言わないのは
+// ゲーム内にその語が無いため（プレイヤーから見える手掛かりは読み込みが挟まること）。
+component LocalNameHint inherits Rectangle {
+    callback dismiss();
+    in property <float> font-scale: 1.0;
+    height: 18px * root.font-scale;
+    background: #d8a24a14;
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 4px;
+        spacing: 4px;
+        Text {
+            text: @tr("自分の名前が未取得です。読み込みが入る移動か再ログインで表示されます");
+            color: #d8a24a;
+            font-size: 10px * root.font-scale;
+            overflow: elide;
+            horizontal-stretch: 1;
+            vertical-alignment: center;
+        }
+        close-hint := TouchArea {
+            width: 18px * root.font-scale;
+            accessible-role: button;
+            accessible-label: @tr("この案内を閉じる");
+            accessible-action-default => { root.dismiss(); }
+            clicked => { root.dismiss(); }
+            Rectangle {
+                background: close-hint.has-hover ? #ffffff20 : transparent;
+                animate background { duration: 100ms; easing: ease-out; }
+                border-radius: 3px;
+                // Dingbats の ✕ は欠落環境があるため Latin-1 の × を使う（ヘッダの閉じるボタンと同じ）。
+                Text { text: "×"; color: close-hint.has-hover ? #eef : #cfcfe0; font-size: 13px * root.font-scale; horizontal-alignment: center; vertical-alignment: center; }
+            }
+        }
+    }
+}
+
 export component MainWindow inherits Window {
     in property <[Row]> rows;
     in property <[Row]> compact-left;   // 軽量分割 左カラム（前半）
@@ -2781,6 +2820,15 @@ export component MainWindow inherits Window {
     // (self_total.is_some_and(|s| s > 0.0)) と同じ判定を Rust 側(build_rows)から push する
     // （バー計算側のフォールバック条件とガイド線の表示条件を2箇所に書かない）。
     in property <bool> self-guide-has-data: false;
+    // 自キャラの名前が未取得（「プレイヤー#XXXX」表示のまま）か。判定は Rust 側(build_rows)が
+    // 持つ（名前マスク中は出さない等の条件をここで書き直さない）。
+    in property <bool> local-name-unresolved: false;
+    // ヒントを閉じたか。次にゾーン入場等で名前が埋まるまで（または再起動まで）出さない。
+    property <bool> local-name-hint-dismissed: false;
+    // 名前が埋まったら「閉じた」状態も戻す（キャラ切替等で再発したときに再び案内するため）。
+    changed local-name-unresolved => {
+        if (!root.local-name-unresolved) { root.local-name-hint-dismissed = false; }
+    }
     // 自分基準モード判定を1箇所に集約（PlayerRowItem/CompactRowItemの両方が同じ値を参照する。
     // 各行で "dps-bar-mode == self" を個別に比較させない）。モードが self でも自キャラの値が
     // まだ無い間（開幕直後等）はバー計算がトップ比へフォールバックするため、ガイド線も合わせて隠す。
@@ -2957,6 +3005,13 @@ export component MainWindow inherits Window {
             }
         }
 
+        // ── 自キャラ名が未取得のときの案内（ヘッダ直下・一覧/履歴どちらでも同じ位置）──
+        // スキル内訳(view=1)と設定パネル表示中は、そこに自分の行が並ばないため出さない。
+        if root.local-name-unresolved && !root.local-name-hint-dismissed && !root.settings-open && root.view == 0: LocalNameHint {
+            font-scale: root.font-scale;
+            dismiss => { root.local-name-hint-dismissed = true; }
+        }
+
         // ── 一覧ビュー（履歴タブ以外・通常列）──
         // 設定/ドリルダウン/履歴から戻った時や初回表示は if が作り直されるため init で毎回フェードイン
         // する。同一インスタンスのままタブだけ切り替わる場合(DPS/回復/被ダメ間)は init が再発火せず
@@ -3061,7 +3116,7 @@ export component MainWindow inherits Window {
                             horizontal-alignment: center;
                         }
                         if root.capture-state != 3 && root.capture-state != 2: Text {
-                            text: @tr("検出されない場合はゾーン移動か再ログインで検出が始まります");
+                            text: @tr("検出されない場合は読み込みが入る移動か再ログインで検出が始まります");
                             color: #666;
                             font-size: 10px;
                             horizontal-alignment: center;

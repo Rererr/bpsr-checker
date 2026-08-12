@@ -147,7 +147,11 @@ Open it with the **S** button in the header. Main items:
 
 - **About nearby characters shown right after launch / reset**
   Because this tool passively observes the packets the game client receives, it may fail to obtain the name, class, and gear-score info — which the server sends only once — for characters already in view at the moment of launch or reset.
-  Such characters are shown faintly as "Player #XXXX," and their class is auto-estimated from their skills. UIDs observed in the past are restored automatically from a 30-day name cache. When they re-enter your view via a zone change or re-login, the correct info is obtained.
+  Such characters are shown faintly as "Player #XXXX," and their class is auto-estimated from their skills. UIDs observed in the past are restored automatically from a 30-day name cache. When they re-enter your view after a move with a loading screen, or after a re-login, the correct info is obtained.
+
+- **About your own name showing as "Player #XXXX"**
+  Other players' names arrive every time they enter your view, but your own name is sent only when you load into a map. So if you launch this tool after the game is already running, everyone else's name shows up while yours stays "Player #XXXX" — and it will not fix itself.
+  Make one move that goes through a loading screen (a warp, or entering/leaving a dungeon), or re-login, and your name is filled in; from then on it is restored automatically from the 30-day name cache.
 
 ## Troubleshooting
 

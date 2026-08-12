@@ -465,8 +465,8 @@ msgstr "Waiting for game traffic"
 msgid "戦闘を開始すると自動的に表示されます"
 msgstr "Data appears automatically once combat starts"
 
-msgid "検出されない場合はゾーン移動か再ログインで検出が始まります"
-msgstr "If nothing shows up, change zones or relog to start detection"
+msgid "検出されない場合は読み込みが入る移動か再ログインで検出が始まります"
+msgstr "If nothing shows up, move somewhere with a loading screen, or relog, to start detection"
 
 msgid "VPN / ExitLag / NoPing 等の使用中は検出できないことがあります"
 msgstr "Detection may fail while VPN / ExitLag / NoPing is active"
@@ -476,6 +476,12 @@ msgstr "Make sure the app is running as administrator"
 
 msgid "WinDivert.dll / WinDivert64.sys が exe と同じフォルダにあるか確認してください"
 msgstr "Make sure WinDivert.dll / WinDivert64.sys are next to the exe"
+
+msgid "自分の名前が未取得です。読み込みが入る移動か再ログインで表示されます"
+msgstr "Your own name has not arrived yet. Move somewhere with a loading screen, or relog, to show it"
+
+msgid "この案内を閉じる"
+msgstr "Dismiss this notice"
 
 msgid "表示する項目"
 msgstr "Items to show"

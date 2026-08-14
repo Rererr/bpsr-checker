@@ -280,18 +280,49 @@ fn ui_name_parts(parts: Vec<format::NamePart>) -> slint::ModelRc<NamePart> {
     ))
 }
 
+/// 食事/シロップの残り時間の警告閾値（ms）。1分未満=危険、5分未満=注意。
+/// build_status_entries の is_low（残り3秒未満）とはスケールが異なる別判定
+/// （消耗品の duration は30分オーダーのため、同じ「残りわずか」でも基準が違う）。
+const CONSUMABLE_CRITICAL_MS: f64 = 60_000.0;
+const CONSUMABLE_CAUTION_MS: f64 = 300_000.0;
+/// 警告色は既存パレットを踏襲する。危険=build_status_entries の is_low(#ff7043) と同色、
+/// 注意=完全透明オーバーレイ警告バナー(app.slint)と同色。
+const CONSUMABLE_CRITICAL_RGB: (u8, u8, u8) = (0xff, 0x70, 0x43);
+const CONSUMABLE_CAUTION_RGB: (u8, u8, u8) = (0xff, 0xb4, 0x54);
+/// 食事/シロップアイコンの基準色（警告閾値に掛からない通常時の色）。
+/// 旧来 app.slint 側にリテラルで持たせていたが、閾値判定と1箇所にまとめるため Rust 側へ移設。
+const FOOD_TINT_RGB: (u8, u8, u8) = (0x66, 0xbb, 0x6a);
+const SYRUP_TINT_RGB: (u8, u8, u8) = (0xb0, 0x7c, 0xff);
+
 #[allow(clippy::too_many_arguments)]
 /// 食事/シロップ等の消耗バフの表示用派生値を計算する。
-/// 戻り値: (アクティブか, 残量割合0..1, 残り時間テキスト, 種類ラベル)。
+/// 戻り値: (アクティブか, 残量割合0..1, 残り時間テキスト, 種類ラベル, アイコン/ラベル色)。
 /// duration/remaining いずれかが 0 以下なら未使用扱い(空文字・0)。
-fn consumable_display(remaining_ms: f64, duration_ms: f64, base_id: i32) -> (bool, f32, String, String) {
+///
+/// 残り時間の警告閾値判定はここに集約する。色は app.slint 側でアイコンの塗りと
+/// ホバー時の種類ラベル文字色（tip-label の `color: root.tint`）の両方に使われるため、
+/// 判定をこの1箇所だけに置けば両方の表示が自動的に揃う（条件式を2箇所に書かない）。
+fn consumable_display(
+    remaining_ms: f64,
+    duration_ms: f64,
+    base_id: i32,
+    base_tint_rgb: (u8, u8, u8),
+) -> (bool, f32, String, String, slint::Color) {
+    let rgb = |c: (u8, u8, u8)| slint::Color::from_rgb_u8(c.0, c.1, c.2);
     if duration_ms <= 0.0 || remaining_ms <= 0.0 {
-        return (false, 0.0, String::new(), String::new());
+        return (false, 0.0, String::new(), String::new(), rgb(base_tint_rgb));
     }
     let ratio = (remaining_ms / duration_ms).clamp(0.0, 1.0) as f32;
     let time = format::format_consumable_remaining(remaining_ms as i64, duration_ms as i64);
     let label = consumable_names::label(base_id).unwrap_or_default();
-    (true, ratio, time, label)
+    let tint = if remaining_ms < CONSUMABLE_CRITICAL_MS {
+        rgb(CONSUMABLE_CRITICAL_RGB)
+    } else if remaining_ms < CONSUMABLE_CAUTION_MS {
+        rgb(CONSUMABLE_CAUTION_RGB)
+    } else {
+        rgb(base_tint_rgb)
+    };
+    (true, ratio, time, label, tint)
 }
 
 /// [`build_rows`] の結果。行データに加えて、行の集合からしか導けない表示フラグを返す。
@@ -351,10 +382,10 @@ fn build_rows(
         }
         // 食事/シロップの残量割合（0..1。アイコンの色が上から縦に抜ける）＋ホバー用の
         // 残り時間テキスト・種類ラベル（base_id→日本語効果名）。
-        let (food_act, food_remaining, food_time, food_label) =
-            consumable_display(p.food_remaining_ms, p.food_duration_ms, p.food_base_id);
-        let (syrup_act, syrup_remaining, syrup_time, syrup_label) =
-            consumable_display(p.syrup_remaining_ms, p.syrup_duration_ms, p.syrup_base_id);
+        let (food_act, food_remaining, food_time, food_label, food_tint) =
+            consumable_display(p.food_remaining_ms, p.food_duration_ms, p.food_base_id, FOOD_TINT_RGB);
+        let (syrup_act, syrup_remaining, syrup_time, syrup_label, syrup_tint) =
+            consumable_display(p.syrup_remaining_ms, p.syrup_duration_ms, p.syrup_base_id, SYRUP_TINT_RGB);
         let display = if privacy {
             format::mask_player_name(p.uid as i64)
         } else {
@@ -402,10 +433,12 @@ fn build_rows(
             food_remaining,
             food_time: food_time.into(),
             food_label: food_label.into(),
+            food_tint,
             syrup_active: syrup_act,
             syrup_remaining,
             syrup_time: syrup_time.into(),
             syrup_label: syrup_label.into(),
+            syrup_tint,
         });
     }
     BuiltPlayerRows {
@@ -4907,5 +4940,44 @@ mod tests {
     #[test]
     fn test_overlay_next_delay_ms_falls_back_when_no_cell() {
         assert_eq!(overlay_next_delay_ms(None), OVERLAY_FALLBACK_MS);
+    }
+
+    // --- 食事/シロップ アイコン(consumable_display)関連のユニットテスト ---
+
+    // 残量に余裕があるうちは基準色（警告なし）のまま。
+    #[test]
+    fn test_consumable_display_uses_base_tint_when_remaining_is_plenty() {
+        let (active, ratio, _time, _label, tint) =
+            consumable_display(600_000.0, 1_800_000.0, 0, FOOD_TINT_RGB);
+        assert!(active);
+        assert!((ratio - (1.0 / 3.0)).abs() < 1e-6);
+        assert_eq!(tint, slint::Color::from_rgb_u8(0x66, 0xbb, 0x6a));
+    }
+
+    // 残り5分未満は注意色（既存の警告バナーと同色）へ切り替わる。
+    #[test]
+    fn test_consumable_display_switches_to_caution_tint_under_five_minutes() {
+        let (_active, _ratio, _time, _label, tint) =
+            consumable_display(299_999.0, 1_800_000.0, 0, FOOD_TINT_RGB);
+        assert_eq!(tint, slint::Color::from_rgb_u8(0xff, 0xb4, 0x54));
+    }
+
+    // 残り1分未満は危険色（build_status_entries の is_low と同色）へ切り替わる。
+    #[test]
+    fn test_consumable_display_switches_to_critical_tint_under_one_minute() {
+        let (_active, _ratio, _time, _label, tint) =
+            consumable_display(59_999.0, 1_800_000.0, 0, SYRUP_TINT_RGB);
+        assert_eq!(tint, slint::Color::from_rgb_u8(0xff, 0x70, 0x43));
+    }
+
+    // 未使用(duration<=0 または remaining<=0)は非アクティブ扱いで基準色を返す（表示上は使われない）。
+    #[test]
+    fn test_consumable_display_inactive_when_unused() {
+        let (active, ratio, time, label, tint) = consumable_display(0.0, 1_800_000.0, 0, SYRUP_TINT_RGB);
+        assert!(!active);
+        assert_eq!(ratio, 0.0);
+        assert_eq!(time, "");
+        assert_eq!(label, "");
+        assert_eq!(tint, slint::Color::from_rgb_u8(0xb0, 0x7c, 0xff));
     }
 }

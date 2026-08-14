@@ -37,10 +37,12 @@ struct Row {
     food-remaining: float,  // 食事の残量割合 0..1（アイコンの色が上から縦に抜ける）
     food-time: string,      // ホバー時の残り時間（例: 45s）
     food-label: string,     // ホバー時の種類ラベル（例: 物攻 +15。空=不明）
+    food-tint: color,       // アイコン/ラベルの色。残り時間の閾値判定込みで Rust 側が決定（main.rs consumable_display）
     syrup-active: bool,     // シロップ(錬金)バフ使用中
     syrup-remaining: float, // シロップの残量割合 0..1
     syrup-time: string,     // ホバー時の残り時間
     syrup-label: string,    // ホバー時の種類ラベル
+    syrup-tint: color,      // アイコン/ラベルの色。閾値判定は food-tint と同じ consumable_display に集約
 }
 
 struct ColumnFlags {
@@ -585,6 +587,7 @@ component ConsumableBadge inherits Rectangle {
     // アイコン径＝メインのフォントサイズ（font_size = 12px*font_scale）に一致
     width: 12px * root.font-scale;
     height: self.width;
+    // 下地: 常にグレーのフルアイコン（未使用時はこれのみが見える）。
     Path {
         width: 100%;
         height: 100%;
@@ -593,10 +596,31 @@ component ConsumableBadge inherits Rectangle {
         viewbox-width: 24;
         viewbox-height: 24;
         commands: root.icon;
-        // 上[0..経過]=グレー半透明、下[経過..1]=色。残量が減ると色が上から下へ抜ける。
-        fill: root.active
-            ? @linear-gradient(180deg, #8a8f9980 0%, #8a8f9980 root.elapsed * 100%, root.tint root.elapsed * 100%, root.tint 100%)
-            : #8a8f9980;
+        fill: #8a8f9980;
+    }
+    // 上載せ: tint 色の同一アイコンを、経過ぶんだけ下端を残すクリップ矩形越しに重ねる。
+    // 以前は @linear-gradient で色境界を表現していたが、femtovg はブラシ生成時にグリフの
+    // bbox の「サイズ」だけを使い「原点」を捨てるため（fit:Contain で生じる上端余白ぶん
+    // グラデーション線がグリフより上にズレる）、境界が実際の残量と一致しなかった。
+    // クリップ矩形なら枠(root)基準で正確に切れるためこの問題を回避できる。
+    if root.active: Rectangle {
+        clip: true;
+        y: root.elapsed * root.height;
+        height: (1.0 - root.elapsed) * root.height;
+        width: 100%;
+        Path {
+            // クリップ矩形自身の y ぶん引き戻し、アイコンは常に (0,0) 基準で描く
+            // （引き戻さないとクリップ窓の内側原点に引きずられ、経過ぶん余計に下がって描画される）。
+            y: -parent.y;
+            width: root.width;
+            height: root.height;
+            viewbox-x: 0;
+            viewbox-y: 0;
+            viewbox-width: 24;
+            viewbox-height: 24;
+            commands: root.icon;
+            fill: root.tint;
+        }
     }
     // ホバーで残り時間＋種類をアイコンの下に表示。PopupWindow=最前面・行にクリップ
     // されないため最上段でも見切れない。ポップはアイコンの下に出すので hover を奪わない。
@@ -758,7 +782,7 @@ component PlayerRowItem inherits Rectangle {
             if root.show-consumable: VerticalLayout { alignment: center; ConsumableBadge {
                 active: root.entry.food-active;
                 remaining: root.entry.food-remaining;
-                tint: #66bb6a;
+                tint: root.entry.food-tint;
                 tip-time: root.entry.food-time;
                 tip-label: root.entry.food-label;
                 font-scale: root.font-scale;
@@ -768,7 +792,7 @@ component PlayerRowItem inherits Rectangle {
             if root.show-consumable: VerticalLayout { alignment: center; ConsumableBadge {
                 active: root.entry.syrup-active;
                 remaining: root.entry.syrup-remaining;
-                tint: #b07cff;
+                tint: root.entry.syrup-tint;
                 tip-time: root.entry.syrup-time;
                 tip-label: root.entry.syrup-label;
                 font-scale: root.font-scale;

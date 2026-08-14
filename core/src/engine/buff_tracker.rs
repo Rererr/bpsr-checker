@@ -143,8 +143,15 @@ impl BuffTracker {
 
     /// buff_list (BuffEffect) の BuffChange (LogicEffect.EffectType == 19) を追跡。
     /// RawData は BuffChange{layer, duration, create_time}。base_id を持たないため、
-    /// 同一 BuffUuid の既存バフの duration/layer を更新し received_at を再ベースする
-    /// （スタック増加・タイマーリフレッシュ ＝ ウィンドウから消えない）。未追跡 BuffUuid は無視。
+    /// 同一 BuffUuid の既存バフの duration/layer を更新する。
+    /// received_at_local_ms の再ベースは次の契約で行う: create_time が既存と一致し、
+    /// かつ layer・duration のいずれも変化していない「冗長な再通知」だけは再ベースを
+    /// スキップする。layer 増加（スタック増加）・duration 増加（延長）・create_time
+    /// 変化（別付与）のいずれかがあれば必ず再ベースし期限を延ばす
+    /// （＝スタック増加・タイマーリフレッシュ ＝ ウィンドウから消えない）。
+    /// 未追跡 BuffUuid は無視。同種の「同一付与の冗長な再通知を除外する」述語は
+    /// apply_effect にもあるが、create_time==0 の扱いと layer の有無が異なるため
+    /// 共有ヘルパへは統合していない（詳細はガード実装直上のコメント）。
     pub fn apply_buff_change(
         &mut self,
         target_uid: i64,
@@ -158,7 +165,36 @@ impl BuffTracker {
         let Some(state) = player_buffs.get_mut(&buff_uuid) else {
             return;
         };
-        state.received_at_local_ms = now_ms;
+
+        // 同一付与の冗長な再通知（create_time が既存と一致 かつ layer・duration が
+        // どちらも変化なし）のときだけ received_at_local_ms を再ベースしない。
+        // scene-change 経路は同一付与を何度も再通知することが実測されており
+        // （probe: 26,918件中1,774キー・延べ2,534件が同一 (host_uuid, buff_uuid,
+        // create_time)、最大14回・18.4秒再送）、無条件の再ベースだと残り秒が
+        // 毎回満タンへ巻き戻り凍結して見える。
+        // layer が変化（スタック増減）していれば create_time が同一でも実イベントの
+        // 強い証左のため必ず再ベースする（本関数 doc の「スタック増加でウィンドウ
+        // から消えない」契約を満たすために必須）。create_time が 0（不明）・
+        // 別の付与・duration 増加（延長）の場合も同様に必ず再ベースする。
+        //
+        // この関数は create_time==0 を「同一付与ではない」扱いにして必ず再ベース
+        // する（is_same_grant に != 0 を必須化）。そのため v0.8.3 の凍結バグ
+        // （BuffTick に create_time が付与されず 0 到来時に旧ガードが全 tick を
+        // スキップし残り秒数が凍結した件）はこの条件式では再発しない。それでも
+        // apply_change（BuffTick 経路）へ同ガードを入れないのは、経路が別だから
+        // ではなく、probe 実測で BuffTick の同一付与再通知が 0 件＝ガードが
+        // 必要かどうかを検証する材料が無く、未検証のまま挙動を変えるリスクを
+        // 避けるため。
+        let is_same_grant = change.create_time != 0 && change.create_time == state.create_time_server;
+        let duration_increased = change.duration != 0 && {
+            let normalized = if change.duration < 0 { 0 } else { change.duration };
+            normalized > state.duration_ms
+        };
+        let layer_changed = change.layer != 0 && change.layer != state.layer;
+        if !is_same_grant || duration_increased || layer_changed {
+            state.received_at_local_ms = now_ms;
+        }
+
         if change.duration != 0 {
             state.duration_ms = if change.duration < 0 { 0 } else { change.duration };
         }
@@ -174,6 +210,9 @@ impl BuffTracker {
     /// duration_ms <= 0 は無期限扱いでスキップ。
     /// activated_at が同一 かつ duration_ms も同一なら周期同期スキップ。
     /// activated_at が同じでも duration_ms が増加した場合は延長・再付与と判断して更新する。
+    /// apply_buff_change と同種の「同一付与の冗長な再通知を除外する」述語だが、
+    /// TimedEffect には layer 相当の概念が無く create_time==0 の扱いも異なるため
+    /// 共有ヘルパへは統合していない（差異の詳細は apply_buff_change のガード直上コメント）。
     pub fn apply_effect(&mut self, effect: &pb::TimedEffect, now_ms: u128, local_uid: i64) {
         if effect.duration_ms <= 0 {
             return;
@@ -441,6 +480,116 @@ mod tests {
         assert_eq!(snaps[0].remaining_ms, 400);
         assert_eq!(snaps[0].layer, 3);
         assert_eq!(snaps[0].base_id, 30001);
+    }
+
+    // scene-change 経路の同一付与再通知: create_time が既存と一致するなら受信のたびに
+    // 再ベースしない＝残り秒が凍結せず減り続ける（probe実測: 最大14回・18.4秒再送）。
+    #[test]
+    fn test_buff_change_same_create_time_does_not_rebase() {
+        let mut tracker = BuffTracker::new();
+        let uid = 5000;
+
+        // AddBuff: create_time=1000, duration=25000
+        let mut info = make_buff_info(1, player_uuid(1), 25000);
+        info.create_time = 1000;
+        tracker.apply_buff_add(77, &info, 0, uid);
+
+        // 同一 create_time=1000 の BuffChange が複数回再通知される（duration は変わらず）
+        let change = pb::BuffChange { layer: 1, duration: 25000, create_time: 1000 };
+        tracker.apply_buff_change(uid, 77, &change, 5000);
+        tracker.apply_buff_change(uid, 77, &change, 10000);
+        tracker.apply_buff_change(uid, 77, &change, 18400);
+
+        // received_at_local_ms は初回付与時の 0 のまま＝期限は 0+25000=25000ms
+        let snaps = tracker.snapshot_for(uid, 20000);
+        assert_eq!(snaps.len(), 1);
+        assert_eq!(snaps[0].remaining_ms, 5000);
+    }
+
+    // create_time が変わった場合（別の付与）は従来どおり再ベースされる。
+    #[test]
+    fn test_buff_change_different_create_time_rebases() {
+        let mut tracker = BuffTracker::new();
+        let uid = 5000;
+
+        let mut info = make_buff_info(1, player_uuid(1), 5000);
+        info.create_time = 1000;
+        tracker.apply_buff_add(77, &info, 0, uid);
+
+        // 別の付与（create_time=2000）として通知
+        let change = pb::BuffChange { layer: 1, duration: 5000, create_time: 2000 };
+        tracker.apply_buff_change(uid, 77, &change, 3000);
+
+        // 再ベースされていれば期限は 3000+5000=8000ms。7000ms 時点で残り 1000ms。
+        let snaps = tracker.snapshot_for(uid, 7000);
+        assert_eq!(snaps.len(), 1);
+        assert_eq!(snaps[0].remaining_ms, 1000);
+        assert_eq!(snaps[0].create_time_server, 2000);
+    }
+
+    // 同一 create_time でも duration が増えた場合（延長）は再ベースされる。
+    #[test]
+    fn test_buff_change_same_create_time_but_extended_duration_rebases() {
+        let mut tracker = BuffTracker::new();
+        let uid = 5000;
+
+        let mut info = make_buff_info(1, player_uuid(1), 5000);
+        info.create_time = 1000;
+        tracker.apply_buff_add(77, &info, 0, uid);
+
+        // 同一 create_time=1000 だが duration が 5000→10000 へ延長
+        let change = pb::BuffChange { layer: 1, duration: 10000, create_time: 1000 };
+        tracker.apply_buff_change(uid, 77, &change, 4000);
+
+        // 延長として再ベースされていれば期限は 4000+10000=14000ms。9000ms 時点で残り 5000ms。
+        let snaps = tracker.snapshot_for(uid, 9000);
+        assert_eq!(snaps.len(), 1);
+        assert_eq!(snaps[0].remaining_ms, 5000);
+        assert_eq!(snaps[0].duration_ms, 10000);
+    }
+
+    // 同一 create_time でも layer が増えた場合（スタック増加）は再ベースされる。
+    // ＝ doc の「スタック増加・タイマーリフレッシュ ＝ ウィンドウから消えない」契約。
+    #[test]
+    fn test_buff_change_same_create_time_but_increased_layer_rebases() {
+        let mut tracker = BuffTracker::new();
+        let uid = 5000;
+
+        // AddBuff: create_time=1000, duration=5000, layer=1
+        let mut info = make_buff_info(1, player_uuid(1), 5000);
+        info.create_time = 1000;
+        tracker.apply_buff_add(77, &info, 0, uid);
+
+        // 同一 create_time=1000 だが layer が 1→2 へ増加（スタック追加）。duration は同じ。
+        let change = pb::BuffChange { layer: 2, duration: 5000, create_time: 1000 };
+        tracker.apply_buff_change(uid, 77, &change, 4000);
+
+        // 再ベースされていれば期限は 4000+5000=9000ms。8000ms 時点で残り 1000ms（消えない）。
+        let snaps = tracker.snapshot_for(uid, 8000);
+        assert_eq!(snaps.len(), 1);
+        assert_eq!(snaps[0].remaining_ms, 1000);
+        assert_eq!(snaps[0].layer, 2);
+    }
+
+    // 同一 create_time かつ layer も同一なら再ベースされない（凍結抑止が layer 追加後も壊れていない）。
+    #[test]
+    fn test_buff_change_same_create_time_and_same_layer_does_not_rebase() {
+        let mut tracker = BuffTracker::new();
+        let uid = 5000;
+
+        // AddBuff: create_time=1000, duration=5000, layer=1
+        let mut info = make_buff_info(1, player_uuid(1), 5000);
+        info.create_time = 1000;
+        tracker.apply_buff_add(77, &info, 0, uid);
+
+        // 同一 create_time=1000・同一 layer=1 の冗長な再通知
+        let change = pb::BuffChange { layer: 1, duration: 5000, create_time: 1000 };
+        tracker.apply_buff_change(uid, 77, &change, 4000);
+
+        // 再ベースされていなければ期限は 0+5000=5000ms。4500ms 時点で残り 500ms。
+        let snaps = tracker.snapshot_for(uid, 4500);
+        assert_eq!(snaps.len(), 1);
+        assert_eq!(snaps[0].remaining_ms, 500);
     }
 
     // BuffTick が create_time=0 で来ても、既存の正規 create_time を 0 で潰さない。

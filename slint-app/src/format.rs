@@ -151,6 +151,11 @@ pub fn element_label(e: u8) -> (&'static str, Color) {
     )
 }
 
+/// `format_remaining` が整数秒(ceil)表示から小数点1桁({:.1})表示へ切り替える閾値(秒)。
+/// `next_text_change_ms` もこの定数から導出し、表示ロジックと「次に表示が変わる時刻」の
+/// 算出が食い違わないようにする（同じ対象を判定する条件式を2箇所に書かない）。
+const REMAINING_TENTHS_THRESHOLD_SEC: f64 = 10.0;
+
 /// バフ残時間表示（BuffIconCell formatRemaining 相当）。
 pub fn format_remaining(remaining_ms: i64, duration_ms: i64) -> String {
     if duration_ms == 0 {
@@ -160,10 +165,32 @@ pub fn format_remaining(remaining_ms: i64, duration_ms: i64) -> String {
         return "0s".to_string();
     }
     let sec = remaining_ms as f64 / 1000.0;
-    if sec > 10.0 {
+    if sec > REMAINING_TENTHS_THRESHOLD_SEC {
         format!("{}s", sec.ceil() as i64)
     } else {
         format!("{sec:.1}s")
+    }
+}
+
+/// `format_remaining` が次に表示テキストを変える時刻までの時間(ms)。
+/// 閾値超は整数秒(ceil)表示なので remaining_ms が1000msの倍数を跨ぐたびに、閾値以下は
+/// 0.1秒刻み({:.1})表示なので100msの倍数を跨ぐたびに変わる（丸め境界は四捨五入のため
+/// `n*100+50ms` 側。境界算出の端数はオーバーレイ側の発火マージンで吸収する想定）。
+/// 無期限(duration_ms==0)・表示上ゼロ以下(remaining_ms<=0)は変化しないため None。
+/// この窓は毎秒の桁が10秒以下で0.1秒刻みに切り替わる（自キャラ バフ/デバフ オーバーレイ用）。
+/// バトルイマジンタイマー（`main.rs` の `buff_cell`／常に ceil・1000ms格子）は表示規則が
+/// 異なるため対象外＝main.rs 側に専用の関数を別途持つ。
+pub fn next_text_change_ms(remaining_ms: i64, duration_ms: i64) -> Option<u64> {
+    if duration_ms == 0 || remaining_ms <= 0 {
+        return None;
+    }
+    let sec = remaining_ms as f64 / 1000.0;
+    if sec > REMAINING_TENTHS_THRESHOLD_SEC {
+        let rem_mod = (remaining_ms % 1000) as u64;
+        Some(if rem_mod == 0 { 1000 } else { rem_mod })
+    } else {
+        let rem_mod = ((remaining_ms + 50) % 100) as u64;
+        Some(if rem_mod == 0 { 100 } else { rem_mod })
     }
 }
 
@@ -459,8 +486,8 @@ pub fn format_row_template(d: &CopyRowData, template: &str, abbreviate: bool) ->
 #[cfg(test)]
 mod tests {
     use super::{
-        class_icon_id, class_role_color, format_consumable_remaining, format_row_name,
-        format_row_name_parts, ALL_CLASSES,
+        class_icon_id, class_role_color, format_consumable_remaining, format_remaining,
+        format_row_name, format_row_name_parts, next_text_change_ms, ALL_CLASSES,
     };
     use bpsr_core::engine::class::{Class, Role};
 
@@ -672,5 +699,29 @@ mod tests {
                 c
             );
         }
+    }
+
+    // 10秒超は整数秒(ceil)表示。1000msの倍数を跨ぐまでの残余が発火間隔になる。
+    #[test]
+    fn next_text_change_ms_matches_ceil_display_above_threshold() {
+        assert_eq!(format_remaining(11_400, 60_000), "12s");
+        assert_eq!(next_text_change_ms(11_400, 60_000), Some(400));
+    }
+
+    // 10秒以下は0.1秒刻み({:.1})表示。100msの倍数(四捨五入境界=n*100+50ms)を跨ぐまでの
+    // 残余が発火間隔になる。
+    #[test]
+    fn next_text_change_ms_matches_tenths_display_at_or_below_threshold() {
+        assert_eq!(format_remaining(4_260, 60_000), "4.3s");
+        // 境界(4.3s/4.2sの切り替わり)は remaining_ms=4250 なので、4260からは10ms。
+        assert_eq!(next_text_change_ms(4_260, 60_000), Some(10));
+    }
+
+    // 無期限(duration==0)・表示上ゼロ以下(remaining<=0)は秒が動かないため対象外。
+    #[test]
+    fn next_text_change_ms_none_for_infinite_or_expired() {
+        assert_eq!(next_text_change_ms(4_400, 0), None);
+        assert_eq!(next_text_change_ms(0, 60_000), None);
+        assert_eq!(next_text_change_ms(-1, 60_000), None);
     }
 }

@@ -1707,12 +1707,81 @@ fn push_imagine_db() -> String {
     }
 }
 
-/// 残量割合を表示解像度以下（1/128≒0.78%≒サブピクセル）へ量子化する。
-/// バー幅・アーク円周（~78px）いずれも 1px 未満の刻みになり見た目は変わらないが、
-/// 長時間バフの毎tick微小変化を吸収して行の再描画を省ける。
-/// （粒度は 128 固定。視覚検証で粗さが見えた場合はここを調整する。）
-fn quantize_ratio(r: f32) -> f32 {
-    (r.clamp(0.0, 1.0) * 128.0).round() / 128.0
+/// 1段の変化が表す実時間（ms）。時間軸で量子化することで、duration の長短に関わらず
+/// 「約100msごとに1段」変化する見た目になる。
+/// （旧実装は 1/128 固定段数だった。duration=60秒のイマジンデバフでは1段が469ms≒1px未満で
+/// 実質静止して見え、duration=256秒のバフでは1段が約2.0秒相当と粗すぎた＝診断済み。）
+const QUANTIZE_STEP_MS: f32 = 100.0;
+
+/// 残量割合を時間軸ベースの粒度へ量子化する（バー幅・アーク円周のサブピクセル変化を吸収し
+/// 行の再描画を省きつつ、duration に依存せず視覚的に意味のある刻みにする）。
+/// 量子化を完全に外すと remaining_ms の1ms単位の変動が毎tick sync_model_if_changed の差分
+/// 判定に引っかかり CPU が増えるため、粒度そのものは必ず残す。
+/// `duration_ms<=0`（無期限）は段の概念が無いためそのまま返す。
+fn quantize_ratio(r: f32, duration_ms: i64) -> f32 {
+    let ratio = r.clamp(0.0, 1.0);
+    if duration_ms <= 0 {
+        return ratio;
+    }
+    let step = (QUANTIZE_STEP_MS / duration_ms as f32).min(1.0);
+    ((ratio / step).round() * step).clamp(0.0, 1.0)
+}
+
+/// セル種別ごとの「次に表示が変わるまでの時間」算出結果（`format::next_text_change_ms` や
+/// `imagine_cell_next_change_ms` 等、セルの表示規則に対応する関数から得る）を複数セル分
+/// たたみ込み、最小値（＝最初に表示が変わるセル）を残す。両方 None なら None
+/// （＝算出できるセルが1つも無い＝フォールバック対象）。
+fn merge_next_change_ms(acc: Option<u64>, v: Option<u64>) -> Option<u64> {
+    match (acc, v) {
+        (None, x) => x,
+        (x, None) => x,
+        (Some(a), Some(b)) => Some(a.min(b)),
+    }
+}
+
+// オーバーレイ更新スケジューリングの定数。専用の Repeated `Timer`（overlay_timer。W1:
+// メインpollタイマーに相乗りさせると発火機会が poll グリッドに縛られ 200/400ms が不規則に
+// 交替する事故があったため分離済み）が、毎回のコールバック末尾で `overlay_next_delay_ms` の
+// 結果を `set_interval` することでスケジュールを実現する。以下の二重の意図を持つ:
+// (a) 秒表示テキストを「次に秒が変わる時刻」に同期させる（秒境界同期）。
+// (b) 稼働中バフのアーク/バーは、それとは独立になめらかに動き続けてほしい
+//     （ユーザーが負荷を許容してでも滑らかさを優先すると明示。アークが1秒に1回しか
+//     動かないのは要望に反する）。
+// `quantize_ratio` の量子化粒度は時間軸で約100ms相当（QUANTIZE_STEP_MS）だが、
+// OVERLAY_MAX_DELAY_MS=200ms の方が粗いため、実効の更新粒度は発火間隔の上限
+// （このOVERLAY_MAX_DELAY_MS）側で決まる。量子化はそれより細かい変化を捨てて
+// 再描画コスト（sync_model_if_changed の差分ヒット）を抑える役割に留まる。
+//
+// 表示セルが無い/算出できない場合に必ずフォールバックする固定間隔。
+const OVERLAY_FALLBACK_MS: u64 = 200;
+// 発火予定ちょうどに来るとタイマーの粒度差でわずかに早く判定され得るため、実際の秒境界を
+// 確実に跨いでから発火するための余裕（poll_ms 未満の小さな値）。
+const OVERLAY_DUE_MARGIN_MS: u64 = 30;
+// アーク/バーの滑らかさを担保する上限間隔（秒境界までの残りがこれより長くても、
+// ここより長く待たない）。値は旧stride実装（poll=200ms時で実効約400ms=2.5Hz）より
+// 高頻度にする狙いで200ms(5Hz相当)に設定。
+const OVERLAY_MAX_DELAY_MS: u64 = 200;
+// overlay_timer の初回発火まで（以降は自身が算出した値で set_interval し続けるため、
+// この値は起動直後の1回だけ効く）。
+const OVERLAY_INITIAL_DELAY_MS: u64 = 30;
+
+/// オーバーレイ更新を実施した回で、次回発火までの待ち時間(ms)を確定する
+/// （overlay_timer が呼び出し末尾で `set_interval` に使う）。
+/// 秒境界までの残り(`ms`)を先に `OVERLAY_MAX_DELAY_MS - OVERLAY_DUE_MARGIN_MS` でクランプ
+/// してからマージンを足す（＝マージン加算を先にすると 171〜200ms の残りが 200ms 丁度へ
+/// クランプされてマージンが 1〜29ms まで目減りし、境界の手前で発火しうる。min を先にすることで
+/// 採用される延期時間が短い場合は必ずマージン30ms分だけ境界より後ろへ倒れることを保証する）。
+/// `next_change_ms` が None（表示中セルが1つも無い/算出できない）場合は OVERLAY_FALLBACK_MS
+/// へ必ずフォールバックする（このガードを外すと再武装漏れで更新が永久停止する事故になるため
+/// 必須。ただし overlay_timer は Repeated のため、万一ここへ到達できなくても直前の周期で
+/// 回り続け、更新の永久停止そのものは起きない＝二重の安全策）。
+fn overlay_next_delay_ms(next_change_ms: Option<u64>) -> u64 {
+    next_change_ms
+        .map(|ms| {
+            ms.min(OVERLAY_MAX_DELAY_MS.saturating_sub(OVERLAY_DUE_MARGIN_MS))
+                .saturating_add(OVERLAY_DUE_MARGIN_MS)
+        })
+        .unwrap_or(OVERLAY_FALLBACK_MS)
 }
 
 /// SelfStatusEntry 群を UI 行へ変換（BuffIconCell 相当）。
@@ -1739,7 +1808,7 @@ fn build_status_entries(entries: &[bpsr_core::models::SelfStatusEntry]) -> Vec<S
             StatusEntryUi {
                 name: buff_names::label(e.base_id).into(),
                 remaining_text: format::format_remaining(e.remaining_ms, e.duration_ms).into(),
-                bar_ratio: quantize_ratio(ratio),
+                bar_ratio: quantize_ratio(ratio, e.duration_ms),
                 bar_color,
                 layer_text: if e.layer > 1 {
                     format!("×{}", e.layer).into()
@@ -1898,11 +1967,33 @@ fn buff_arc(ratio: f32) -> String {
     format!("M {cx} {} A {r} {r} 0 {large} 1 {end_x:.2} {end_y:.2}", cy - r)
 }
 
-fn buff_cell(snap: Option<&bpsr_core::models::SelfBuffSnapshot>, kind_hex: u32) -> BuffCell {
+/// `buff_cell` の残り秒表示（常に ceil・1000ms格子・duration に依らず10秒閾値を持たない）が
+/// 次に変わるまでの時間(ms)。自キャラ バフ/デバフ オーバーレイの `format::next_text_change_ms`
+/// とは表示規則が異なる（10秒以下でも0.1秒刻みにならない）ため、こちらはバトルイマジンタイマー
+/// セル専用に持つ（表示ロジックと「次に変わる時刻」の算出を隣接させ、同じ判定を二重に書かない）。
+/// 無期限(duration_ms<=0)・表示上ゼロ以下(remaining_ms<=0)は変化しないため None。
+fn imagine_cell_next_change_ms(duration_ms: i64, remaining_ms: i64) -> Option<u64> {
+    if duration_ms <= 0 || remaining_ms <= 0 {
+        return None;
+    }
+    let rem_mod = (remaining_ms % 1000) as u64;
+    Some(if rem_mod == 0 { 1000 } else { rem_mod })
+}
+
+/// `next_change_ms` は「次に表示が変わるまでの時間」の集計用アキュムレータ。呼び出し側
+/// （`build_buff_rows`）が実際に描画するセルからのみ収集できるよう、このセル単位の関数で
+/// 受け取って更新する（S3: 集計対象を表示セル集合と一致させ、別トラバーサルによる二重化を防ぐ）。
+fn buff_cell(
+    snap: Option<&bpsr_core::models::SelfBuffSnapshot>,
+    kind_hex: u32,
+    next_change_ms: &mut Option<u64>,
+) -> BuffCell {
     let color =
         slint::Color::from_rgb_u8((kind_hex >> 16) as u8, (kind_hex >> 8) as u8, kind_hex as u8);
     match snap {
         Some(b) => {
+            *next_change_ms =
+                merge_next_change_ms(*next_change_ms, imagine_cell_next_change_ms(b.duration_ms, b.remaining_ms));
             let active = b.remaining_ms > 0 || b.duration_ms <= 0;
             let ratio = if b.duration_ms <= 0 {
                 0.0
@@ -1930,7 +2021,7 @@ fn buff_cell(snap: Option<&bpsr_core::models::SelfBuffSnapshot>, kind_hex: u32) 
             };
             BuffCell {
                 active,
-                arc_commands: buff_arc(quantize_ratio(ratio)).into(),
+                arc_commands: buff_arc(quantize_ratio(ratio, b.duration_ms)).into(),
                 color,
                 text: text.into(),
                 text_color,
@@ -2027,36 +2118,40 @@ fn timer_roster(
 
 /// `roster` の表示順で行を組む。`privacy_mask`=true のとき名前は `format::mask_player_name` で
 /// マスクする（メイン行 `build_rows` と同じ規約）。見つからない uid は uid 下16bit の数値表示。
+/// `roster` の表示順で行を組む。戻り値の2つ目は、実際にセル化した（＝表示される）バフの
+/// remaining_ms から集計した「次に表示が変わるまでの時間」（オーバーレイの秒境界同期用。
+/// S3: 集計対象を表示セル集合そのものに揃えるため、別途 `tracked.players[].buffs[]` 全件を
+/// 走査するのではなく、ここでの `buff_cell` 呼び出しから直接集める）。
 fn build_buff_rows(
     tracked: &bpsr_core::models::TrackedBuffsData,
     roster: &[i64],
     privacy_mask: bool,
-) -> Vec<BuffPlayerRow> {
-    roster
-        .iter()
-        .map(|&uid| {
-            let snap = tracked.players.iter().find(|p| p.uid as i64 == uid);
-            let display = if privacy_mask {
-                format::mask_player_name(uid)
+) -> (Vec<BuffPlayerRow>, Option<u64>) {
+    let mut next_change_ms: Option<u64> = None;
+    let mut rows = Vec::with_capacity(roster.len());
+    for &uid in roster {
+        let snap = tracked.players.iter().find(|p| p.uid as i64 == uid);
+        let display = if privacy_mask {
+            format::mask_player_name(uid)
+        } else {
+            let name = snap.map(|s| s.name.clone()).unwrap_or_default();
+            if name.is_empty() {
+                format!("{}", uid & 0xffff)
             } else {
-                let name = snap.map(|s| s.name.clone()).unwrap_or_default();
-                if name.is_empty() {
-                    format!("{}", uid & 0xffff)
-                } else {
-                    name
-                }
-            };
-            let find = |kind: &str| snap.and_then(|s| s.buffs.iter().find(|b| b.kind == kind));
-            BuffPlayerRow {
-                name: display.into(),
-                tina: buff_cell(find("Tina"), 0xff4d6d),
-                aluna: buff_cell(find("Aluna"), 0x5fd35f),
-                tarta: buff_cell(find("Tarta"), 0xb98bff),
-                basilisk: buff_cell(find("Basilisk"), 0xd9a05b),
-                kartgriff: buff_cell(find("Kartgriff"), 0x4fc3f7),
+                name
             }
-        })
-        .collect()
+        };
+        let find = |kind: &str| snap.and_then(|s| s.buffs.iter().find(|b| b.kind == kind));
+        rows.push(BuffPlayerRow {
+            name: display.into(),
+            tina: buff_cell(find("Tina"), 0xff4d6d, &mut next_change_ms),
+            aluna: buff_cell(find("Aluna"), 0x5fd35f, &mut next_change_ms),
+            tarta: buff_cell(find("Tarta"), 0xb98bff, &mut next_change_ms),
+            basilisk: buff_cell(find("Basilisk"), 0xd9a05b, &mut next_change_ms),
+            kartgriff: buff_cell(find("Kartgriff"), 0x4fc3f7, &mut next_change_ms),
+        });
+    }
+    (rows, next_change_ms)
 }
 
 /// ポーリングループが tick 間で持ち越す可変状態（位置復元の進行管理）。
@@ -2075,6 +2170,13 @@ struct PollState {
     restored_self: Option<window_state::WinRect>,
     restored_buffs: Option<window_state::WinRect>,
     restored_stats: Option<window_state::WinRect>,
+}
+
+/// オーバーレイ(バフ/ステータス/イマジンタイマー)専用タイマー（overlay_timer）が呼び出し間で
+/// 持ち越す状態。W1: メインpollタイマーの `PollState` とはスケジュール（秒境界同期＋滑らかさ
+/// 上限クランプ）が独立しているため別構造体に分離している。
+#[derive(Default)]
+struct OverlayState {
     // オーバーレイへ最後に push した内容（前回と同一なら set_vec を省いて無駄な再描画を避ける）。
     // オーバーレイは sync_rows と違い set_vec で毎tick モデル全置換していたため、内容不変でも
     // 5Hz で再描画され CPU を浪費していた（実測: 2窓表示で約11%/1コア）。
@@ -3574,14 +3676,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             settings::save(&c);
         });
     }
+    // メインpollタイマーの実体。生成をここへ前出しし、下の on_bump_num の poll-interval
+    // 分岐から set_interval で即時反映できるようにする（実際の start() は後段のポーリング
+    // ループ構築時）。Timer は Clone 不可のため Rc で共有する（result_countup_timer と同様）。
+    let poll_timer: Rc<Timer> = Rc::new(Timer::default());
     // 数値設定ステッパー（key と方向 dir=±1）。キー毎に step/範囲を持ち、必要なら即適用。
-    // poll-interval はポーリングタイマー再構築が要るため次回起動時に反映（永続化のみ）。
     {
         let w = main.as_weak();
         let cfg_n = cfg.clone();
         let self_o = self_overlay.as_weak();
         let buff_o = buff_overlay.as_weak();
         let stats_o = stats_overlay.as_weak();
+        let poll_timer_n = poll_timer.clone();
         main.on_bump_num(move |key, dir| {
             let d = dir as f64;
             {
@@ -3593,6 +3699,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     "poll-interval" => {
                         c.poll_interval_ms = (c.poll_interval_ms + d * 50.0).clamp(50.0, 2000.0);
+                        // タイマー周期へ即時反映（再起動不要。set_interval は Repeated タイマーの
+                        // 周期そのものを変える。次回発火は「今から」新周期後に再計算される）。
+                        poll_timer_n.set_interval(Duration::from_millis(c.poll_interval_ms.max(50.0) as u64));
                     }
                     "three-min-dur" => {
                         c.three_min_duration_sec = (c.three_min_duration_sec + d * 30.0).clamp(30.0, 1800.0);
@@ -4134,13 +4243,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tab_cell_poll = tab_cell.clone();
     let drill_poll = drill.clone();
     let skill_rows_poll = skill_rows.clone();
+    // 位置/サイズ復元・トレイ連携用の Weak（オーバーレイの表示内容そのものは専用タイマー
+    // overlay_timer が別に持つ Weak 経由で更新する。ウィンドウ幾何情報の管理はここで維持）。
     let self_overlay_w = self_overlay.as_weak();
-    let self_buffs_poll = self_buffs.clone();
-    let self_debuffs_poll = self_debuffs.clone();
     let buff_overlay_w = buff_overlay.as_weak();
-    let buff_players_poll = buff_players.clone();
     let stats_overlay_w = stats_overlay.as_weak();
-    let stats_rows_poll = stats_rows.clone();
+    // メイン一覧の並び順(uid列)＋自キャラuid。バフオーバーレイ(専用タイマー overlay_timer)が
+    // 名簿順の算出に読む共有スナップショット。poll側で毎tick書き込む（最大 poll_ms 分だけ
+    // 古い可能性があるが、名簿順はサブtickの鮮度を要求しないため許容）。
+    let main_order_shared: Rc<RefCell<(Vec<i64>, i64)>> = Rc::new(RefCell::new((Vec::new(), 0)));
+    let main_order_poll = main_order_shared.clone();
     let cfg_poll = cfg.clone();
     let wl_poll = wl.clone();
     let history_rows_poll = history_rows.clone();
@@ -4172,16 +4284,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
     let shortcuts_poll = shortcuts_model.clone();
     let poll_ms = cfg.borrow().poll_interval_ms.max(50.0) as u64;
-    // オーバーレイ(バフ/ステータス/イマジン)はメイン表より低頻度で更新する。
-    // 稼働中バフのアーク/バーは残量比から毎tick変化するため set_vec_if_changed では
-    // 抑止できず、200ms poll では 5Hz で再描画され続ける（実測で戦闘中コストの主因）。
-    // 体感を保てる ~3Hz 相当へ間引く（poll が既に十分遅ければ stride=1＝毎tick）。
-    const OVERLAY_REFRESH_MS: u64 = 333;
-    let overlay_stride =
-        ((OVERLAY_REFRESH_MS as f64 / poll_ms as f64).round() as u64).max(1);
+    // オーバーレイ(バフ/ステータス/イマジン)の更新は、このメインpollタイマーには相乗りさせず
+    // 専用タイマー overlay_timer（このブロックの少し下）で独立に行う。W1: poll に相乗りさせると
+    // 発火機会が poll グリッド（既定200ms）に縛られ、かつ poll タイマー自身は EncounterMutex
+    // 競合等で処理が数ms遅れるだけで tick を1回飛ばして実効2倍(400ms)に落ちるため、
+    // 200/400msが不規則に交替する＝ユーザーが訴えた「ガクッ」を再生産していた（診断済み・
+    // レビュー指摘）。詳細な設計意図は overlay_timer のコメントおよび
+    // `overlay_next_delay_ms`／`OVERLAY_FALLBACK_MS`／`OVERLAY_DUE_MARGIN_MS`／
+    // `OVERLAY_MAX_DELAY_MS`（モジュール直下、テスト容易性のため main() の外に定義）参照。
 
-    let timer = Timer::default();
-    timer.start(TimerMode::Repeated, Duration::from_millis(poll_ms), move || {
+    poll_timer.start(TimerMode::Repeated, Duration::from_millis(poll_ms), move || {
         st.tick += 1;
         let Some(m) = main_w.upgrade() else {
             return;
@@ -4401,6 +4513,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ),
             );
         }
+        // バフオーバーレイ(専用タイマー overlay_timer)の名簿順算出用に共有する
+        // （cur_tab==3 の履歴タブでは空/0のまま＝従来の watched 順フォールバックに委ねる）。
+        *main_order_poll.borrow_mut() = (main_ordered_uids, main_local_uid);
 
         // ドリルダウン中はライブ更新
         match drill_poll.get() {
@@ -4424,101 +4539,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Drill::None => {}
         }
 
-        // オーバーレイは overlay_stride tick ごとにのみ更新（稼働中アーク/バーの 5Hz 再描画を間引く）。
-        // メイン表・ヘッダは毎tick維持。設定の即時反映も最大 ~stride 分だけ遅延するが体感影響は無い。
-        let refresh_overlays = st.tick % overlay_stride == 0;
-
-        // オーバーレイの文字サイズは窓ごとに独立した専用設定。
-        let (self_scale, stats_scale, imagine_scale) = {
-            let c = cfg_poll.borrow();
-            (
-                (c.buff_overlay_font_size / 12.0) as f32,
-                (c.stats_overlay_font_size / 12.0) as f32,
-                (c.imagine_overlay_font_size / 12.0) as f32,
-            )
-        };
-
-        // 自キャラ オーバーレイ更新（表示中のみ・低頻度）
-        if refresh_overlays && cfg_poll.borrow().show_self_status_overlay {
-            if let Some(o) = self_overlay_w.upgrade() {
-                o.set_font_scale(self_scale);
-                let s = compute::get_self_buff_status(&enc_poll);
-                o.set_waiting(s.local_player_uid == 0.0);
-                sync_model_if_changed(&self_buffs_poll, &mut st.last_self_buffs, build_status_entries(&s.buffs));
-                sync_model_if_changed(&self_debuffs_poll, &mut st.last_self_debuffs, build_status_entries(&s.debuffs));
-            }
-        }
-
-        // 自キャラ ステータス オーバーレイ更新（表示中のみ・低頻度）
-        if refresh_overlays && cfg_poll.borrow().show_stats_overlay {
-            if let Some(o) = stats_overlay_w.upgrade() {
-                o.set_font_scale(stats_scale);
-                let s = compute::get_self_stats(&enc_poll);
-                o.set_waiting(s.local_player_uid == 0.0);
-                let enabled = cfg_poll.borrow().stats_enabled.clone();
-                sync_model_if_changed(&stats_rows_poll, &mut st.last_stats_rows, build_stat_entries(&s, &enabled));
-            }
-        }
-
-        // バフタイマー オーバーレイ更新（表示中のみ・低頻度）
-        if refresh_overlays && cfg_poll.borrow().show_buff_overlay {
-            if let Some(o) = buff_overlay_w.upgrade() {
-                o.set_font_scale(imagine_scale);
-                let imagine_only = cfg_poll.borrow().imagine_only_mode;
-                {
-                    // 表示するイマジン列・レイアウトを設定から反映（極小コスト・即時反映）
-                    let c = cfg_poll.borrow();
-                    o.set_show_tina(c.show_imagine_tina);
-                    o.set_show_aluna(c.show_imagine_aluna);
-                    o.set_show_tarta(c.show_imagine_tarta);
-                    o.set_show_basilisk(c.show_imagine_basilisk);
-                    o.set_show_kartgriff(c.show_imagine_kartgriff);
-                    o.set_compact(c.imagine_compact_rows);
-                }
-                // 名簿源は3分岐（timer_roster 参照）。専用モードはバフ追跡から自動（メイン一覧が
-                // 空集計のため使えない）。専用OFFはメイン順(main_ordered_uids)、無い(履歴タブ等)
-                // 場合は live DPS 順を代用。
-                let (order_src, local_uid): (Vec<i64>, i64) = if imagine_only {
-                    (Vec::new(), main_local_uid)
-                } else if main_ordered_uids.is_empty() {
-                    let pw = compute::get_dps_players(&enc_poll);
-                    let uids = pw.player_rows.iter().map(|p| p.uid as i64).collect();
-                    (uids, pw.local_player_uid as i64)
-                } else {
-                    (main_ordered_uids.clone(), main_local_uid)
-                };
-                let buff_tracked_uids = if imagine_only {
-                    compute::get_buff_tracked_uids(&enc_poll)
-                } else {
-                    Vec::new()
-                };
-                let (sync, order_follow) = {
-                    let c = cfg_poll.borrow();
-                    (c.sync_timer_with_main, c.sync_order_follow)
-                };
-                let display_uids = timer_roster(
-                    &wl_poll.borrow(),
-                    imagine_only,
-                    sync,
-                    order_follow,
-                    &order_src,
-                    &buff_tracked_uids,
-                    local_uid,
-                );
-                o.set_empty(display_uids.is_empty());
-                // 表示集合が空なら空行で更新（古い行が残って名前が消えない不具合を防ぐ）。
-                // いずれも sync_model_if_changed で変化行のみ再描画する。
-                let privacy_mask = cfg_poll.borrow().privacy_mask_names;
-                let next_buff_rows = if !display_uids.is_empty() {
-                    let uids: Vec<f64> = display_uids.iter().map(|&u| u as f64).collect();
-                    let t = compute::get_tracked_buffs(&enc_poll, uids);
-                    build_buff_rows(&t, &display_uids, privacy_mask)
-                } else {
-                    Vec::new()
-                };
-                sync_model_if_changed(&buff_players_poll, &mut st.last_buff_players, next_buff_rows);
-            }
-        }
+        // オーバーレイ(バフ/ステータス/イマジン)のモデル更新は専用タイマー overlay_timer が
+        // 独立したスケジュールで行う（このブロックの少し下・W1参照）。ここでは行わない。
 
         // 起動/表示直後の preferred サイズ再アサートを settle 期間中の再適用で打ち消す
         // （自動保存ガードより手前で実施）。
@@ -4535,6 +4557,167 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &last_saved,
         );
     });
+
+    // オーバーレイ(バフ/ステータス/イマジンタイマー)専用タイマー（W1）。
+    // メインpollタイマーに相乗りさせていた旧実装は、発火機会が poll グリッド（既定200ms）に
+    // 縛られる上、poll タイマー自身が Repeated（コールバック実行"前"に再武装する非補償型・
+    // slint 1.16.1 `timers.rs`）なので、EncounterMutex 競合等で処理が数ms遅れるだけで tick を
+    // 1回飛ばして実効2倍(400ms)に落ちてしまい、200/400msが不規則に交替する＝ユーザーが訴えた
+    // 「ガクッ」そのものを再生産していた（レビュー指摘・診断済み）。専用タイマーへ分離することで
+    // 発火グリッドを poll から独立させ、`overlay_next_delay_ms` が返す 31〜199ms の同期を
+    // 実際に効かせる。
+    //
+    // TimerMode::Repeated + 毎回コールバック末尾で set_interval を選ぶ理由:
+    // SingleShot は再武装（次の single_shot 予約）を呼び忘れると「更新が永久停止」する事故に
+    // 直結するが、Repeated は set_interval の呼び忘れがあっても直前の周期で回り続ける
+    // （フォールバック要件を構造的に満たす。overlay_next_delay_ms 自身の
+    // OVERLAY_FALLBACK_MS フォールバックと合わせた二重の安全策）。
+    //
+    // poll_interval_ms の設定変更はメインpollタイマー(poll_timer)にのみ影響し、この
+    // overlay_timer の周期はそれとは独立に自身が算出した値で回り続ける
+    // （＝オーバーレイの滑らかさは poll_interval_ms 設定から独立して保たれる）。
+    let overlay_timer: Rc<Timer> = Rc::new(Timer::default());
+    {
+        let overlay_timer_self = overlay_timer.clone();
+        let enc_ov = enc.clone();
+        let cfg_ov = cfg.clone();
+        let wl_ov = wl.clone();
+        let self_overlay_w = self_overlay.as_weak();
+        let self_buffs_ov = self_buffs.clone();
+        let self_debuffs_ov = self_debuffs.clone();
+        let stats_overlay_w = stats_overlay.as_weak();
+        let stats_rows_ov = stats_rows.clone();
+        let buff_overlay_w = buff_overlay.as_weak();
+        let buff_players_ov = buff_players.clone();
+        let main_order_ov = main_order_shared.clone();
+        let mut ov = OverlayState::default();
+        overlay_timer.start(
+            TimerMode::Repeated,
+            Duration::from_millis(OVERLAY_INITIAL_DELAY_MS),
+            move || {
+                // このtickで実際に更新するセルの remaining_ms/duration_ms から、次に表示が
+                // 変わるまでの時間を集計する（複数セルがあれば最小値＝最初に変わるセルに同期）。
+                // 1つも無ければ None のままとなり、下で OVERLAY_FALLBACK_MS へフォールバックする。
+                let mut next_change_ms: Option<u64> = None;
+
+                // オーバーレイの文字サイズは窓ごとに独立した専用設定。
+                let (self_scale, stats_scale, imagine_scale) = {
+                    let c = cfg_ov.borrow();
+                    (
+                        (c.buff_overlay_font_size / 12.0) as f32,
+                        (c.stats_overlay_font_size / 12.0) as f32,
+                        (c.imagine_overlay_font_size / 12.0) as f32,
+                    )
+                };
+
+                // 自キャラ オーバーレイ更新（表示中のみ）
+                if cfg_ov.borrow().show_self_status_overlay {
+                    if let Some(o) = self_overlay_w.upgrade() {
+                        o.set_font_scale(self_scale);
+                        let s = compute::get_self_buff_status(&enc_ov);
+                        o.set_waiting(s.local_player_uid == 0.0);
+                        // 次回発火予定の算出用に、表示中のバフ/デバフセルの残量を集計する
+                        // （W2: このオーバーレイは format::format_remaining で描画するため、
+                        // 「次に表示が変わる時刻」も同じ10秒閾値・丸め方式から導出する
+                        // format::next_text_change_ms を使う＝重複した判定式を作らない）。
+                        for e in s.buffs.iter().chain(s.debuffs.iter()) {
+                            next_change_ms = merge_next_change_ms(
+                                next_change_ms,
+                                format::next_text_change_ms(e.remaining_ms, e.duration_ms),
+                            );
+                        }
+                        sync_model_if_changed(&self_buffs_ov, &mut ov.last_self_buffs, build_status_entries(&s.buffs));
+                        sync_model_if_changed(&self_debuffs_ov, &mut ov.last_self_debuffs, build_status_entries(&s.debuffs));
+                    }
+                }
+
+                // 自キャラ ステータス オーバーレイ更新（表示中のみ。数値ステータスは秒刻みの
+                // 表示が無いため、この窓自体は発火予定の算出に寄与しない）
+                if cfg_ov.borrow().show_stats_overlay {
+                    if let Some(o) = stats_overlay_w.upgrade() {
+                        o.set_font_scale(stats_scale);
+                        let s = compute::get_self_stats(&enc_ov);
+                        o.set_waiting(s.local_player_uid == 0.0);
+                        let enabled = cfg_ov.borrow().stats_enabled.clone();
+                        sync_model_if_changed(&stats_rows_ov, &mut ov.last_stats_rows, build_stat_entries(&s, &enabled));
+                    }
+                }
+
+                // バフタイマー オーバーレイ更新（表示中のみ）
+                if cfg_ov.borrow().show_buff_overlay {
+                    if let Some(o) = buff_overlay_w.upgrade() {
+                        o.set_font_scale(imagine_scale);
+                        let imagine_only = cfg_ov.borrow().imagine_only_mode;
+                        {
+                            // 表示するイマジン列・レイアウトを設定から反映（極小コスト・即時反映）
+                            let c = cfg_ov.borrow();
+                            o.set_show_tina(c.show_imagine_tina);
+                            o.set_show_aluna(c.show_imagine_aluna);
+                            o.set_show_tarta(c.show_imagine_tarta);
+                            o.set_show_basilisk(c.show_imagine_basilisk);
+                            o.set_show_kartgriff(c.show_imagine_kartgriff);
+                            o.set_compact(c.imagine_compact_rows);
+                        }
+                        // 名簿源は3分岐（timer_roster 参照）。専用モードはバフ追跡から自動
+                        // （メイン一覧が空集計のため使えない）。専用OFFはメイン順
+                        // （main_order_shared・メインpollタイマーが毎tick書き込む共有スナップ
+                        // ショット。最大 poll_ms 分だけ古い可能性があるが名簿順に鮮度は不要）、
+                        // 無い(履歴タブ等)場合は live DPS 順を代用。
+                        let (main_ordered_uids, main_local_uid) = main_order_ov.borrow().clone();
+                        let (order_src, local_uid): (Vec<i64>, i64) = if imagine_only {
+                            (Vec::new(), main_local_uid)
+                        } else if main_ordered_uids.is_empty() {
+                            let pw = compute::get_dps_players(&enc_ov);
+                            let uids = pw.player_rows.iter().map(|p| p.uid as i64).collect();
+                            (uids, pw.local_player_uid as i64)
+                        } else {
+                            (main_ordered_uids, main_local_uid)
+                        };
+                        let buff_tracked_uids = if imagine_only {
+                            compute::get_buff_tracked_uids(&enc_ov)
+                        } else {
+                            Vec::new()
+                        };
+                        let (sync, order_follow) = {
+                            let c = cfg_ov.borrow();
+                            (c.sync_timer_with_main, c.sync_order_follow)
+                        };
+                        let display_uids = timer_roster(
+                            &wl_ov.borrow(),
+                            imagine_only,
+                            sync,
+                            order_follow,
+                            &order_src,
+                            &buff_tracked_uids,
+                            local_uid,
+                        );
+                        o.set_empty(display_uids.is_empty());
+                        // 表示集合が空なら空行で更新（古い行が残って名前が消えない不具合を防ぐ）。
+                        // いずれも sync_model_if_changed で変化行のみ再描画する。
+                        let privacy_mask = cfg_ov.borrow().privacy_mask_names;
+                        let next_buff_rows = if !display_uids.is_empty() {
+                            let uids: Vec<f64> = display_uids.iter().map(|&u| u as f64).collect();
+                            let t = compute::get_tracked_buffs(&enc_ov, uids);
+                            // S3: 発火予定の算出は実際に描画したセル（build_buff_rows が返す
+                            // 側）から集める。tracked.players[].buffs[] を別途全走査すると、
+                            // 表示していないkind/uidまで拾って表示セル集合と食い違うため。
+                            let (rows, buff_next_change_ms) = build_buff_rows(&t, &display_uids, privacy_mask);
+                            next_change_ms = merge_next_change_ms(next_change_ms, buff_next_change_ms);
+                            rows
+                        } else {
+                            Vec::new()
+                        };
+                        sync_model_if_changed(&buff_players_ov, &mut ov.last_buff_players, next_buff_rows);
+                    }
+                }
+
+                // 次回発火の周期を張り直す（秒境界同期＋アーク/バー滑らかさ上限クランプ＋
+                // フォールバック。詳細は overlay_next_delay_ms 参照）。Repeated タイマーのため、
+                // 万一ここへ到達できなくても直前の周期で回り続け、更新の永久停止は起きない。
+                overlay_timer_self.set_interval(Duration::from_millis(overlay_next_delay_ms(next_change_ms)));
+            },
+        );
+    }
 
     // グローバルショートカット専用ポーリング（issue #3 S4）。メインpollタイマーは設定で
     // 最大2000msまで間引かれる（poll_interval_ms、上のスライダーで調整可）ため、相乗りすると
@@ -4622,5 +4805,107 @@ mod tests {
         let buff_tracked: Vec<i64> = (1..=(watchlist::MAX as i64 + 10)).collect();
         let roster = timer_roster(&wl, true, false, true, &[], &buff_tracked, 0);
         assert_eq!(roster.len(), watchlist::MAX);
+    }
+
+    // --- オーバーレイ秒境界同期（S1）関連のユニットテスト ---
+
+    // 1000ms境界を跨ぐまでの残余が発火間隔になる（跨ぐ瞬間の text 変化に一致させる。
+    // バトルイマジンタイマー用＝常に ceil・1000ms格子）。
+    #[test]
+    fn test_imagine_cell_next_change_ms_returns_remainder_within_second() {
+        assert_eq!(imagine_cell_next_change_ms(60_000, 4_400), Some(400));
+    }
+
+    // remaining_ms がちょうど1000の倍数のときは、次の境界まで丸々1000ms（跨いだ直後の想定）。
+    #[test]
+    fn test_imagine_cell_next_change_ms_exact_multiple_of_1000_returns_full_second() {
+        assert_eq!(imagine_cell_next_change_ms(60_000, 4_000), Some(1000));
+    }
+
+    // 無期限(duration<=0)・表示上ゼロ以下(remaining<=0)は秒が動かないため対象外。
+    #[test]
+    fn test_imagine_cell_next_change_ms_none_for_infinite_or_expired() {
+        assert_eq!(imagine_cell_next_change_ms(0, 4_400), None);
+        assert_eq!(imagine_cell_next_change_ms(60_000, 0), None);
+        assert_eq!(imagine_cell_next_change_ms(60_000, -1), None);
+    }
+
+    // 複数セルの最小値（＝最初に表示が変わるセル）へ畳み込む。片方 None は無視する。
+    #[test]
+    fn test_merge_next_change_ms_takes_minimum_and_ignores_none() {
+        assert_eq!(merge_next_change_ms(None, None), None);
+        assert_eq!(merge_next_change_ms(Some(500), None), Some(500));
+        assert_eq!(merge_next_change_ms(None, Some(300)), Some(300));
+        assert_eq!(merge_next_change_ms(Some(500), Some(300)), Some(300));
+    }
+
+    // 無期限(duration<=0)は量子化せずそのまま返す（クランプのみ）。
+    #[test]
+    fn test_quantize_ratio_infinite_duration_returns_clamped_ratio_unchanged() {
+        assert_eq!(quantize_ratio(0.42, 0), 0.42);
+        assert_eq!(quantize_ratio(1.5, 0), 1.0);
+        assert_eq!(quantize_ratio(-0.5, 0), 0.0);
+    }
+
+    // 時間軸100ms相当の段へ丸める（duration=1000msなら1段=10%刻み）。
+    #[test]
+    fn test_quantize_ratio_rounds_to_100ms_step_for_1s_duration() {
+        let q = quantize_ratio(0.83, 1000);
+        assert!((q - 0.8).abs() < 1e-4, "expected ~0.8, got {q}");
+    }
+
+    // duration が短いほど段が粗くなる（100ms未満のdurationは実質2値: 0か1）が、範囲は超えない。
+    #[test]
+    fn test_quantize_ratio_short_duration_clamps_step_to_one() {
+        assert_eq!(quantize_ratio(0.3, 50), 0.0);
+        assert_eq!(quantize_ratio(0.9, 50), 1.0);
+    }
+
+    // 長時間バフ(256秒)でも1段が約100ms相当まで細かくなる（旧1/128固定の粗さの解消を検証）。
+    #[test]
+    fn test_quantize_ratio_long_duration_stays_close_to_original_ratio() {
+        let duration_ms = 256_000;
+        let ratio = 0.6173;
+        let q = quantize_ratio(ratio, duration_ms);
+        // 段幅 = 100ms/256000ms ≒ 0.00039。誤差はその半分程度に収まるはず。
+        assert!((q - ratio).abs() < 0.0004, "expected close to {ratio}, got {q}");
+    }
+
+    // 上限クランプが効くケース: 秒境界までの残りが長い（=400ms）と、マージンを足した430msは
+    // OVERLAY_MAX_DELAY_MS(200ms) を超えるためクランプされる（アーク/バーを最大でも200ms
+    // 間隔で動かし続けるため。秒境界に同期させつつ滑らかさも確保する要件の核心）。
+    #[test]
+    fn test_overlay_next_delay_ms_clamps_to_max_when_boundary_is_far() {
+        // 残り4400ms→境界まで400ms。
+        let next_change = imagine_cell_next_change_ms(60_000, 4_400);
+        assert_eq!(next_change, Some(400));
+        assert_eq!(overlay_next_delay_ms(next_change), OVERLAY_MAX_DELAY_MS);
+    }
+
+    // 上限クランプが効かないケース: 秒境界までの残りが短い（=100ms）と、マージン込みの130msは
+    // 上限を超えないためそのまま採用され、秒境界ちょうど（＋マージン）に同期する。
+    #[test]
+    fn test_overlay_next_delay_ms_uses_margin_when_boundary_is_near() {
+        // 残り4100ms→境界まで100ms。
+        let next_change = imagine_cell_next_change_ms(60_000, 4_100);
+        assert_eq!(next_change, Some(100));
+        assert_eq!(overlay_next_delay_ms(next_change), 130);
+    }
+
+    // S5: マージン加算前にクランプすることで、境界までの残りが 171〜200ms のときでも
+    // マージン30msが必ず維持される（クランプ後にマージンを足すと 200ms 丁度に潰れて
+    // マージンが目減りし、境界の手前で発火しうる旧実装のバグを再発させないための回帰テスト）。
+    #[test]
+    fn test_overlay_next_delay_ms_preserves_full_margin_near_the_clamp_boundary() {
+        assert_eq!(overlay_next_delay_ms(Some(180)), 200);
+        assert_eq!(overlay_next_delay_ms(Some(170)), 200);
+        assert_eq!(overlay_next_delay_ms(Some(169)), 199);
+    }
+
+    // 表示中セルが無い/算出できない場合は固定フォールバック間隔へ必ず落ちる
+    // （再武装漏れで更新が永久停止する事故を防ぐための必須要件）。
+    #[test]
+    fn test_overlay_next_delay_ms_falls_back_when_no_cell() {
+        assert_eq!(overlay_next_delay_ms(None), OVERLAY_FALLBACK_MS);
     }
 }

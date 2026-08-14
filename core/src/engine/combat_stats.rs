@@ -31,17 +31,22 @@ impl CombatStats {
     }
 }
 
-/// 1件のダメージ記録を CombatStats に集計する。
-/// lucky_value が立っているときは value より優先して採用する。
-pub fn process_stats(record: &DamageRecord, stats: &mut CombatStats) {
-    let actual_value = if record.lucky_value != 0 {
+/// DamageRecord から実際に採用する値を導出する（lucky_value が立っているときは
+/// value より優先して採用する）。集計本体(process_stats)と probe 計測の両方から呼び、
+/// 「lucky優先」ルールの定義箇所を1つに保つ（processor.rs 側で複製しない）。
+pub(crate) fn actual_value(record: &DamageRecord) -> i64 {
+    if record.lucky_value != 0 {
         record.lucky_value
     } else {
         record.value
-    };
+    }
+}
 
+/// 1件のダメージ記録を CombatStats に集計する。
+/// lucky_value が立っているときは value より優先して採用する。
+pub fn process_stats(record: &DamageRecord, stats: &mut CombatStats) {
     let is_lucky = record.lucky_value != 0;
     let is_crit = (record.type_flag & damage::CRIT_BIT) != 0;
 
-    stats.record_hit(actual_value, is_crit, is_lucky);
+    stats.record_hit(actual_value(record), is_crit, is_lucky);
 }

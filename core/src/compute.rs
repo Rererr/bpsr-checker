@@ -682,6 +682,9 @@ pub fn get_skills(
 
 pub fn reset_encounter(enc: &EncounterMutex) {
     with_lock_or(enc, "reset_encounter", (), |encounter| {
+        // M2/M3/M5計測: 手動リセットでもロールオーバー時と同じサマリーを出す
+        // （通常モードのタイムアウト待ちに限定せず、ここで確実に読めるようにする）。
+        crate::probe::log_and_reset_encounter_summary();
         encounter.clear_combat_stats();
         // 食事/シロップはゲーム内効果が継続するため手動リセットでは消さない
         // （消えるのは自然失効・履歴クリアのみ）。
@@ -875,6 +878,12 @@ pub struct CaptureStatusDto {
     pub ms_since_last_packet: f64,
     /// 最後にゲームサーバのパケットを処理してからの経過 ms（-1.0=未観測）
     pub ms_since_last_game_packet: f64,
+    /// MAX_SUBNET_CONNECTIONS 到達で新規接続の追跡を諦めた回数（累計）
+    pub subnet_cap_hits: f64,
+    /// TCP 再組立でギャップ検知→再同期が起きた回数（累計。戦闘データ一部欠落を伴う）
+    pub reassembly_gaps: f64,
+    /// ディスパッチチャネル満杯で破棄したフレーム数（累計）
+    pub dropped_frames: f64,
 }
 
 pub fn get_capture_status() -> CaptureStatusDto {
@@ -886,6 +895,9 @@ pub fn get_capture_status() -> CaptureStatusDto {
         packets_total: status::PACKETS_TOTAL.load(Ordering::Relaxed) as f64,
         ms_since_last_packet: since(status::LAST_PACKET_UNIX_MS.load(Ordering::Relaxed)),
         ms_since_last_game_packet: since(status::LAST_GAME_PACKET_UNIX_MS.load(Ordering::Relaxed)),
+        subnet_cap_hits: status::SUBNET_CAP_HITS.load(Ordering::Relaxed) as f64,
+        reassembly_gaps: status::REASSEMBLY_GAPS.load(Ordering::Relaxed) as f64,
+        dropped_frames: status::DROPPED_FRAMES.load(Ordering::Relaxed) as f64,
     }
 }
 
@@ -1086,6 +1098,9 @@ pub fn finalize_3min_locked(encounter: &mut Encounter) -> EncounterSnapshot {
     if !snapshot.player_rows.is_empty() {
         crate::engine::history::push(snapshot.clone());
     }
+    // M2/M3/M5計測: 3分計測の確定時にもサマリーを出す（3分計測モードは processor.rs の
+    // ロールオーバー分岐が MeasureMode::Normal 限定で発火しないため、ここが唯一の出口）。
+    crate::probe::log_and_reset_encounter_summary();
     encounter.clear_combat_stats();
     encounter.measure_mode = crate::engine::encounter::MeasureMode::Normal;
     snapshot

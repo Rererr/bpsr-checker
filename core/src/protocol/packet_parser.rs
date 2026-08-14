@@ -59,6 +59,7 @@ pub fn process_packet(
                 }) {
                     Ok(()) => {}
                     Err(TrySendError::Full(env)) => {
+                        crate::capture::status::mark_dropped_frame();
                         warn!("dispatch channel full: メッセージ破棄 op={:?}", env.op);
                     }
                     Err(TrySendError::Closed(_)) => {

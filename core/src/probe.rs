@@ -12,6 +12,7 @@
 use crate::protocol::pb;
 use log::info;
 use std::sync::LazyLock;
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 
 static ENABLED: LazyLock<bool> =
     LazyLock::new(|| std::env::var("BPSR_PROBE").is_ok_and(|v| v == "1"));
@@ -332,5 +333,115 @@ pub fn log_buff_change(ctx: &str, raw: &[u8], change: &pb::BuffChange) {
         change.create_time,
         raw.len(),
         full_hex(raw)
+    );
+}
+
+// ─── DPS過小評価の原因切り分け用カウンタ(M2/M3/M5/M6) ─────────────────────
+// `BPSR_PROBE=1` のときのみ計上する（無効時は各関数の enabled() チェック1回のみでゼロコスト）。
+// エンカウンター終了（8秒無通信タイムアウト）のたびに processor.rs が
+// log_and_reset_encounter_summary() を呼び、このモジュール限定のカウンタは1行のサマリー
+// ログを出したうえでリセットする（次のエンカウンターの数値と混ざらないように）。
+// M4（capture::status の常時カウンタ）はこのモジュールが所有しないため読むだけでリセットしない。
+
+/// M2: attacker_uuid が取れず捨てたレコードの件数
+static SKIP_NO_ATTACKER_COUNT: AtomicU64 = AtomicU64::new(0);
+/// M2: attacker_uuid が取れず捨てたレコードの実効値（lucky_value優先）合計
+static SKIP_NO_ATTACKER_VALUE: AtomicI64 = AtomicI64::new(0);
+/// M2: skill_uid(owner_id)==0 で捨てたレコードの件数
+static SKIP_NO_SKILL_COUNT: AtomicU64 = AtomicU64::new(0);
+/// M2: skill_uid(owner_id)==0 で捨てたレコードの実効値（lucky_value優先）合計
+static SKIP_NO_SKILL_VALUE: AtomicI64 = AtomicI64::new(0);
+/// M3: attacker のエンティティ種別が Player 以外（召喚エンティティ自身など）に積まれた
+/// ダメージの件数
+static NON_PLAYER_ATTACKER_COUNT: AtomicU64 = AtomicU64::new(0);
+/// M3: 同上のダメージの実効値（lucky_value優先）合計
+static NON_PLAYER_ATTACKER_VALUE: AtomicI64 = AtomicI64::new(0);
+/// M5: value と lucky_value が両方非ゼロで同時出現したレコード数
+static LUCKY_VALUE_COLLISION_COUNT: AtomicU64 = AtomicU64::new(0);
+/// M5: log_lucky_collision で実際にログ行を出す最大件数（以降はカウンタのみ）。
+/// BPSR_PROBE=1 のセッションでは M4(DROPPED_FRAMES) を同時計測するため、per-record で
+/// ログI/Oを出し続けると観測対象自体を悪化させてしまう（S4）。
+const LUCKY_COLLISION_LOG_SAMPLE: u64 = 50;
+
+/// M2: attacker_uuid 不明で捨てたレコードを計上する。`actual_value` は
+/// combat_stats::actual_value と同じ「lucky_value優先」の実効値（processor.rs 側で
+/// 計算して渡す。ラッキーヒットは value==0 で来る想定のため、生 value だと欠損量を
+/// 過小評価してしまう＝process_stats が採用する値と揃える）。
+pub fn record_skip_no_attacker(actual_value: i64) {
+    if !enabled() {
+        return;
+    }
+    SKIP_NO_ATTACKER_COUNT.fetch_add(1, Ordering::Relaxed);
+    SKIP_NO_ATTACKER_VALUE.fetch_add(actual_value, Ordering::Relaxed);
+}
+
+/// M2: skill_uid(owner_id)==0 で捨てたレコードを計上する（`actual_value` の意味は上と同じ）。
+pub fn record_skip_no_skill(actual_value: i64) {
+    if !enabled() {
+        return;
+    }
+    SKIP_NO_SKILL_COUNT.fetch_add(1, Ordering::Relaxed);
+    SKIP_NO_SKILL_VALUE.fetch_add(actual_value, Ordering::Relaxed);
+}
+
+/// M3: attacker が Player 以外のエンティティ種別に積まれたダメージを計上する
+/// （召喚の帰属漏れ＝top_summoner_id==0 で DPS 一覧から落ちるケース）。
+/// `actual_value` は combat_stats::actual_value と同じ「lucky_value優先」の実効値
+/// （既存の dmg_stats 合計と揃えて比較できるように processor.rs 側で計算して渡す）。
+pub fn record_non_player_attacker(actual_value: i64) {
+    if !enabled() {
+        return;
+    }
+    NON_PLAYER_ATTACKER_COUNT.fetch_add(1, Ordering::Relaxed);
+    NON_PLAYER_ATTACKER_VALUE.fetch_add(actual_value, Ordering::Relaxed);
+}
+
+/// M5: value と lucky_value が両方非ゼロで同時出現したレコードを計上する。
+/// カウンタ（サマリー行の `lucky_collision(n=..)`）は全件反映するが、ログ行は
+/// 先頭 `LUCKY_COLLISION_LOG_SAMPLE` 件のサンプルのみ出す（S4: per-record I/O抑制）。
+pub fn log_lucky_collision(value: i64, lucky_value: i64, hp_lessen_value: i64) {
+    if !enabled() {
+        return;
+    }
+    let prev_n = LUCKY_VALUE_COLLISION_COUNT.fetch_add(1, Ordering::Relaxed);
+    if prev_n < LUCKY_COLLISION_LOG_SAMPLE {
+        info!(
+            "PROBE lucky-collision: value={value} lucky_value={lucky_value} hp_lessen_value={hp_lessen_value}"
+        );
+    }
+}
+
+/// M6: 戦闘時計（time_fight_start_ms）が起動した瞬間、そのデルタが damages を含んでいたか。
+/// false なら自己バフ・詠唱等の非ダメージ delta で時計が起動しており、分母（経過時間）が
+/// 実ダメージ開始より早く進み始めている可能性を示す。
+pub fn log_fight_start(had_damages: bool) {
+    if !enabled() {
+        return;
+    }
+    info!("PROBE fight-start: had_damages={had_damages}");
+}
+
+/// M2/M3/M5 のカウンタと M4（capture::status の常時カウンタ）を1行のサマリーとしてログする。
+/// M2/M3/M5 はこのモジュール限定の調査用カウンタなのでログ後にゼロへ戻す
+/// （エンカウンター単位で数値を区切って読めるようにするため）。M4 は capture::status が
+/// 所有する累計カウンタなのでここではリセットしない。
+pub fn log_and_reset_encounter_summary() {
+    if !enabled() {
+        return;
+    }
+    let skip_attacker_n = SKIP_NO_ATTACKER_COUNT.swap(0, Ordering::Relaxed);
+    let skip_attacker_v = SKIP_NO_ATTACKER_VALUE.swap(0, Ordering::Relaxed);
+    let skip_skill_n = SKIP_NO_SKILL_COUNT.swap(0, Ordering::Relaxed);
+    let skip_skill_v = SKIP_NO_SKILL_VALUE.swap(0, Ordering::Relaxed);
+    let non_player_n = NON_PLAYER_ATTACKER_COUNT.swap(0, Ordering::Relaxed);
+    let non_player_v = NON_PLAYER_ATTACKER_VALUE.swap(0, Ordering::Relaxed);
+    let lucky_n = LUCKY_VALUE_COLLISION_COUNT.swap(0, Ordering::Relaxed);
+
+    let subnet_cap_hits = crate::capture::status::SUBNET_CAP_HITS.load(Ordering::Relaxed);
+    let reassembly_gaps = crate::capture::status::REASSEMBLY_GAPS.load(Ordering::Relaxed);
+    let dropped_frames = crate::capture::status::DROPPED_FRAMES.load(Ordering::Relaxed);
+
+    info!(
+        "PROBE encounter-summary: skip_no_attacker(n={skip_attacker_n}, value={skip_attacker_v}) skip_no_skill(n={skip_skill_n}, value={skip_skill_v}) non_player_attacker(n={non_player_n}, value={non_player_v}) lucky_collision(n={lucky_n}) capture(subnet_cap_hits={subnet_cap_hits}, reassembly_gaps={reassembly_gaps}, dropped_frames={dropped_frames})"
     );
 }

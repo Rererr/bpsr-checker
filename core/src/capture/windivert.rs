@@ -103,6 +103,10 @@ fn emit_server_handover(packet_sender: &tokio::sync::mpsc::Sender<PktEnvelope>) 
 
 const HANDLE_CLEANUP_DELAY_MS: u64 = 500;
 const MAX_SUBNET_CONNECTIONS: usize = 16;
+/// subnet cap 到達で拒否した接続キーを重複ログ抑止用に覚えておく上限（メモリ上限のため）。
+/// これを超えて新規に拒否される接続はログも SUBNET_CAP_HITS への計上も行わない
+/// （通常運用でここまで多様な接続が拒否され続ける状況自体が異常）。
+const MAX_SUBNET_CAP_REJECTED_TRACKED: usize = 256;
 
 /// このアプリの WinDivert ハンドル優先度。WinDivert は「同一優先度・重複フィルタの
 /// ハンドルにはパケットを一度しか配送しない」（公式 docs）ため、他の WinDivert 利用
@@ -250,6 +254,9 @@ fn read_packets_blocking(
     let mut client_reassemblers: HashMap<Server, TcpReassembler> = HashMap::new();
     let mut game_subnet: Option<[u8; 2]> = None;
     let mut subnet_reassemblers: HashMap<Server, TcpReassembler> = HashMap::new();
+    // MAX_SUBNET_CONNECTIONS 到達で追跡を諦めた接続キー（重複ログ抑止用。上限付きで無制限成長を防ぐ）。
+    // subnet_reassemblers と同じ寿命（ServerHandover で一緒に clear）。
+    let mut subnet_cap_rejected: HashSet<Server> = HashSet::new();
 
     while let Ok(packet) = windivert.recv(Some(&mut windivert_buffer)) {
         crate::capture::status::mark_packet();
@@ -369,6 +376,7 @@ fn read_packets_blocking(
                                                         tcp_payload_reader.len() as u32,
                                                     ),
                                                     &mut subnet_reassemblers,
+                                                    &mut subnet_cap_rejected,
                                                 );
                                                 client_reassemblers.clear();
                                                 emit_server_handover(packet_sender);
@@ -417,6 +425,7 @@ fn read_packets_blocking(
                             .sequence_number()
                             .wrapping_add(tcp_payload.len() as u32),
                         &mut subnet_reassemblers,
+                        &mut subnet_cap_rejected,
                     );
                     client_reassemblers.clear();
                     emit_server_handover(packet_sender);
@@ -431,12 +440,18 @@ fn read_packets_blocking(
                         if !subnet_reassemblers.contains_key(&curr_server) {
                             if subnet_reassemblers.len() < MAX_SUBNET_CONNECTIONS {
                                 subnet_reassemblers.insert(curr_server, TcpReassembler::new());
-                            } else {
-                                // ローカルビルドのみ(debug_assertions): 追跡上限に達して
-                                // 新規接続を取りこぼす状況を観測する（将来のリファクタ用）。
-                                #[cfg(debug_assertions)]
-                                debug!(
-                                    "subnet reassembler cap reached ({MAX_SUBNET_CONNECTIONS}); ignoring {curr_server}"
+                            } else if subnet_cap_rejected.len() < MAX_SUBNET_CAP_REJECTED_TRACKED
+                                && subnet_cap_rejected.insert(curr_server)
+                            {
+                                // 追跡上限に達して新規接続を取りこぼした状況を計上する
+                                // （DPS過小評価の切り分け用。配布ビルドでも計上・ログ出力する）。
+                                // subnet_cap_rejected で同一接続の重複ログ・重複計上を防ぐ
+                                // （拒否された接続は subnet_reassemblers に入らず毎パケット
+                                // ここへ来るため、素通しだと戦闘中に per-packet で warn! が
+                                // 走りキャプチャスレッドが I/O でブロックしてしまう）。
+                                crate::capture::status::mark_subnet_cap_hit();
+                                warn!(
+                                    "subnet reassembler cap reached ({MAX_SUBNET_CONNECTIONS}); ignoring {curr_server} (この接続では以後ログ抑止)"
                                 );
                             }
                         }
@@ -488,6 +503,7 @@ fn update_known_server(
     reassembler: &mut TcpReassembler,
     seq: u32,
     subnet_reassemblers: &mut HashMap<Server, TcpReassembler>,
+    subnet_cap_rejected: &mut HashSet<Server>,
 ) {
     *known_server = Some(*server);
     let src = server.src_addr();
@@ -501,6 +517,7 @@ fn update_known_server(
     info!("Game server subnet detected: {}.{}.*", prefix[0], prefix[1]);
     reassembler.clear(seq);
     subnet_reassemblers.clear();
+    subnet_cap_rejected.clear();
 }
 
 fn reassemble_and_process(
@@ -605,6 +622,7 @@ fn reassemble_and_process(
         let Some((&resync_seq, _)) = reassembler.cache.iter().next() else {
             break;
         };
+        crate::capture::status::mark_reassembly_gap();
         warn!(
             "TCP reassembly gap: next_seq={:?} 欠損, {buffered} bytes 滞留 → seq={resync_seq} へ再同期（戦闘データ一部欠落）",
             reassembler.next_seq

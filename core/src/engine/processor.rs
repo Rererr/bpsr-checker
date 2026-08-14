@@ -1,6 +1,6 @@
 use crate::capture::server::Server;
 use crate::engine::class::{Class, ClassSpec, get_class_from_spec, get_class_spec_from_skill_id};
-use crate::engine::combat_stats::process_stats;
+use crate::engine::combat_stats::{actual_value, process_stats};
 use crate::engine::encounter::{Encounter, EncounterMutex};
 use crate::engine::entity::{
     Entity, ImagineSlot, MAX_IMAGINE_NAMES, MAX_ROLE_SKILL_IMAGINES, SkillMeta,
@@ -1246,8 +1246,10 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
     let Some(skill_effect) = scene_delta.skill_effects else {
         return; // no damage in this delta, that's fine
     };
+    // M6計測用: このデルタが damages を含んでいたか（下の for ループが Vec を消費する前に控える）。
+    let had_damages = !skill_effect.damages.is_empty();
 
-    if !skill_effect.damages.is_empty() {
+    if had_damages {
         let ts = now_ms();
         let timeout_ms = u128::from(
             crate::engine::runtime_settings::COMBAT_EXIT_TIMEOUT_MS
@@ -1268,6 +1270,8 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
             if should_push {
                 crate::engine::history::push(snapshot);
             }
+            // M2/M3/M5計測: 直前エンカウンターぶんのサマリーをログしカウンタをリセットする。
+            crate::probe::log_and_reset_encounter_summary();
             // v0.8.3 以前と同様 clear 後もフォールスルーして当該フレームのダメージを集計する。
             // emit("encounter-reset") は廃止。フロントは次のポーリングで自然に更新される。
             encounter.clear_combat_stats();
@@ -1276,6 +1280,13 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
 
     // Process each damage event
     for damage in skill_effect.damages {
+        // M5計測: value と lucky_value が両方非ゼロで同時出現するレコードの実態を調べる
+        // （combat_stats.rs は lucky_value 優先で採用するため、両立時の基礎ダメージが
+        // 捨てられていないか確認する）。
+        if damage.value != 0 && damage.lucky_value != 0 {
+            crate::probe::log_lucky_collision(damage.value, damage.lucky_value, damage.hp_lessen_value);
+        }
+
         let is_boss = encounter
             .entities
             .get(&target_uid)
@@ -1287,6 +1298,11 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
         } else if damage.attacker_uuid != 0 {
             damage.attacker_uuid
         } else {
+            // M2計測: attacker不明で捨てるレコード（DoT・バフ由来・設置物ダメージ等の
+            // 疑いがある）を件数・実効値合計で計上する。実効値は combat_stats::actual_value
+            // と同じ「lucky_value優先」（ラッキーヒットは value==0 で来る想定のため、生value
+            // だと欠損量を過小評価してしまう）。
+            crate::probe::record_skip_no_attacker(actual_value(&damage));
             continue; // no attacker — skip
         };
         let attacker_uid = entity::get_player_uid(attacker_uuid);
@@ -1294,6 +1310,8 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
 
         let skill_uid = damage.owner_id;
         if skill_uid == 0 {
+            // M2計測: skill_uid(owner_id)不明で捨てるレコードを件数・実効値合計で計上する。
+            crate::probe::record_skip_no_skill(actual_value(&damage));
             continue;
         }
 
@@ -1311,6 +1329,13 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
         }
 
         let is_heal = damage.r#type == pb::DmgKind::Heal as i32;
+
+        // M3計測: 召喚の帰属漏れ（top_summoner_id==0 で attacker が召喚エンティティ自身になり
+        // compute.rs の Player フィルタで DPS 一覧から落ちるケース）を件数・実効値合計で計上する。
+        // 総ダメージ(encounter.dmg_stats)には残るため、ここで捨ててはいない＝計測のみ。
+        if !is_heal && attacker_entity_type != EntityKind::Player {
+            crate::probe::record_non_player_attacker(actual_value(&damage));
+        }
 
         // Encounter-level totals first (avoids holding attacker_entity borrow across encounter.* mutations)
         if is_heal {
@@ -1395,6 +1420,9 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
     let ts = now_ms();
     if encounter.time_fight_start_ms == 0 {
         encounter.time_fight_start_ms = ts;
+        // M6計測: 戦闘時計の起点となったデルタが damages を含んでいたか記録する
+        // （false なら自己バフ・詠唱等で分母が実ダメージ開始より早く進み始めている）。
+        crate::probe::log_fight_start(had_damages);
         if let crate::engine::encounter::MeasureMode::Pending3Min { duration_ms } =
             encounter.measure_mode
         {

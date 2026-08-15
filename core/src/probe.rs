@@ -390,7 +390,13 @@ pub fn record_skip_no_skill(actual_value: i64) {
 
 /// M3: attacker が Player 以外のエンティティ種別に積まれたダメージを計上する。
 /// `actual_value` は combat_stats::actual_value と同じ「lucky_value優先」の実効値
-/// （既存の dmg_stats 合計と揃えて比較できるように processor.rs 側で計算して渡す）。
+/// （processor.rs 側で process_stats と同じ計算をして渡す）。
+///
+/// **この計数は `dmg_stats` 合計と足し合わせて比較する突合用ではない**（内訳の切り分け専用）。
+/// processor.rs は attacker が Monster のダメージだけを `dmg_stats` から除外するため、Unknown
+/// 種別（召喚）の attacker 分はここでも `dmg_stats` 側でも二重に計上される。合計を突き合わせても
+/// 一致しないので、突合ではなく「非Player attacker がどれだけ・どんな内訳で発生しているか」を
+/// 個別に確認する用途に限定して使うこと。
 ///
 /// **この計数には性質の異なる2つが混在する**ので、合計値だけで結論を出してはいけない。
 /// - 召喚の帰属漏れ（top_summoner_id==0 で attacker が召喚エンティティ自身になり、

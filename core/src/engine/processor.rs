@@ -1334,9 +1334,11 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
         let is_heal = damage.r#type == pb::DmgKind::Heal as i32;
 
         // M3計測: attacker が Player 以外に積まれたダメージを件数・実効値合計で計上する。
-        // ここで捨ててはいない（総ダメージ encounter.dmg_stats には残る）＝計測のみ。
         // 内訳には「召喚の帰属漏れ（自分の火力が一覧から落ちる）」と「モンスターの与ダメージ
         // （自分とは無関係）」が混在するため、合計だけで結論を出さないこと。詳細は probe 側の doc。
+        // 下の総ダメージ集計は attacker が Monster のときだけ除外するため、召喚（Unknown
+        // attacker）が敵を殴った分は引き続き encounter.dmg_stats に残る。この計数自体は
+        // encounter.dmg_stats と足し合わせる前提ではない（record_non_player_attacker の doc 参照）。
         if !is_heal && attacker_entity_type != EntityKind::Player {
             crate::probe::record_non_player_attacker(
                 actual_value(&damage),
@@ -1345,18 +1347,32 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
             );
         }
 
+        // モンスターが出したダメージ/回復（＝自分たちの成果ではないもの）を総計から除外する
+        // ための判定。dmg と heal で同じ述語（attacker が Monster かどうか）を共有する。
+        // 以前は dmg=target基準（対象がPlayerか）・heal=attacker基準、と2通りに分かれており、
+        // 「モンスター同士のダメージは total に残るのにモンスター同士の回復は落ちる」という
+        // 非対称と、行(attacker_entity側は無条件加算)と分母(target基準)の不一致があった
+        // （target=Player以外の非Healレコードが行にだけ乗り、シェア%が100%を超えうる不具合）。
+        // top_summoner_id が付かない召喚（attacker_entity_type==Unknown）は Monster ではない
+        // ためこの条件を通過し、引き続き自分の火力/回復として総計に残る（帰属漏れの分を落とさない）。
+        let from_monster = attacker_entity_type == EntityKind::Monster;
+
         // Encounter-level totals first (avoids holding attacker_entity borrow across encounter.* mutations)
         if is_heal {
-            process_stats(&damage, &mut encounter.heal_stats);
-        } else {
+            if !from_monster {
+                process_stats(&damage, &mut encounter.heal_stats);
+            }
+        } else if !from_monster {
             process_stats(&damage, &mut encounter.dmg_stats);
             if is_boss {
                 process_stats(&damage, &mut encounter.dmg_stats_boss_only);
             }
         }
 
-        // Target-side damage-taken aggregation (player targets only)
-        if !is_heal && target_entity_type == EntityKind::Player {
+        // Target-side damage-taken aggregation (player targets only)。
+        // 「誰が受けたか」を見る別の述語（above の from_monster とは意味が異なるため統合しない）。
+        let damage_hits_player = target_entity_type == EntityKind::Player;
+        if !is_heal && damage_hits_player {
             process_stats(&damage, &mut encounter.dmg_taken_stats);
             let target_entity = get_or_create_entity(encounter, target_uid, target_entity_type);
             process_stats(&damage, &mut target_entity.dmg_taken_stats);
@@ -3443,5 +3459,254 @@ mod tests {
         let e = enc.lock().unwrap();
         assert_eq!(e.active_connection, Some(first));
         assert_eq!(e.dmg_stats.total, 100);
+    }
+
+    // --- 総ダメージへの攻撃者/対象フィルタ（反撃する木人でアプリがゲーム内表示より
+    // 高く出ていた不具合の修正）--------------------------------------------------
+
+    fn monster_uuid_for(uid: i64) -> i64 {
+        (uid << 16) | 64
+    }
+
+    /// top_summoner_id 未付与の召喚（Unknown 種別 attacker）を模した uuid。
+    /// 64(Monster)/640(Player) いずれとも一致しない下位ビットにする（summon_spawn_delta の
+    /// 実測由来の型コード 0x0100 に合わせ、実データに近づける）。
+    fn unknown_summon_uuid_for(uid: i64) -> i64 {
+        (uid << 16) | 0x0100
+    }
+
+    fn damage_delta(target_uuid: i64, attacker_uuid: i64, value: i64) -> pb::SceneDelta {
+        pb::SceneDelta {
+            uuid: target_uuid,
+            skill_effects: Some(pb::SkillImpact {
+                damages: vec![pb::DamageRecord {
+                    value,
+                    hp_lessen_value: value,
+                    attacker_uuid,
+                    owner_id: 1001,
+                    ..Default::default()
+                }],
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn heal_delta(target_uuid: i64, attacker_uuid: i64, value: i64) -> pb::SceneDelta {
+        pb::SceneDelta {
+            uuid: target_uuid,
+            skill_effects: Some(pb::SkillImpact {
+                damages: vec![pb::DamageRecord {
+                    value,
+                    hp_lessen_value: value,
+                    r#type: pb::DmgKind::Heal as i32,
+                    attacker_uuid,
+                    owner_id: 1001,
+                    ..Default::default()
+                }],
+            }),
+            ..Default::default()
+        }
+    }
+
+    /// モンスター→プレイヤーのダメージ（反撃）は総ダメージに積まれず、被ダメ側にのみ残る。
+    #[test]
+    fn monster_damage_to_player_excluded_from_total_dmg_but_kept_in_taken() {
+        let mut enc = Encounter::default();
+        let player_uid = 1_i64;
+        let monster_uid = 2_i64;
+
+        process_scene_delta(
+            &mut enc,
+            damage_delta(player_uuid_for(player_uid), monster_uuid_for(monster_uid), 9_999),
+        );
+
+        assert_eq!(enc.dmg_stats.total, 0, "モンスターの与ダメが総ダメージに混入している");
+        assert_eq!(
+            enc.dmg_taken_stats.total, 9_999,
+            "被ダメ側は従来どおりモンスターの与ダメを計上する"
+        );
+    }
+
+    /// モンスター→モンスターのダメージ（召喚モンスター同士の小競り合い等）は行にも総ダメージにも
+    /// 現れない。旧 target 基準（target==Player を除外）は target=Monster のとき常に
+    /// damage_hits_player=false で total に混入していた（ヘッダ「総ダメージ」＞各行の合計、という
+    /// 不整合の温床。compute.rs の Player フィルタで行には出ないため気付きにくい）。
+    #[test]
+    fn monster_damage_to_monster_excluded_from_total_dmg() {
+        let mut enc = Encounter::default();
+        let attacker_monster_uid = 16_i64;
+        let target_monster_uid = 17_i64;
+
+        process_scene_delta(
+            &mut enc,
+            damage_delta(
+                monster_uuid_for(target_monster_uid),
+                monster_uuid_for(attacker_monster_uid),
+                777,
+            ),
+        );
+
+        assert_eq!(enc.dmg_stats.total, 0, "モンスター同士のダメージが総ダメージに混入している");
+        assert_eq!(enc.dmg_taken_stats.total, 0, "対象がモンスターなので被ダメにも積まれない");
+    }
+
+    /// top_summoner_id が付かない召喚（attacker_entity_type == Unknown）のダメージは、
+    /// 対象がモンスターである限り自分の火力として総ダメージに残る（最重要の回帰防止）。
+    #[test]
+    fn unattributed_summon_damage_to_monster_counts_toward_total_dmg() {
+        let mut enc = Encounter::default();
+        let summon_uid = 3_i64;
+        let monster_uid = 4_i64;
+
+        process_scene_delta(
+            &mut enc,
+            damage_delta(monster_uuid_for(monster_uid), unknown_summon_uuid_for(summon_uid), 500),
+        );
+
+        assert_eq!(enc.dmg_stats.total, 500, "帰属漏れの召喚ダメージが総ダメージから落ちている");
+        assert_eq!(enc.dmg_taken_stats.total, 0, "対象がモンスターなので被ダメには積まれない");
+    }
+
+    /// プレイヤー→モンスターのダメージは従来どおり総ダメージに入る（回帰防止）。
+    #[test]
+    fn player_damage_to_monster_counts_toward_total_dmg_as_before() {
+        let mut enc = Encounter::default();
+        let player_uid = 5_i64;
+        let monster_uid = 6_i64;
+
+        process_scene_delta(
+            &mut enc,
+            damage_delta(monster_uuid_for(monster_uid), player_uuid_for(player_uid), 1_234),
+        );
+
+        assert_eq!(enc.dmg_stats.total, 1_234);
+        assert_eq!(enc.dmg_taken_stats.total, 0);
+    }
+
+    /// プレイヤー→プレイヤーの非Healダメージ（誤射等）は行(attacker_entity.dmg_stats)と
+    /// 総ダメージの両方に同じ述語(from_monster)で入る。旧 target 基準では target=Player の
+    /// ため total からは除外される一方、attacker 側の行集計は無条件加算だったため、
+    /// 分子(行)＞分母(total) となりシェア%が100%を超え得た（結果モーダルの行バーが
+    /// 幅からはみ出る不具合の原因）。
+    #[test]
+    fn player_to_player_damage_counts_toward_total_dmg_matching_row() {
+        let mut enc = Encounter::default();
+        let attacker_uid = 18_i64;
+        let target_uid = 19_i64;
+
+        process_scene_delta(
+            &mut enc,
+            damage_delta(player_uuid_for(target_uid), player_uuid_for(attacker_uid), 321),
+        );
+
+        assert_eq!(
+            enc.entities[&attacker_uid].dmg_stats.total, 321,
+            "attacker 行には従来どおり積まれるはず"
+        );
+        assert_eq!(
+            enc.dmg_stats.total, 321,
+            "行(321)と総ダメージが食い違うとシェア%が100%を超えうる"
+        );
+    }
+
+    /// モンスターの自己回復/味方回復は heal_stats から除外される。dmg と同じ述語
+    /// （attacker が Monster かどうか）を共有する。
+    /// 注意: モンスター発の回復レコードが実機で実在するかは未確認（検証用の合成データ）。
+    #[test]
+    fn monster_self_heal_excluded_from_total_heal() {
+        let mut enc = Encounter::default();
+        let monster_uid = 7_i64;
+
+        process_scene_delta(
+            &mut enc,
+            heal_delta(monster_uuid_for(monster_uid), monster_uuid_for(monster_uid), 8_000),
+        );
+
+        assert_eq!(enc.heal_stats.total, 0, "モンスターの自己回復が総回復に混入している");
+    }
+
+    /// プレイヤーの回復は従来どおり heal_stats に入る（回帰防止）。
+    #[test]
+    fn player_heal_counts_toward_total_heal_as_before() {
+        let mut enc = Encounter::default();
+        let healer_uid = 8_i64;
+        let target_uid = 9_i64;
+
+        process_scene_delta(
+            &mut enc,
+            heal_delta(player_uuid_for(target_uid), player_uuid_for(healer_uid), 300),
+        );
+
+        assert_eq!(enc.heal_stats.total, 300);
+    }
+
+    /// モンスター entity に ATTR_ID(=monster_id) 属性を反映させる合成 SceneDelta。
+    /// is_boss 判定（MONSTER_NAMES_BOSS 収録かどうか）はこの属性由来なので、
+    /// dmg_stats_boss_only 集計のテストで使う。
+    fn monster_id_attr_delta(monster_uid: i64, monster_id: u32) -> pb::SceneDelta {
+        let monster_uuid = monster_uuid_for(monster_uid);
+        pb::SceneDelta {
+            uuid: monster_uuid,
+            attrs: Some(pb::EntityAttrs {
+                uuid: monster_uuid,
+                attrs: vec![pb::RawAttr {
+                    id: attr_type::ATTR_ID,
+                    raw_data: enc_varint(monster_id as u64),
+                }],
+            }),
+            buff_list: None,
+            skill_effects: None,
+        }
+    }
+
+    /// player→ボス(MONSTER_NAMES_BOSS 収録の monster_id)のダメージは dmg_stats_boss_only にも
+    /// 積まれる。旧 `assert_eq!(enc.dmg_stats_boss_only.total, 0)`（target=Player固定のテスト）は
+    /// is_boss が常に false になる無効アサーションだったため、実際に boss 判定が成立する
+    /// ケースをここで検証する。
+    #[test]
+    fn player_damage_to_boss_monster_counts_toward_boss_only_total() {
+        let mut enc = Encounter::default();
+        let player_uid = 20_i64;
+        let boss_uid = 21_i64;
+        let boss_monster_id: u32 = 103; // MonsterNameBoss.json 収録（イグニソル）
+        assert!(
+            MONSTER_NAMES_BOSS.contains_key(&boss_monster_id),
+            "テスト前提のboss idがMonsterNameBoss.jsonから外れている"
+        );
+
+        process_scene_delta(&mut enc, monster_id_attr_delta(boss_uid, boss_monster_id));
+        process_scene_delta(
+            &mut enc,
+            damage_delta(monster_uuid_for(boss_uid), player_uuid_for(player_uid), 777),
+        );
+
+        assert_eq!(enc.dmg_stats.total, 777);
+        assert_eq!(
+            enc.dmg_stats_boss_only.total, 777,
+            "boss収録のmonster_idなのにboss_only集計に積まれていない"
+        );
+    }
+
+    /// 対照実験: MONSTER_NAMES_BOSS 未収録の monster_id では boss_only 集計に積まれない
+    /// （通常の dmg_stats のみ）。
+    #[test]
+    fn player_damage_to_non_boss_monster_excluded_from_boss_only_total() {
+        let mut enc = Encounter::default();
+        let player_uid = 22_i64;
+        let monster_uid = 23_i64;
+        let non_boss_monster_id: u32 = 999_999;
+        assert!(
+            !MONSTER_NAMES_BOSS.contains_key(&non_boss_monster_id),
+            "テスト前提の非boss idがMonsterNameBoss.jsonに含まれてしまっている"
+        );
+
+        process_scene_delta(&mut enc, monster_id_attr_delta(monster_uid, non_boss_monster_id));
+        process_scene_delta(
+            &mut enc,
+            damage_delta(monster_uuid_for(monster_uid), player_uuid_for(player_uid), 555),
+        );
+
+        assert_eq!(enc.dmg_stats.total, 555);
+        assert_eq!(enc.dmg_stats_boss_only.total, 0);
     }
 }

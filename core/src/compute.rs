@@ -1695,6 +1695,53 @@ mod tests {
         );
     }
 
+    // get_dps_players の value_pct（シェア%）は build_players_window_unsorted の
+    // ratio_pct(entity_stats.total, encounter_stats.total) を経由して実際に算出させる
+    // （旧テストは compute 側を一切呼ばず enc.dmg_stats.total と player_dmg を手動で割るだけの
+    // 恒真式だった＝processor.rs 側で分母(encounter.dmg_stats)からモンスターの反撃分を除外する
+    // 判定が崩れても検出できなかった）。分母からモンスターの反撃分が漏れていれば
+    // value_pct が 100% を割り込む（結果モーダルの行バーが縮む/伸びる不具合として現れる）。
+    #[test]
+    fn get_dps_players_value_pct_reflects_encounter_denominator() {
+        use crate::engine::processor::process_scene_delta;
+        use crate::protocol::pb;
+
+        fn damage_delta(target_uuid: i64, attacker_uuid: i64, value: i64) -> pb::SceneDelta {
+            pb::SceneDelta {
+                uuid: target_uuid,
+                skill_effects: Some(pb::SkillImpact {
+                    damages: vec![pb::DamageRecord {
+                        value,
+                        hp_lessen_value: value,
+                        attacker_uuid,
+                        owner_id: 1001,
+                        ..Default::default()
+                    }],
+                }),
+                ..Default::default()
+            }
+        }
+
+        let player_uuid = (30_i64 << 16) | 640;
+        let monster_uuid = (31_i64 << 16) | 64;
+
+        let enc: EncounterMutex = std::sync::Mutex::new(Encounter::default());
+        {
+            let mut e = enc.lock().unwrap();
+            // プレイヤーがモンスターへ1000ダメージ（自分の火力）
+            process_scene_delta(&mut e, damage_delta(monster_uuid, player_uuid, 1_000));
+            // モンスターの反撃で自分が500ダメージ（分母(encounter.dmg_stats)に混ざってはいけない）
+            process_scene_delta(&mut e, damage_delta(player_uuid, monster_uuid, 500));
+        }
+
+        let window = get_dps_players(&enc);
+        assert_eq!(window.player_rows.len(), 1, "反撃を受けたプレイヤーの行のみ出るはず");
+        assert_eq!(
+            window.player_rows[0].value_pct, 100.0,
+            "モンスターの反撃分が分母に混入し、行のシェア%が100%からずれている"
+        );
+    }
+
     // get_skills はタブ(0=dps/1=heal)に応じて集計元(dmg_stats/heal_stats・両スキルmap)を
     // 切り替える。回復タブでも常に与ダメ基準になっていた既存バグの回帰テスト。
     #[test]

@@ -75,6 +75,9 @@ msgstr "Hits/m"
 msgid "戦力"
 msgstr "Score"
 
+msgid "有効DPS"
+msgstr "Active DPS"
+
 msgid "設定"
 msgstr "Settings"
 

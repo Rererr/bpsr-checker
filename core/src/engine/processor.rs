@@ -1251,19 +1251,17 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
 
     if had_damages {
         let ts = now_ms();
-        let timeout_ms = u128::from(
-            crate::engine::runtime_settings::COMBAT_EXIT_TIMEOUT_MS
-                .load(std::sync::atomic::Ordering::Relaxed),
-        );
-        if timeout_ms > 0
-            && matches!(
-                encounter.measure_mode,
-                crate::engine::encounter::MeasureMode::Normal
-            )
-            && encounter.time_last_combat_packet_ms != 0
-            && ts.saturating_sub(encounter.time_last_combat_packet_ms) > timeout_ms
+        // 「戦闘中」判定は Encounter::is_combat_active に集約されている（同じ述語を
+        // ここと別の場所に重複して書かない）。ロールオーバーは Normal モード限定
+        // ＋既に一度は戦闘していた（time_last_combat_packet_ms != 0）ことが前提。
+        // 閾値は旧実装の `diff > timeout_ms` と同じ境界（is_combat_active は `<=` で判定）。
+        if matches!(
+            encounter.measure_mode,
+            crate::engine::encounter::MeasureMode::Normal
+        ) && encounter.time_last_combat_packet_ms != 0
+            && !encounter.is_combat_active(ts)
         {
-            let snapshot = crate::compute::build_encounter_snapshot(encounter);
+            let snapshot = crate::compute::build_encounter_snapshot(encounter, ts);
             let selected = selected_uid::get();
             let should_push = !snapshot.player_rows.is_empty()
                 && selected.map_or(true, |_| encounter.has_selected_participant);
@@ -1277,6 +1275,11 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
             encounter.clear_combat_stats();
         }
     }
+
+    // 有効DPS（実働時間ベース）の分母に使う観測時刻。バッチ内の全ダメージイベントに共通の
+    // 値を使う（time_last_combat_packet_ms と同じ「パケット単位」の粒度。1回だけ取得しループ内で
+    // 使い回す＝O(1)）。通常DPSの分母（combat_elapsed_ms）には一切使わない、有効DPS専用の値。
+    let active_ts = now_ms();
 
     // Process each damage event
     for damage in skill_effect.damages {
@@ -1410,6 +1413,7 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
                 .or_default();
             process_stats(&damage, dps_skill);
             process_stats(&damage, &mut attacker_entity.dmg_stats);
+            attacker_entity.active_dmg_time.record_event(active_ts);
             if is_boss {
                 let skill_boss = attacker_entity
                     .skill_uid_to_dps_stats_boss_only
@@ -1970,6 +1974,60 @@ mod tests {
         assert_eq!(p.time_series.back().unwrap().total_dmg, 300.0);
         assert_eq!(p.heal_time_series.back().unwrap().total_dmg, 600.0);
         assert_eq!(p.dmg_taken_time_series.back().unwrap().total_dmg, 900.0);
+    }
+
+    /// 有効DPS（実働時間ベース）の配線確認。process_scene_delta 経由で実際に
+    /// Entity::active_dmg_time が更新されることを見る（間隔キャップ・初回猶予そのものの
+    /// 計算は combat_stats::active_time_tests の単体テストで検証済み）。Encounter 側の
+    /// 同名フィールドは production コードから読まれないため廃止済み（encounter.rs 参照）。
+    /// 同一バッチ内の複数ダメージイベントは同じ観測時刻を共有するため、初回バッチは
+    /// 初回イベント分の猶予(500ms)のみが積まれ(2件目は間隔0)、2バッチ目でさらに増える。
+    #[test]
+    fn active_dmg_time_updates_via_scene_delta_processing() {
+        let mut enc = Encounter::default();
+        let monster_uuid = 1_i64 << 16 | 64;
+        let attacker_uid = 42_i64;
+
+        let delta = pb::SceneDelta {
+            uuid: monster_uuid,
+            skill_effects: Some(pb::SkillImpact {
+                damages: vec![
+                    pb::DamageRecord {
+                        value: 100,
+                        hp_lessen_value: 100,
+                        attacker_uuid: player_uuid(attacker_uid),
+                        owner_id: 1001,
+                        ..Default::default()
+                    },
+                    pb::DamageRecord {
+                        value: 50,
+                        hp_lessen_value: 50,
+                        attacker_uuid: player_uuid(attacker_uid),
+                        owner_id: 1001,
+                        ..Default::default()
+                    },
+                ],
+            }),
+            ..Default::default()
+        };
+
+        process_scene_delta(&mut enc, delta.clone());
+        let attacker = enc.entities.get(&attacker_uid).expect("attacker entity created");
+        assert_eq!(
+            attacker.active_dmg_time.active_ms,
+            crate::engine::combat_stats::ACTIVE_TIME_GAP_GRACE_MS,
+            "初回バッチは初回イベント分の猶予(500ms)のみが積まれる(同一バッチ内2件目は間隔0)"
+        );
+
+        // 2バッチ目は now_ms() のミリ秒粒度に対して確実に間隔が付くよう少し待つ
+        // （実時間ベースの配線確認なので、他のテストのように ts を直接注入できない）。
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        process_scene_delta(&mut enc, delta);
+        let attacker = enc.entities.get(&attacker_uid).unwrap();
+        assert!(
+            attacker.active_dmg_time.active_ms > crate::engine::combat_stats::ACTIVE_TIME_GAP_GRACE_MS,
+            "2バッチ目の処理でさらに実働時間が積算されるはず"
+        );
     }
 
     // 最後の戦闘パケットが間隔ゲート未満で通常サンプルされない場合でも、

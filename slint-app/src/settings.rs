@@ -101,6 +101,9 @@ pub struct Settings {
     pub show_crit_value: bool,
     pub show_lucky_value: bool,
     pub show_hits: bool,
+    /// 有効DPS（実働時間ベース）列を一覧に表示するか。既存ユーザーの画面をいきなり変えないため
+    /// 既定OFF（`Default` 実装参照）。
+    pub show_eff_dps: bool,
     pub copy_template: String,
     pub name_template: String,
     pub copy_separator: String,
@@ -229,6 +232,7 @@ impl Default for Settings {
             show_crit_value: false,
             show_lucky_value: false,
             show_hits: false,
+            show_eff_dps: false,
             copy_template: DEFAULT_COPY_TEMPLATE.to_string(),
             name_template: DEFAULT_NAME_TEMPLATE.to_string(),
             copy_separator: "\t".to_string(),

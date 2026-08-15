@@ -31,6 +31,7 @@ struct Row {
     hits-text: string,
     hpm-text: string,
     score-text: string,
+    eff-dps-text: string, // 有効DPS（実働時間ベース）
     watched: bool,
     spark-commands: string, // この行のDPS推移（空=非表示行）。viewbox 100x16
     food-active: bool,      // 食事バフ使用中
@@ -53,6 +54,7 @@ struct ColumnFlags {
     hits: bool,
     hpm: bool,
     score: bool,
+    eff-dps: bool, // 有効DPS（実働時間ベース）
 }
 
 // 設定パネルのトグル表示状態（Rust が cfg から set）
@@ -64,6 +66,7 @@ struct SettingsUi {
     show-hits: bool,
     show-hpm: bool,
     show-score: bool,
+    show-eff-dps: bool, // 有効DPS（実働時間ベース）列。既定OFF
     highlight-local: bool,
     abbreviate-scores: bool,
     privacy-mask: bool,
@@ -827,6 +830,9 @@ component PlayerRowItem inherits Rectangle {
         if root.cols.hits: Text { text: root.entry.hits-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
         if root.cols.hpm: Text { text: root.entry.hpm-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
         if root.cols.score: Text { text: root.entry.score-text; color: #99aa99; font-size: 11px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+        // 通常DPS列(Theme.accent、既定は青系だがユーザーが任意hexへ変更可能)と並んでも
+        // 判別できるよう、隣接しない色相(紫)を固定で使う（アクセント色に連動させない）。
+        if root.cols.eff-dps: Text { text: root.entry.eff-dps-text; color: #b39ddb; font-size: 11px * root.font-scale; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
         watch := TouchArea {
             width: 14px;
             clicked => { root.toggle-watch(root.entry.uid-str); }
@@ -1635,6 +1641,7 @@ component DisplayColsSection inherits SectionCard {
     ToggleRow { label: @tr("ヒット数"); checked: root.cfg.show-hits; toggled => { root.set-bool("show-hits", !root.cfg.show-hits); } }
     ToggleRow { label: @tr("毎分ヒット数"); checked: root.cfg.show-hpm; toggled => { root.set-bool("show-hpm", !root.cfg.show-hpm); } }
     ToggleRow { label: @tr("戦力"); checked: root.cfg.show-score; toggled => { root.set-bool("show-score", !root.cfg.show-score); } }
+    ToggleRow { label: @tr("有効DPS"); checked: root.cfg.show-eff-dps; toggled => { root.set-bool("show-eff-dps", !root.cfg.show-eff-dps); } }
     ToggleRow { label: @tr("食事/シロップ"); checked: root.cfg.show-consumable; toggled => { root.set-bool("show-consumable", !root.cfg.show-consumable); } }
 }
 
@@ -2827,9 +2834,17 @@ export component MainWindow inherits Window {
             : (root.width >= 380px ? 2
             : (root.width >= 320px ? 1 : 0)))));
     }
-    // 設定でONの列でも幅が足りなければ隠す（優先して隠す順: 幸運ダメ率→幸運率→会心ダメ率→
-    // ヒット数→毎分ヒット→推移スパークライン）。ダメージ/DPS/%・会心率・戦力は幅による強制
-    // 非表示の対象外（設定トグルのみで制御）。ヘッダ行と PlayerRowItem の両方がこれを参照する。
+    // 設定でONの列でも幅が足りなければ隠す（優先して隠す順: 有効DPS/幸運ダメ率→幸運率→
+    // 会心ダメ率→ヒット数→毎分ヒット→推移スパークライン）。ダメージ/DPS/%・会心率・戦力は
+    // 幅による強制非表示の対象外（設定トグルのみで制御）。ヘッダ行と PlayerRowItem の
+    // 両方がこれを参照する。
+    //
+    // 有効DPSは DPS タブ限定（root.tab==0）。分子(entity_stats)は core::compute 側で
+    // タブ(StatType)ごとに切り替わるが、分母(active_dmg_ms)は現状「与ダメイベントの実働時間」
+    // しか無く、回復・被ダメでは「回復量÷与ダメ実働時間」のような定義の無い値になってしまう
+    // （core::compute::make_player_row のコメント参照）。回復/被ダメ向けの ActiveTime を
+    // Entity に新設し分母も一緒に切り替える恒久対応は今回のスコープ外のため、この列自体を
+    // DPS タブに閉じて誤表示を避けている。将来この列を他タブへ広げるときは分母の対応が必須。
     property <ColumnFlags> effective-cols: {
         crit: root.cols.crit,
         crit-value: root.cols.crit-value && root.col-level >= 4,
@@ -2838,6 +2853,7 @@ export component MainWindow inherits Window {
         hits: root.cols.hits && root.col-level >= 3,
         hpm: root.cols.hpm && root.col-level >= 2,
         score: root.cols.score,
+        eff-dps: root.cols.eff-dps && root.tab == 0 && root.col-level >= 6,
     };
     property <bool> effective-show-graph-col: root.show-graph-col && root.col-level >= 1;
     // 自キャラの total-value が有効(>0)か。dps_bar::bar_pct の SelfRelative フォールバック条件
@@ -3079,6 +3095,7 @@ export component MainWindow inherits Window {
                     if root.effective-cols.hits: Text { text: @tr("ヒット数"); color: #888; font-size: 9px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
                     if root.effective-cols.hpm: Text { text: @tr("毎分ヒット数"); color: #888; font-size: 9px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
                     if root.effective-cols.score: Text { text: @tr("戦力"); color: #888; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.effective-cols.eff-dps: Text { text: @tr("有効DPS"); color: #888; font-size: 9px * root.font-scale; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
                     // データ行末尾のウォッチピン(14px)に合わせた見出し用スペーサー（列ズレ防止）
                     Rectangle { width: 14px; }
                 }

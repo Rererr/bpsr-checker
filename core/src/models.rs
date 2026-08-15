@@ -43,6 +43,13 @@ pub struct PlayerRow {
     pub lucky_value_rate: f64,
     pub hits: f64,
     pub hits_per_minute: f64,
+    /// 有効DPS（実働時間ベース）。分母は実測スパンではなく、このプレイヤー自身の与ダメイベント
+    /// 間隔を積算した実働時間（`Entity::active_dmg_time`。3秒以内はそのまま加算、超過は
+    /// 500msの猶予のみ。実測スパンで上限クランプ済み＝通常DPSを下回らない）。通常の
+    /// `value_per_sec` とは独立で、通常DPSの値には影響しない。回復・被ダメ等、与ダメの
+    /// 実働時間が定義を持たない指標では0（`compute::make_player_row` が None を渡す）。
+    #[serde(default)]
+    pub active_value_per_sec: f64,
     // 食事/シロップ(錬金)バフの残時間・総時間（縦型タイマー用。0=未使用）
     #[serde(default)]
     pub food_remaining_ms: f64,

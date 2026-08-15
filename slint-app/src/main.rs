@@ -427,6 +427,7 @@ fn build_rows(
                 "-".to_string()
             }
             .into(),
+            eff_dps_text: format::format_dps(p.active_value_per_sec).into(),
             watched: watched.contains(&(p.uid as i64)),
             spark_commands: spark.into(),
             food_active: food_act,
@@ -1299,6 +1300,7 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         hits: c.show_hits,
         hpm: c.show_hpm,
         score: c.show_score,
+        eff_dps: c.show_eff_dps,
     });
     m.set_highlight_local(c.highlight_local_player);
     m.set_aot(c.always_on_top);
@@ -1317,6 +1319,7 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         show_hits: c.show_hits,
         show_hpm: c.show_hpm,
         show_score: c.show_score,
+        show_eff_dps: c.show_eff_dps,
         highlight_local: c.highlight_local_player,
         abbreviate_scores: c.abbreviate_scores,
         privacy_mask: c.privacy_mask_names,
@@ -3508,6 +3511,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "show-hits" => c.show_hits = val,
                     "show-hpm" => c.show_hpm = val,
                     "show-score" => c.show_score = val,
+                    "show-eff-dps" => c.show_eff_dps = val,
                     "highlight-local" => c.highlight_local_player = val,
                     "abbreviate-scores" => c.abbreviate_scores = val,
                     "privacy-mask" => c.privacy_mask_names = val,
@@ -4426,24 +4430,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let rem = ms.remaining_ms.unwrap_or(0.0).max(0.0);
             m.set_measure_text(format::format_elapsed(rem).into());
             if rem <= 0.0 {
-                // 折れ線を右端(=計測末尾)まで届かせるため、捕捉・確定の前に終端サンプルを足す。
-                // （スキル内訳は下の get_skills で確定前に取得されるため順序が重要）
+                // 最終着弾時刻まで系列を届かせるため、捕捉・確定の前に終端サンプルを足す
+                // （X軸自体は固定窓のため、早期に攻撃が止まった場合は右端までは届かない。
+                // 詳細は seal_3min_series のコメント参照）。
+                // （スキル内訳は下の capture_3min_result_skills で確定前に取得されるため順序が重要）
                 compute::seal_3min_series(&enc_poll);
-                // finalize で集計が消えるため、直前にライブのスキル内訳と自分uidを捕捉。
-                let pw = compute::get_dps_players(&enc_poll);
-                let local_uid = pw.local_player_uid as i64;
-                let mut skills: std::collections::HashMap<
-                    i64,
-                    Vec<bpsr_core::models::SkillRow>,
-                > = std::collections::HashMap::new();
-                for p in &pw.player_rows {
-                    let uid = p.uid as i64;
-                    // 3分計測は常にdps基準（get_dps_playersを直上で使っているのと揃える。
-                    // 現在表示中のタブとは無関係）。
-                    if let Ok(sw) = compute::get_skills(&enc_poll, uid, StatType::Dmg) {
-                        skills.insert(uid, sw.skill_rows);
-                    }
-                }
+                // finalize で集計が消えるため、直前に自分uidとスキル内訳を捕捉。
+                // スキル内訳は finalize（build_encounter_snapshot）と同じ分母
+                // （combat_elapsed_ms＝3分計測は実測スパンでなく armed_at 基準の固定窓）で
+                // core 側が算出する。ライブの get_skills を別途呼ぶとヘッダ/プレイヤー行の
+                // DPSと食い違うため使わない。
+                let local_uid = compute::get_dps_players(&enc_poll).local_player_uid as i64;
+                let skills = compute::capture_3min_result_skills(&enc_poll);
                 if let Some(snap) = compute::finalize_3min_measure_mode(&enc_poll) {
                     // 自己ベスト判定・更新は auto-open 設定に依らず finalize の都度必ず行う
                     // （auto-open OFF でも記録は静かに積み上がり、次にモーダルを見た時に

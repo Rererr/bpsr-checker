@@ -93,6 +93,33 @@ fn with_lock_or<T>(
     }
 }
 
+/// DPS等の分母(ms)の単一定義。ライブ表示・確定(finalize)・3分計測のいずれもこの関数を通す
+/// （同じ対象を判定する条件式を2つ書かない規約。分岐はここの2本だけに集約する）。
+/// - 未戦闘（`time_fight_start_ms == 0`）: 0
+/// - 3分計測中/確定（`MeasureMode::Active3Min`）: `armed_at_ms` からの実経過を `duration_ms`
+///   で頭打ちにする。`armed_at_ms` は最初の攻撃で `time_fight_start_ms` と同時刻にセットされる
+///   ため、ライブ中はそのまま伸び、窓を過ぎたら確定時と同じ `duration_ms` に収束する
+///   （3:00到達で確定した瞬間に値が下へ跳ぶ不連続が構造的に無い）。
+/// - それ以外（通常モード。ライブ・確定とも常にこちら）: `time_last_combat_packet_ms -
+///   time_fight_start_ms`（実測スパン）。「戦闘中は現在時刻を分母にする」設計は他ツール3種の
+///   いずれも採用していないため撤回済み（設定「戦闘終了(秒)=0」で分母が無限に伸びる／
+///   一時停止中も分母が動く／時計巻き戻りで分母が実測スパンを下回る、の3件が同時に解消する）。
+fn combat_elapsed_ms(encounter: &Encounter, now: u128) -> u128 {
+    if encounter.time_fight_start_ms == 0 {
+        return 0;
+    }
+    if let crate::engine::encounter::MeasureMode::Active3Min {
+        armed_at_ms,
+        duration_ms,
+    } = encounter.measure_mode
+    {
+        return now.saturating_sub(armed_at_ms).min(duration_ms);
+    }
+    encounter
+        .time_last_combat_packet_ms
+        .saturating_sub(encounter.time_fight_start_ms)
+}
+
 fn skill_row_for(
     uid: f64,
     name: String,
@@ -188,9 +215,8 @@ pub fn get_header_info(enc: &EncounterMutex, stat: StatType) -> HeaderInfo {
             return HeaderInfo::default();
         }
 
-        let elapsed_ms = encounter
-            .time_last_combat_packet_ms
-            .saturating_sub(encounter.time_fight_start_ms);
+        let now = crate::engine::processor::now_ms();
+        let elapsed_ms = combat_elapsed_ms(encounter, now);
         let elapsed_secs = elapsed_ms as f64 / 1000.0;
 
         let stats = match stat {
@@ -211,9 +237,16 @@ pub fn get_header_info(enc: &EncounterMutex, stat: StatType) -> HeaderInfo {
 
 // ─── Players windows ─────────────────────────────────────────────────────────
 
+/// 現在の分母（秒）を算出する（`combat_elapsed_ms` を `now` 込みで呼ぶ定型の集約）。
+fn live_elapsed_secs(encounter: &Encounter) -> f64 {
+    let now = crate::engine::processor::now_ms();
+    combat_elapsed_ms(encounter, now) as f64 / 1000.0
+}
+
 pub fn get_dps_players(enc: &EncounterMutex) -> PlayersWindow {
     let mut window = with_lock_or(enc, "get_dps_players", PlayersWindow::default(), |e| {
-        build_players_window_unsorted(&*e, StatType::Dmg, true)
+        let elapsed_secs = live_elapsed_secs(e);
+        build_players_window_unsorted(&*e, StatType::Dmg, true, elapsed_secs)
     });
     sort_player_rows_desc(&mut window.player_rows);
     window
@@ -221,7 +254,8 @@ pub fn get_dps_players(enc: &EncounterMutex) -> PlayersWindow {
 
 pub fn get_dps_boss_players(enc: &EncounterMutex) -> PlayersWindow {
     let mut window = with_lock_or(enc, "get_dps_boss_players", PlayersWindow::default(), |e| {
-        build_players_window_unsorted(&*e, StatType::DmgBossOnly, true)
+        let elapsed_secs = live_elapsed_secs(e);
+        build_players_window_unsorted(&*e, StatType::DmgBossOnly, true, elapsed_secs)
     });
     sort_player_rows_desc(&mut window.player_rows);
     window
@@ -229,7 +263,8 @@ pub fn get_dps_boss_players(enc: &EncounterMutex) -> PlayersWindow {
 
 pub fn get_heal_players(enc: &EncounterMutex) -> PlayersWindow {
     let mut window = with_lock_or(enc, "get_heal_players", PlayersWindow::default(), |e| {
-        build_players_window_unsorted(&*e, StatType::Heal, true)
+        let elapsed_secs = live_elapsed_secs(e);
+        build_players_window_unsorted(&*e, StatType::Heal, true, elapsed_secs)
     });
     sort_player_rows_desc(&mut window.player_rows);
     window
@@ -237,7 +272,8 @@ pub fn get_heal_players(enc: &EncounterMutex) -> PlayersWindow {
 
 pub fn get_dmg_taken_players(enc: &EncounterMutex) -> PlayersWindow {
     let mut window = with_lock_or(enc, "get_dmg_taken_players", PlayersWindow::default(), |e| {
-        build_players_window_unsorted(&*e, StatType::DmgTaken, true)
+        let elapsed_secs = live_elapsed_secs(e);
+        build_players_window_unsorted(&*e, StatType::DmgTaken, true, elapsed_secs)
     });
     sort_player_rows_desc(&mut window.player_rows);
     window
@@ -253,10 +289,7 @@ pub fn get_dmg_taken_attackers(
         return Err(format!("Could not find player with uid {player_uid}"));
     };
 
-    let elapsed_ms = encounter
-        .time_last_combat_packet_ms
-        .saturating_sub(encounter.time_fight_start_ms);
-    let elapsed_secs = elapsed_ms as f64 / 1000.0;
+    let elapsed_secs = live_elapsed_secs(&encounter);
 
     let player_stats = &player.dmg_taken_stats;
     let encounter_stats = &encounter.dmg_taken_stats;
@@ -272,6 +305,9 @@ pub fn get_dmg_taken_attackers(
         player_stats,
         encounter_stats,
         elapsed_secs,
+        // 被ダメタブ: active_dmg_time は与ダメ専用の実働時間なので「被ダメ量÷自分が
+        // 殴っていた時間」という定義の無い値になる。None にして0扱いにする。
+        None,
         &player.dmg_taken_time_series,
         ConsumableTimes::default(), // inspected_player 見出しは食事/シロップ非表示
         // 見出しは使用イマジンを強制表示
@@ -318,10 +354,7 @@ pub fn get_dmg_taken_skills(
         return Err(format!("Could not find player with uid {player_uid}"));
     };
 
-    let elapsed_ms = encounter
-        .time_last_combat_packet_ms
-        .saturating_sub(encounter.time_fight_start_ms);
-    let elapsed_secs = elapsed_ms as f64 / 1000.0;
+    let elapsed_secs = live_elapsed_secs(&encounter);
 
     let attacker_total = player
         .attacker_uid_to_dmg_taken_stats
@@ -343,6 +376,8 @@ pub fn get_dmg_taken_skills(
         player_stats,
         encounter_stats,
         elapsed_secs,
+        // 被ダメタブ: get_dmg_taken_attackers と同じ理由で None（定義の無い値を渡さない）。
+        None,
         &player.dmg_taken_time_series,
         ConsumableTimes::default(), // inspected_player 見出しは食事/シロップ非表示
         // 見出しは使用イマジンを強制表示
@@ -404,20 +439,19 @@ fn attacker_display_name(encounter: &Encounter, attacker_uid: i64) -> String {
 /// `include_idle_consumable` が true なら、ダメージ0でも食事/シロップを持つ
 /// プレイヤー行を含める（ライブ表示用。戦闘前/非ダメージの使用者を表示）。
 /// 履歴スナップショットでは false にしてダメージ実績行のみ残す。
+/// `elapsed_secs` は呼び出し元が算出した分母（秒）。内部で再計算しない＝ヘッダ等と
+/// 必ず同じ値を使わせる（build_encounter_snapshot の3分計測固定窓オーバーライドを
+/// ここでも反映させるため）。
 fn build_players_window_unsorted(
     encounter: &Encounter,
     stat_type: StatType,
     include_idle_consumable: bool,
+    elapsed_secs: f64,
 ) -> PlayersWindow {
     let selected = selected_uid::get();
     if selected.is_some() && !encounter.has_selected_participant {
         return PlayersWindow::default();
     }
-
-    let elapsed_ms = encounter
-        .time_last_combat_packet_ms
-        .saturating_sub(encounter.time_fight_start_ms);
-    let elapsed_secs = elapsed_ms as f64 / 1000.0;
 
     let encounter_stats = match stat_type {
         StatType::Dmg => &encounter.dmg_stats,
@@ -446,6 +480,11 @@ fn build_players_window_unsorted(
             StatType::Heal => &entity.heal_time_series,
             StatType::DmgTaken => &entity.dmg_taken_time_series,
         };
+        // 有効DPSの分母(active_dmg_time)は与ダメイベント専用に積算されているため、与ダメ系
+        // (Dmg/DmgBossOnly)以外では意味を持たない（回復量÷与ダメ実働時間、のような定義の
+        // 無い値になってしまう）。Heal/DmgTaken では None を渡す(make_player_rowが0扱いにする)。
+        let active_dmg_ms = matches!(stat_type, StatType::Dmg | StatType::DmgBossOnly)
+            .then_some(entity.active_dmg_time.active_ms);
 
         if entity.entity_type != EntityKind::Player {
             continue;
@@ -489,6 +528,7 @@ fn build_players_window_unsorted(
             entity_stats,
             encounter_stats,
             elapsed_secs,
+            active_dmg_ms,
             entity_time_series,
             consumable,
             format_imagine_suffix(&entity.imagine_display_labels()),
@@ -549,6 +589,11 @@ fn make_player_row(
     entity_stats: &CombatStats,
     encounter_stats: &CombatStats,
     elapsed_secs: f64,
+    // 有効DPS（実働時間ベース）の分母。`entity_stats` が与ダメ系（Dmg/DmgBossOnly）以外の
+    // 指標を指しているとき（回復・被ダメ集計）は None を渡すこと。`Entity::active_dmg_time`は
+    // 与ダメイベント専用に積算されており、回復量や被ダメ量と組み合わせても定義のない値になる
+    // （回復量÷与ダメ実働時間、被ダメ量÷自分が殴っていた時間、等）。None は0扱いにする。
+    active_dmg_ms: Option<u128>,
     time_series: &VecDeque<TimeSeriesPoint>,
     consumable: ConsumableTimes,
     imagine_suffix: String,
@@ -598,6 +643,17 @@ fn make_player_row(
         lucky_value_rate: ratio_pct(entity_stats.lucky_value, entity_stats.total),
         hits: entity_stats.hit_count as f64,
         hits_per_minute: rate_per_minute(entity_stats.hit_count, elapsed_secs),
+        // 分母は実測スパン(elapsed_secs)ではなく実働時間(active_dmg_ms)。ただし
+        // ActiveTime::record_event は初回イベントにも猶予(500ms)を積むため、実測スパンが
+        // それより短い極端なケースでは実働時間が実測スパンを上回り得る→elapsed_secs で
+        // 上限クランプする（「有効DPSが通常DPSを下回らない」性質を保つ）。None（回復/被ダメ等
+        // 定義の無い指標）は0.0のまま（rate_per_sec が active_secs<=0.0 を0.0へ丸める）。
+        active_value_per_sec: active_dmg_ms
+            .map(|ms| {
+                let bound_ms = (elapsed_secs.max(0.0) * 1000.0) as u128;
+                rate_per_sec(entity_stats.total, ms.min(bound_ms) as f64 / 1000.0)
+            })
+            .unwrap_or(0.0),
         food_remaining_ms: consumable.food_remaining_ms,
         food_duration_ms: consumable.food_duration_ms,
         food_base_id: consumable.food_base_id,
@@ -633,15 +689,15 @@ pub fn get_skills(
         return Err(format!("Could not find player with uid {player_uid}"));
     };
 
-    let elapsed_ms = encounter
-        .time_last_combat_packet_ms
-        .saturating_sub(encounter.time_fight_start_ms);
-    let elapsed_secs = elapsed_ms as f64 / 1000.0;
+    let elapsed_secs = live_elapsed_secs(&encounter);
 
     let is_heal = matches!(stat, StatType::Heal);
     let player_stats = if is_heal { &player.heal_stats } else { &player.dmg_stats };
     let encounter_stats = if is_heal { &encounter.heal_stats } else { &encounter.dmg_stats };
     let player_time_series = if is_heal { &player.heal_time_series } else { &player.time_series };
+    // heal タブは回復量÷与ダメ実働時間という定義の無い値になるため None（0扱い）。
+    // それ以外(与ダメ基準へフォールバックする各種)は player.active_dmg_time が対応する。
+    let active_dmg_ms = if is_heal { None } else { Some(player.active_dmg_time.active_ms) };
 
     let inspected_player = make_player_row(
         player_uid,
@@ -654,6 +710,7 @@ pub fn get_skills(
         player_stats,
         encounter_stats,
         elapsed_secs,
+        active_dmg_ms,
         player_time_series,
         ConsumableTimes::default(), // inspected_player 見出しは食事/シロップ非表示
         // 見出しは使用イマジンを強制表示
@@ -752,10 +809,12 @@ pub fn is_paused(enc: &EncounterMutex) -> bool {
 
 // ─── Encounter snapshot ───────────────────────────────────────────────────────
 
-pub fn build_encounter_snapshot(encounter: &Encounter) -> EncounterSnapshot {
-    let elapsed_ms = encounter
-        .time_last_combat_packet_ms
-        .saturating_sub(encounter.time_fight_start_ms);
+/// `now` はロールオーバー確定・3分計測確定いずれの呼び出し元も既に持っている `ts`/`now_ms()`
+/// をそのまま渡す（テストでも実時刻を経由せず注入できる）。分母は `combat_elapsed_ms` に
+/// 集約済み＝ヘッダ(total_dps)・プレイヤー行(player_rows)・スキル内訳(player_skill_rows)は
+/// すべてここで一度だけ算出した `elapsed_secs` から導出され、互いに食い違わない。
+pub fn build_encounter_snapshot(encounter: &Encounter, now: u128) -> EncounterSnapshot {
+    let elapsed_ms = combat_elapsed_ms(encounter, now);
     let elapsed_secs = elapsed_ms as f64 / 1000.0;
     let total_dmg = encounter.dmg_stats.total as f64;
     let total_dps = if elapsed_secs > 0.0 {
@@ -764,7 +823,7 @@ pub fn build_encounter_snapshot(encounter: &Encounter) -> EncounterSnapshot {
         0.0
     };
 
-    let mut window = build_players_window_unsorted(encounter, StatType::Dmg, false);
+    let mut window = build_players_window_unsorted(encounter, StatType::Dmg, false, elapsed_secs);
     window.player_rows.sort_by(|a, b| {
         b.total_value
             .partial_cmp(&a.total_value)
@@ -1094,7 +1153,8 @@ pub fn lookup_name_cache(uid: f64) -> Option<CachedPlayerDto> {
 /// 3分計測の確定。スナップショットを履歴へ push し集計をリセットして返す。
 /// UI 通知（モーダル表示）は呼び出し側の責務。core は Tauri/emit に依存しない。
 pub fn finalize_3min_locked(encounter: &mut Encounter) -> EncounterSnapshot {
-    let snapshot = build_encounter_snapshot(encounter);
+    let now = crate::engine::processor::now_ms();
+    let snapshot = build_encounter_snapshot(encounter, now);
     if !snapshot.player_rows.is_empty() {
         crate::engine::history::push(snapshot.clone());
     }
@@ -1107,14 +1167,62 @@ pub fn finalize_3min_locked(encounter: &mut Encounter) -> EncounterSnapshot {
 }
 
 /// 3分計測の確定直前に、全系列（global/entity/skill）へ終端サンプルを1点足し、
-/// 末尾を計測末尾（= 軸の最大値 duration_ms）へ揃える（折れ線を右端まで届かせる）。
-/// スキル内訳は finalize 前に get_skills で取得されるため、取得・確定の **前** に呼ぶ。
-/// measure_mode が Active3Min のうちに採取すること（clear_combat_stats 前）。
+/// 末尾を実測の最終着弾時刻（`time_last_combat_packet_ms`）へ揃える。
+/// 確定値のX軸最大は固定窓（`duration_ms`。`combat_elapsed_ms` 参照）のため、計測窓の
+/// 途中で攻撃が止まった（早期終了）場合はこのサンプルを足しても折れ線は窓の右端までは
+/// 届かない（＝X軸を固定窓にした副作用。以前の「折れ線を右端まで届かせる」という記述は
+/// 分母が実測スパンだった頃のもので、現在は最終着弾時刻までしか保証しない）。
+/// スキル内訳は finalize 前に `capture_3min_result_skills` で取得されるため、取得・確定の
+/// **前** に呼ぶ。measure_mode が Active3Min のうちに採取すること（clear_combat_stats 前）。
 pub fn seal_3min_series(enc: &EncounterMutex) {
     with_lock_or(enc, "seal_3min_series", (), |e| {
         let end_ts = e.time_last_combat_packet_ms;
         crate::engine::processor::take_time_series_sample(e, end_ts, true);
     });
+}
+
+/// 3分計測の確定直前に、結果モーダル表示用のスキル内訳（時系列込み）を全プレイヤーぶん
+/// 取得する。`finalize_3min_locked`（内部で `build_encounter_snapshot` → `combat_elapsed_ms`）
+/// と**同じ分母**を使うことで、結果モーダルのスキル別DPSがヘッダ/プレイヤー行と食い違わない
+/// ようにする（ライブの `get_skills` を別途呼ぶと実測スパン基準になり、3分計測の固定窓と
+/// ズレていた）。`build_encounter_snapshot` の `player_skill_rows` は history 用に時系列を
+/// 持たせない設計のため、時系列が要る結果モーダル向けにこちらを別経路として用意する。
+/// スキル0件のプレイヤー（ダメージを与えていない）は結果から落とす（`filter_map`）。
+/// 呼び出し側（main.rs）が `contains_key` だけで「自分のスキル内訳がある」既定選択を
+/// 決めているため、空 Vec を残すとダメージ0のプレイヤーでも真になってしまう。
+/// finalize（clear_combat_stats）より前、measure_mode が Active3Min のうちに呼ぶこと。
+pub fn capture_3min_result_skills(
+    enc: &EncounterMutex,
+) -> std::collections::HashMap<i64, Vec<SkillRow>> {
+    with_lock_or(
+        enc,
+        "capture_3min_result_skills",
+        std::collections::HashMap::new(),
+        |encounter| {
+            // build_players_window_unsorted と同じゲート（他クライアント特定前は空を返す）。
+            // ここは全プレイヤーを列挙する経路なので、特定uid向けの get_skills 系とは異なり
+            // 明示チェックが要る（漏れると未確定クライアントのuidがキーとして紛れ込む）。
+            let selected = selected_uid::get();
+            if selected.is_some() && !encounter.has_selected_participant {
+                return std::collections::HashMap::new();
+            }
+            let now = crate::engine::processor::now_ms();
+            let elapsed_secs = combat_elapsed_ms(encounter, now) as f64 / 1000.0;
+            encounter
+                .entities
+                .iter()
+                .filter(|(_, e)| e.entity_type == EntityKind::Player)
+                .filter_map(|(&uid, player)| {
+                    let rows = build_skill_rows_for_player(player, elapsed_secs, false, true);
+                    if rows.is_empty() {
+                        None
+                    } else {
+                        Some((uid, rows))
+                    }
+                })
+                .collect()
+        },
+    )
 }
 
 /// 3分計測を確定し snapshot を返す（履歴 push・mode=Normal は finalize_3min_locked 内）。
@@ -1668,5 +1776,354 @@ mod tests {
             serde_json::from_str(r#"{"id":7,"playerRows":[]}"#).expect("old history schema");
         assert_eq!(snapshot.id, 7.0);
         assert!(snapshot.player_skill_rows.is_empty());
+    }
+
+    // ─── 分母(elapsed)の単一化・3分計測固定窓の回帰テスト ──────────────────────────
+
+    use crate::engine::encounter::MeasureMode;
+
+    // 未戦闘（time_fight_start_ms==0）は now に関わらず常に0（0除算・パニックの回帰防止）。
+    #[test]
+    fn combat_elapsed_ms_is_zero_when_never_fought() {
+        let enc = Encounter::default();
+        assert_eq!(combat_elapsed_ms(&enc, 999_999), 0);
+    }
+
+    // 通常モード(Normal)は「戦闘中は現在時刻を分母にする」設計を撤回し、ライブ・確定を問わず
+    // 常に実測スパン(time_last_combat_packet_ms - time_fight_start_ms)固定（now が
+    // どれだけ進んでも伸びない）。これにより、設定「戦闘終了(秒)=0」での分母無限伸長・
+    // 一時停止中の分母進行・時計巻き戻りでの分母割れ、のいずれも構造的に起きない。
+    #[test]
+    fn combat_elapsed_ms_normal_mode_always_uses_real_span_regardless_of_now() {
+        let enc = Encounter {
+            time_fight_start_ms: 1_000,
+            time_last_combat_packet_ms: 4_000, // 実測スパンは3秒
+            measure_mode: MeasureMode::Normal,
+            ..Default::default()
+        };
+        // 最終着弾から間もない now（一般的には「戦闘中」とみなされ得るタイミング）でも、
+        // 最終着弾から大きく経過した now でも、結果は変わらず実測スパン固定。
+        assert_eq!(combat_elapsed_ms(&enc, 4_000 + 500), 3_000);
+        assert_eq!(combat_elapsed_ms(&enc, 4_000 + 9_000), 3_000);
+        // 時計巻き戻り（NTP補正等）で now < time_last_combat_packet_ms になっても
+        // 実測スパンをそのまま返す（now を分母計算に使わないため巻き戻りの影響を受けない）。
+        assert_eq!(combat_elapsed_ms(&enc, 500), 3_000);
+    }
+
+    // 3分計測(Active3Min)のライブ分母は armed_at_ms からの実経過(=now基準)を duration_ms で
+    // 頭打ちにする。armed_at_ms は開始時に time_fight_start_ms と同時刻にセットされるため、
+    // ライブ表示は実時間で伸び、窓を過ぎたら確定と同じ値(duration_ms)に収束する
+    // （3:00到達で確定した瞬間に値が下へ跳ぶ不連続がない。H-1）。
+    #[test]
+    fn combat_elapsed_ms_3min_live_tracks_now_capped_at_duration() {
+        let enc = Encounter {
+            time_fight_start_ms: 1_000,
+            time_last_combat_packet_ms: 1_000 + 10_000, // 直近まで攻撃していた（実測10秒）
+            measure_mode: MeasureMode::Active3Min { armed_at_ms: 1_000, duration_ms: 180_000 },
+            ..Default::default()
+        };
+        // 計測窓の途中（経過60秒）は armed_at からの実経過をそのまま返す。
+        assert_eq!(combat_elapsed_ms(&enc, 1_000 + 60_000), 60_000);
+        // 手を止めて放置しても、窓が続く限り now に追従し続ける（一時停止中も分母が動く
+        // 旧問題とは別物＝3分計測はそもそも wall-clock ベースの固定窓という仕様のため）。
+        assert_eq!(combat_elapsed_ms(&enc, 1_000 + 120_000), 120_000);
+        // 窓の終端を過ぎたら duration_ms で頭打ち（確定時と同じ値に収束）。
+        assert_eq!(combat_elapsed_ms(&enc, 1_000 + 180_000), 180_000);
+        assert_eq!(combat_elapsed_ms(&enc, 1_000 + 999_000), 180_000);
+    }
+
+    // 3分計測(Active3Min)の確定時は、実測スパン(この例では10秒で殴り終えている)ではなく
+    // 設定された窓長(duration_ms)を分母に使う（早く殴り終えるほど数字が良くなる問題の回帰防止）。
+    // ライブ分母と同じ combat_elapsed_ms を通しており、t=duration_ms の値と一致する
+    // （ライブ→確定の不連続が構造的に無いことの確認）。
+    #[test]
+    fn combat_elapsed_ms_uses_fixed_window_regardless_of_real_span_at_finalize() {
+        let enc = Encounter {
+            time_fight_start_ms: 1_000,
+            time_last_combat_packet_ms: 1_000 + 10_000, // 実測は10秒で殴り終えた
+            measure_mode: MeasureMode::Active3Min { armed_at_ms: 1_000, duration_ms: 180_000 },
+            ..Default::default()
+        };
+        // now を計測終了直後にしても、実測スパンでなく設定窓長(180秒)を使う。
+        let now = 1_000 + 180_000;
+        assert_eq!(combat_elapsed_ms(&enc, now), 180_000);
+    }
+
+    // 通常モード(Normal)の確定は従来どおり実測スパン（3分計測の固定窓は Active3Min限定
+    // であることの回帰テスト）。
+    #[test]
+    fn combat_elapsed_ms_normal_mode_uses_real_span_at_finalize() {
+        let enc = Encounter {
+            time_fight_start_ms: 1_000,
+            time_last_combat_packet_ms: 1_000 + 10_000,
+            measure_mode: MeasureMode::Normal,
+            ..Default::default()
+        };
+        assert_eq!(combat_elapsed_ms(&enc, 1_000 + 10_000), 10_000);
+    }
+
+    // build_encounter_snapshot: 3分計測確定時、ヘッダ(total_dps)・プレイヤー行・スキル内訳が
+    // すべて同じ分母(固定窓)から導出され、互いに食い違わない（不整合の回帰防止）。
+    // 実測スパンは10秒だが窓長は180秒 → 実測基準なら1,800,000/10=180,000 dpsになってしまうところ、
+    // 固定窓基準なら 1,800,000/180=10,000 dps になるはず。
+    #[test]
+    fn build_encounter_snapshot_3min_header_row_and_skill_share_same_denominator() {
+        use crate::engine::combat_stats::CombatStats;
+        use crate::engine::entity::Entity;
+
+        const UID: i64 = 501;
+        let mut enc = Encounter {
+            time_fight_start_ms: 1_000,
+            time_last_combat_packet_ms: 1_000 + 10_000,
+            measure_mode: MeasureMode::Active3Min { armed_at_ms: 1_000, duration_ms: 180_000 },
+            ..Default::default()
+        };
+        enc.dmg_stats.total = 1_800_000;
+        let mut p = Entity { entity_type: EntityKind::Player, ..Default::default() };
+        p.dmg_stats.total = 1_800_000;
+        p.skill_uid_to_dps_stats.insert(9, CombatStats { total: 1_800_000, ..Default::default() });
+        enc.entities.insert(UID, p);
+
+        let now = 1_000 + 180_000;
+        let snap = build_encounter_snapshot(&enc, now);
+
+        assert_eq!(snap.duration_ms, 180_000.0, "duration_msは実測スパンでなく設定窓長");
+        assert_eq!(snap.total_dps, 10_000.0, "ヘッダDPSは固定窓(180秒)基準");
+
+        let row = snap.player_rows.iter().find(|r| r.uid as i64 == UID).expect("player row");
+        assert_eq!(row.value_per_sec, 10_000.0, "プレイヤー行DPSはヘッダと同じ分母");
+
+        let skill_snap = snap
+            .player_skill_rows
+            .iter()
+            .find(|s| s.player_uid as i64 == UID)
+            .expect("player skill rows");
+        assert_eq!(
+            skill_snap.skill_rows[0].value_per_sec, 10_000.0,
+            "スキル内訳DPSもヘッダ/プレイヤー行と同じ分母"
+        );
+    }
+
+    // 3分計測の窓の途中で一度も殴らなかった（ダメージ0）場合でも、固定窓の分母は正の値
+    // (duration_ms>=1000、start_3min_measure_mode側の保証)のため0除算・パニックは起きない。
+    #[test]
+    fn build_encounter_snapshot_3min_zero_damage_no_panic_or_div_by_zero() {
+        let enc = Encounter {
+            time_fight_start_ms: 1_000,
+            time_last_combat_packet_ms: 1_000,
+            measure_mode: MeasureMode::Active3Min { armed_at_ms: 1_000, duration_ms: 180_000 },
+            ..Default::default()
+        };
+        let snap = build_encounter_snapshot(&enc, 1_000 + 180_000);
+        assert_eq!(snap.duration_ms, 180_000.0);
+        assert_eq!(snap.total_dps, 0.0);
+        assert!(snap.total_dps.is_finite());
+    }
+
+    // capture_3min_result_skills は finalize（build_encounter_snapshot）と同じ分母
+    // (combat_elapsed_ms＝Active3Minは固定窓)を使う（結果モーダルのスキル内訳DPSがヘッダ/
+    // プレイヤー行と食い違わないことの回帰テスト。以前はライブの get_skills を別途呼んでいた
+    // ため実測スパン基準になり、固定窓とズレていた）。
+    #[test]
+    fn capture_3min_result_skills_uses_same_denominator_as_finalized_snapshot() {
+        use crate::engine::combat_stats::CombatStats;
+        use crate::engine::entity::Entity;
+
+        const UID: i64 = 502;
+        let enc: EncounterMutex = std::sync::Mutex::new(Encounter {
+            time_fight_start_ms: 1_000,
+            time_last_combat_packet_ms: 1_000 + 10_000, // 実測は10秒で殴り終えた
+            measure_mode: MeasureMode::Active3Min { armed_at_ms: 1_000, duration_ms: 180_000 },
+            ..Default::default()
+        });
+        {
+            let mut e = enc.lock().unwrap();
+            let mut p = Entity { entity_type: EntityKind::Player, ..Default::default() };
+            p.dmg_stats.total = 1_800_000;
+            p.skill_uid_to_dps_stats.insert(9, CombatStats { total: 1_800_000, ..Default::default() });
+            e.entities.insert(UID, p);
+            e.dmg_stats.total = 1_800_000;
+        }
+
+        let skills = capture_3min_result_skills(&enc);
+        let rows = skills.get(&UID).expect("player skill rows present");
+        assert_eq!(
+            rows[0].value_per_sec, 10_000.0,
+            "実測スパン(10秒)基準の180,000dpsではなく、固定窓(180秒)基準の10,000dpsになるべき"
+        );
+        assert_eq!(rows[0].time_series.len(), 0, "スキルの時系列サンプルは未採取なら空のまま");
+    }
+
+    // ダメージを一度も与えていないプレイヤー（スキル内訳が空）は結果から落とす（filter_map）。
+    // main.rs 側の既定選択ロジックは `skills.contains_key(&local_uid)` だけを見るため、空 Vec を
+    // 残すとダメージ0のプレイヤーでも「スキル内訳あり」と誤判定されてしまう（回帰防止）。
+    #[test]
+    fn capture_3min_result_skills_drops_players_with_no_skills() {
+        use crate::engine::entity::Entity;
+
+        const UID_NO_DMG: i64 = 503;
+        let enc: EncounterMutex = std::sync::Mutex::new(Encounter {
+            time_fight_start_ms: 1_000,
+            time_last_combat_packet_ms: 1_000 + 10_000,
+            measure_mode: MeasureMode::Active3Min { armed_at_ms: 1_000, duration_ms: 180_000 },
+            ..Default::default()
+        });
+        {
+            let mut e = enc.lock().unwrap();
+            // ダメージ実績もスキル内訳も無いプレイヤー（例: 見学のみで一度も攻撃していない）。
+            e.entities.insert(UID_NO_DMG, Entity { entity_type: EntityKind::Player, ..Default::default() });
+        }
+
+        let skills = capture_3min_result_skills(&enc);
+        assert!(
+            !skills.contains_key(&UID_NO_DMG),
+            "スキル0件のプレイヤーは空Vecを残さずキーごと落とす"
+        );
+    }
+
+    // ─── 有効DPS（実働時間ベース）の回帰テスト ─────────────────────────────────
+
+    // 1発しか当てていないプレイヤーでも、ActiveTime::record_event が初回イベントに
+    // 猶予(500ms)を積むため有効DPSは0にならない（旧実装は初回イベントで間隔を積まず、
+    // 一撃しか当てていないプレイヤーの有効DPSが常に0と表示されていた）。
+    #[test]
+    fn single_hit_player_active_dps_is_not_zero() {
+        use crate::engine::entity::Entity;
+
+        const UID: i64 = 701;
+        let mut enc = Encounter {
+            time_fight_start_ms: 1_000,
+            time_last_combat_packet_ms: 1_000 + 10_000, // 実測スパン10秒(他プレイヤー等で進行)
+            ..Default::default()
+        };
+        let mut p = Entity { entity_type: EntityKind::Player, ..Default::default() };
+        p.dmg_stats.total = 100;
+        p.active_dmg_time.record_event(2_000); // 一撃のみ
+        enc.entities.insert(UID, p);
+
+        let enc: EncounterMutex = std::sync::Mutex::new(enc);
+        let window = get_dps_players(&enc);
+        let row = window
+            .player_rows
+            .iter()
+            .find(|r| r.uid as i64 == UID)
+            .expect("single-hit player row present");
+        assert!(
+            row.active_value_per_sec > 0.0,
+            "一撃のみでも有効DPSは0にならない(初回イベントの猶予500msが分母になる)"
+        );
+    }
+
+    // 実働時間(active_ms)が実測スパンより長くなり得る極端なケース(例: 初回イベントの猶予が
+    // 実測スパンそのものを上回る)でも、有効DPSは実測スパンでクランプされ、通常DPSを
+    // 下回らない(≒この境界では一致する)。クランプが無いと有効DPSが通常DPSより低く出て
+    // 「有効DPSは通常DPS以上」という前提が崩れる回帰を防ぐ。
+    #[test]
+    fn active_dps_is_clamped_to_real_elapsed_span_and_never_below_normal_dps() {
+        use crate::engine::entity::Entity;
+
+        const UID: i64 = 702;
+        let mut enc = Encounter {
+            time_fight_start_ms: 1_000,
+            time_last_combat_packet_ms: 1_000 + 200, // 実測スパンはたった200ms
+            ..Default::default()
+        };
+        let mut p = Entity { entity_type: EntityKind::Player, ..Default::default() };
+        p.dmg_stats.total = 100;
+        // 初回イベントの猶予500msは実測スパン200msを上回る
+        // （クランプ無しだと active_secs=0.5s → active_dps=200、実測基準の通常DPS(500)を
+        // 下回ってしまう＝「有効DPSが通常DPSを下回らない」に違反する）。
+        p.active_dmg_time.record_event(9_999);
+        enc.entities.insert(UID, p);
+
+        let enc: EncounterMutex = std::sync::Mutex::new(enc);
+        let window = get_dps_players(&enc);
+        let row = window
+            .player_rows
+            .iter()
+            .find(|r| r.uid as i64 == UID)
+            .expect("player row present");
+        assert_eq!(row.value_per_sec, 500.0, "通常DPS: 100 / 0.2s");
+        assert_eq!(
+            row.active_value_per_sec, 500.0,
+            "有効DPSは実測スパン(200ms)でクランプされ、通常DPSと一致する(下回らない)"
+        );
+    }
+
+    // Fix: 回復タブ(get_heal_players)は与ダメの実働時間(active_dmg_time)を分母に使わない。
+    // 与ダメ・回復の両方をこなすハイブリッド構成でも、回復タブの有効DPS列は常に0
+    // （「回復量÷与ダメ実働時間」という定義の無い値を出さない）。
+    #[test]
+    fn heal_tab_does_not_leak_dmg_active_time_into_active_dps() {
+        use crate::engine::entity::Entity;
+
+        const UID: i64 = 703;
+        let mut enc = Encounter {
+            time_fight_start_ms: 1_000,
+            time_last_combat_packet_ms: 1_000 + 30_000,
+            ..Default::default()
+        };
+        let mut p = Entity { entity_type: EntityKind::Player, ..Default::default() };
+        p.dmg_stats.total = 100;
+        p.heal_stats.total = 500;
+        p.active_dmg_time.record_event(2_000); // 与ダメの実働時間は非ゼロ
+        enc.entities.insert(UID, p);
+
+        let enc: EncounterMutex = std::sync::Mutex::new(enc);
+        let window = get_heal_players(&enc);
+        let row = window
+            .player_rows
+            .iter()
+            .find(|r| r.uid as i64 == UID)
+            .expect("heal row present");
+        assert_eq!(row.total_value, 500.0);
+        assert_eq!(
+            row.active_value_per_sec, 0.0,
+            "回復タブは与ダメの実働時間を分母に使わない"
+        );
+    }
+
+    // Fix: get_skills(StatType::Heal) の inspected_player も同様に与ダメの実働時間を
+    // 漏らさない(現状 UI からは読まれない値だが、意味の無い値を渡し続けない)。
+    #[test]
+    fn get_skills_heal_inspected_player_active_dps_is_zero() {
+        use crate::engine::entity::Entity;
+
+        const UID: i64 = 704;
+        let mut enc = Encounter {
+            time_fight_start_ms: 1_000,
+            time_last_combat_packet_ms: 1_000 + 30_000,
+            ..Default::default()
+        };
+        let mut p = Entity { entity_type: EntityKind::Player, ..Default::default() };
+        p.heal_stats.total = 500;
+        p.active_dmg_time.record_event(2_000);
+        enc.entities.insert(UID, p);
+
+        let enc: EncounterMutex = std::sync::Mutex::new(enc);
+        let sw = get_skills(&enc, UID, StatType::Heal).expect("skills window");
+        assert_eq!(sw.inspected_player.active_value_per_sec, 0.0);
+    }
+
+    // Fix: 被ダメタブ(get_dmg_taken_attackers)の inspected_player も同様(被ダメ量÷自分が
+    // 殴っていた時間、という定義の無い値を渡さない)。
+    #[test]
+    fn get_dmg_taken_attackers_inspected_player_active_dps_is_zero() {
+        use crate::engine::entity::Entity;
+
+        const UID: i64 = 705;
+        let mut enc = Encounter {
+            time_fight_start_ms: 1_000,
+            time_last_combat_packet_ms: 1_000 + 30_000,
+            ..Default::default()
+        };
+        let mut p = Entity { entity_type: EntityKind::Player, ..Default::default() };
+        p.dmg_taken_stats.total = 300;
+        p.active_dmg_time.record_event(2_000);
+        enc.entities.insert(UID, p);
+
+        let enc: EncounterMutex = std::sync::Mutex::new(enc);
+        let sw = get_dmg_taken_attackers(&enc, UID).expect("skills window");
+        assert_eq!(sw.inspected_player.active_value_per_sec, 0.0);
     }
 }

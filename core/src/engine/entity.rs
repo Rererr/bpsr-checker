@@ -1,6 +1,6 @@
 use crate::models::TimeSeriesPoint;
 use crate::engine::class::{Class, ClassSpec};
-use crate::engine::combat_stats::CombatStats;
+use crate::engine::combat_stats::{ActiveTime, CombatStats};
 use crate::protocol::pb::EntityKind;
 use std::collections::{HashMap, VecDeque};
 
@@ -42,6 +42,10 @@ pub struct Entity {
     pub dmg_stats: CombatStats,
     pub skill_uid_to_dps_stats: HashMap<i32, CombatStats>,
     pub skill_meta: HashMap<i32, SkillMeta>,
+    /// 有効DPS（実働時間ベース）の分母。このエンティティ自身の与ダメイベント間隔のみを積算する。
+    /// 詳細は [`ActiveTime`] のドキュメント参照。回復・被ダメには対応する分母が無いため、
+    /// `compute::make_player_row` はこのタブでは（このフィールドがあっても）`None` を渡す。
+    pub active_dmg_time: ActiveTime,
 
     pub dmg_stats_boss_only: CombatStats,
     pub skill_uid_to_dps_stats_boss_only: HashMap<i32, CombatStats>,

@@ -1065,10 +1065,13 @@ component HistoryRowItem inherits Rectangle {
 // 3分計測 結果パネルの行（クリックでスキル内訳の対象に）
 component ResultRow inherits Rectangle {
     in property <ResultRowUi> e;
+    // 結果モーダル全体の文字倍率（MainWindow.result-scale から伝播）。設定の font-scale とは
+    // 無関係な独立軸のため専用プロパティで受ける。
+    in property <float> result-scale: 1.0;
     callback activate(string);
     // TOP3 は控えめなメダルカラー（金/銀/銅）。4位以下は従来通り。
     property <color> medal-color: root.e.rank == 1 ? #e8c35a : (root.e.rank == 2 ? #c0c8d4 : (root.e.rank == 3 ? #c9a06e : transparent));
-    height: 18px;
+    height: 18px * root.result-scale;
     background: root.e.selected ? Theme.accent.with-alpha(0.18) : (rta.has-hover ? #ffffff18 : #ffffff0a);
     animate background, border-color { duration: 100ms; easing: ease-out; }
     border-width: 1px;
@@ -1098,19 +1101,21 @@ component ResultRow inherits Rectangle {
         padding-left: 6px;
         padding-right: 6px;
         spacing: 8px;
-        Text { text: root.e.rank-text; color: root.e.rank <= 3 ? root.medal-color : #666; width: 18px; font-size: 10px; horizontal-alignment: right; vertical-alignment: center; }
-        Text { text: root.e.name; color: root.e.class-color; font-size: 11px; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
-        Text { text: root.e.dps-text; color: Theme.accent; font-size: 10px; width: 56px; horizontal-alignment: right; vertical-alignment: center; }
-        Text { text: root.e.dmg-text; color: #aaa; font-size: 10px; width: 60px; horizontal-alignment: right; vertical-alignment: center; }
-        Text { text: root.e.pct-text; color: #777; font-size: 10px; width: 40px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.e.rank-text; color: root.e.rank <= 3 ? root.medal-color : #666; width: 18px; font-size: 10px * root.result-scale; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.e.name; color: root.e.class-color; font-size: 11px * root.result-scale; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
+        Text { text: root.e.dps-text; color: Theme.accent; font-size: 10px * root.result-scale; width: 56px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.e.dmg-text; color: #aaa; font-size: 10px * root.result-scale; width: 60px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.e.pct-text; color: #777; font-size: 10px * root.result-scale; width: 40px; horizontal-alignment: right; vertical-alignment: center; }
     }
 }
 
 // 3分計測 結果パネル エリア2 のスキル行（クリックで折れ線の対象スキルに）
 component ResultSkillRow inherits Rectangle {
     in property <ResultSkillRowUi> e;
+    // 結果モーダル全体の文字倍率（MainWindow.result-scale から伝播）。
+    in property <float> result-scale: 1.0;
     callback activate(string);
-    height: 18px;
+    height: 18px * root.result-scale;
     background: root.e.selected ? Theme.accent.with-alpha(0.18) : (rsta.has-hover ? #ffffff18 : #ffffff0a);
     animate background, border-color { duration: 100ms; easing: ease-out; }
     border-width: 1px;
@@ -1125,9 +1130,9 @@ component ResultSkillRow inherits Rectangle {
         padding-right: 6px;
         spacing: 6px;
         VerticalLayout { alignment: center; width: 14px; ElementIcon { id: root.e.elem-id; tint: root.e.elem-color; box: 13px; } }
-        Text { text: root.e.name; color: white; font-size: 11px; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
-        Text { text: root.e.dmg-text; color: #e6e6f0; font-size: 10px; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
-        Text { text: root.e.pct-text; color: #777; font-size: 10px; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.e.name; color: white; font-size: 11px * root.result-scale; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
+        Text { text: root.e.dmg-text; color: #e6e6f0; font-size: 10px * root.result-scale; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.e.pct-text; color: #777; font-size: 10px * root.result-scale; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
     }
 }
 
@@ -1135,6 +1140,8 @@ component ResultSkillRow inherits Rectangle {
 // Slint に scale 変形が無いため、font-size/padding を anim(0..1) から導出して
 // 「小さい状態→自然サイズ」に見えるポップ演出＋フェードで代替する（出現時に一度だけ）。
 component NewRecordBadge inherits Rectangle {
+    // 結果モーダル全体の文字倍率（MainWindow.result-scale から伝播）。
+    in property <float> result-scale: 1.0;
     property <bool> popped: false;
     property <float> anim: root.popped ? 1.0 : 0.0;
     animate anim { duration: 250ms; easing: ease-out; }
@@ -1152,7 +1159,7 @@ component NewRecordBadge inherits Rectangle {
         Text {
             text: @tr("新記録！");
             color: #e8c35a;
-            font-size: 9px + 2px * root.anim;
+            font-size: (9px + 2px * root.anim) * root.result-scale;
             vertical-alignment: center;
         }
     }
@@ -1161,6 +1168,9 @@ component NewRecordBadge inherits Rectangle {
 // 折れ線グラフ＋左Y軸目安(上=最大/中=半分/下=0)＋時間X軸(区切り本数は横幅で可変)＋グリッド線。
 component SparkGraph inherits VerticalLayout {
     in property <bool> visible-graph;
+    // 結果モーダル全体の文字倍率（MainWindow.result-scale から伝播）。折れ線本体は実寸px方式で
+    // resized のたびに再生成されるためこの倍率と無関係に窓へ追随する（対象は軸ラベルの文字のみ）。
+    in property <float> result-scale: 1.0;
     // パスコマンド（M/L）。座標は viewbox=プロット実寸(px) に一致させた「ピクセル座標」。
     // Slint の Path は viewbox を縦横比保持でスケールするため、viewbox を要素実寸に合わせ、
     // パスも実寸座標で渡すことで等倍描画（X全幅・Y軸グリッド整合）にする。実寸が変わると
@@ -1185,11 +1195,11 @@ component SparkGraph inherits VerticalLayout {
         spacing: 4px;
         VerticalLayout {
             width: 42px;
-            Text { text: root.axis-top; color: #777; font-size: 8px; horizontal-alignment: right; }
+            Text { text: root.axis-top; color: #777; font-size: 8px * root.result-scale; horizontal-alignment: right; }
             Rectangle { vertical-stretch: 1; }
-            Text { text: root.axis-mid; color: #777; font-size: 8px; horizontal-alignment: right; }
+            Text { text: root.axis-mid; color: #777; font-size: 8px * root.result-scale; horizontal-alignment: right; }
             Rectangle { vertical-stretch: 1; }
-            Text { text: "0"; color: #777; font-size: 8px; horizontal-alignment: right; }
+            Text { text: "0"; color: #777; font-size: 8px * root.result-scale; horizontal-alignment: right; }
         }
         plot := Rectangle {
             horizontal-stretch: 1;
@@ -1221,12 +1231,12 @@ component SparkGraph inherits VerticalLayout {
                 stroke-width: 1px;
                 fill: transparent;
             }
-            if !root.visible-graph: Text { text: root.empty-text; color: #555; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; }
+            if !root.visible-graph: Text { text: root.empty-text; color: #555; font-size: 10px * root.result-scale; horizontal-alignment: center; vertical-alignment: center; }
         }
     }
     // X軸: 時間ラベル（M:SS）。区切り位置に合わせて配置。
     HorizontalLayout {
-        height: 11px;
+        height: 11px * root.result-scale;
         spacing: 4px;
         Rectangle { width: 42px; }   // Y軸列ぶんのスペーサ
         xaxis := Rectangle {
@@ -1239,7 +1249,7 @@ component SparkGraph inherits VerticalLayout {
                 property <string> rem-str: self.rem < 10 ? "0\{self.rem}" : "\{self.rem}";
                 x: Math.max(0px, Math.min(xaxis.width - self.width, xaxis.width * self.f - self.width / 2));
                 color: #777;
-                font-size: 8px;
+                font-size: 8px * root.result-scale;
                 text: "\{self.mins}:\{self.rem-str}";
             }
         }
@@ -2766,6 +2776,10 @@ export component MainWindow inherits Window {
     // イマジン専用モード案内の拡大率（1.0〜1.6）。Rust が窓サイズから算出して毎ポーリング set する。
     // .slint 側で窓サイズから計算すると束縛ループになるため（ImagineOnlyNotice の s 参照）。
     in property <float> notice-scale: 1.0;
+    // 3分計測 結果モーダルの文字倍率（1.0〜1.3）。notice-scale と同じ理由（束縛ループ回避）で
+    // Rust が窓サイズから算出して毎ポーリング set する。設定の「フォントサイズ」(font-scale)
+    // には連動させない＝メイン一覧の設定を変えても結果モーダルの文字は変わらない独立軸。
+    in property <float> result-scale: 1.0;
     in property <string> app-version;        // 設定パネル最下部の表示（バージョンのみ）
     in property <string> result-watermark;   // 結果モーダルの透かし（バージョン・日時・計測時間。画像コピーに写り込む）
     in property <bool> result-img-copied;    // 画像コピー直後の一時フィードバック
@@ -3621,7 +3635,7 @@ export component MainWindow inherits Window {
                 spacing: 8px;
                 // ヘッダー行（常に固定表示）
                 HorizontalLayout {
-                    Text { text: @tr("計測結果"); color: Theme.accent; font-size: 13px; horizontal-stretch: 1; vertical-alignment: center; }
+                    Text { text: @tr("計測結果"); color: Theme.accent; font-size: 13px * root.result-scale; horizontal-stretch: 1; vertical-alignment: center; }
                     rclose := TouchArea {
                         width: 24px;
                         clicked => { root.close-result(); }
@@ -3629,7 +3643,7 @@ export component MainWindow inherits Window {
                             background: rclose.has-hover ? #c0392b : transparent;
                             animate background { duration: 100ms; easing: ease-out; }
                             border-radius: 4px;
-                            Text { text: "×"; color: white; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; }
+                            Text { text: "×"; color: white; font-size: 13px * root.result-scale; horizontal-alignment: center; vertical-alignment: center; }
                         }
                     }
                 }
@@ -3638,20 +3652,20 @@ export component MainWindow inherits Window {
                     spacing: 22px;
                     VerticalLayout {
                         spacing: 1px;
-                        Text { text: "DPS"; color: #888; font-size: 10px; }
+                        Text { text: "DPS"; color: #888; font-size: 10px * root.result-scale; }
                         HorizontalLayout {
                             spacing: 6px;
                             alignment: start;
-                            Text { text: root.result-dps; color: Theme.accent; font-size: 14px; vertical-alignment: center; }
-                            if root.result-is-new-record: NewRecordBadge {}
+                            Text { text: root.result-dps; color: Theme.accent; font-size: 14px * root.result-scale; vertical-alignment: center; }
+                            if root.result-is-new-record: NewRecordBadge { result-scale: root.result-scale; }
                         }
                     }
-                    VerticalLayout { spacing: 1px; Text { text: @tr("総ダメ"); color: #888; font-size: 10px; } Text { text: root.result-dmg; color: #e6e6f0; font-size: 14px; } }
-                    VerticalLayout { spacing: 1px; Text { text: @tr("計測時間"); color: #888; font-size: 10px; } Text { text: root.result-duration; color: #e6e6f0; font-size: 14px; } }
+                    VerticalLayout { spacing: 1px; Text { text: @tr("総ダメ"); color: #888; font-size: 10px * root.result-scale; } Text { text: root.result-dmg; color: #e6e6f0; font-size: 14px * root.result-scale; } }
+                    VerticalLayout { spacing: 1px; Text { text: @tr("計測時間"); color: #888; font-size: 10px * root.result-scale; } Text { text: root.result-duration; color: #e6e6f0; font-size: 14px * root.result-scale; } }
                     if root.result-best-dps-text != "": VerticalLayout {
                         spacing: 1px;
-                        Text { text: @tr("自己ベスト"); color: #888; font-size: 10px; }
-                        Text { text: root.result-best-dps-text; color: #999; font-size: 12px; }
+                        Text { text: @tr("自己ベスト"); color: #888; font-size: 10px * root.result-scale; }
+                        Text { text: root.result-best-dps-text; color: #999; font-size: 12px * root.result-scale; }
                     }
                 }
                 // ── スクロール領域: エリア1〜4。低いウィンドウでは縦スクロール、十分な高さでは
@@ -3668,17 +3682,19 @@ export component MainWindow inherits Window {
                         VerticalLayout {
                             vertical-stretch: 30;
                             spacing: 4px;
-                            // キャラ一覧（高さ≒3行ぶん。超過は縦スクロール）
+                            // キャラ一覧（高さ≒3行ぶん。超過は縦スクロール）。ResultRow の高さが
+                            // result-scale で伸びるため、このコンテナも一緒に伸ばさないと3行目が
+                            // 中途半端に欠けて見える（スクロールの切れ目とコンテナ境界がズレるため）。
                             Rectangle {
-                                height: 58px;
+                                height: 58px * root.result-scale;
                                 Flickable {
                                     width: 100%;
                                     height: 100%;
                                     viewport-height: charbox.preferred-height;
                                     charbox := VerticalLayout {
                                         spacing: 2px;
-                                        for r in root.result-rows: ResultRow { e: r; activate(u) => { root.select-result-player(u); } }
-                                        if root.result-rows.length == 0: Text { text: @tr("ダメージなし"); color: #555; font-size: 11px; height: 30px; horizontal-alignment: center; vertical-alignment: center; }
+                                        for r in root.result-rows: ResultRow { e: r; result-scale: root.result-scale; activate(u) => { root.select-result-player(u); } }
+                                        if root.result-rows.length == 0: Text { text: @tr("ダメージなし"); color: #555; font-size: 11px * root.result-scale; height: 30px; horizontal-alignment: center; vertical-alignment: center; }
                                     }
                                 }
                             }
@@ -3686,7 +3702,7 @@ export component MainWindow inherits Window {
                             Text {
                                 text: root.result-char-name == "" ? @tr("DPS推移") : @tr("DPS推移") + " — " + root.result-char-name;
                                 color: #888;
-                                font-size: 10px;
+                                font-size: 10px * root.result-scale;
                                 overflow: elide;
                             }
                             // 選択キャラの区間DPS折れ線（残り高さいっぱい・左にY軸目安）
@@ -3700,6 +3716,7 @@ export component MainWindow inherits Window {
                                 axis-mid: root.result-char-axis-mid;
                                 duration-ms: root.result-duration-ms;
                                 empty-text: "";
+                                result-scale: root.result-scale;
                             }
                         }
                         // ── 中段: エリア2(65%)＝スキル内訳 ｜ エリア3(35%)＝円グラフ ──
@@ -3710,7 +3727,7 @@ export component MainWindow inherits Window {
                             VerticalLayout {
                                 horizontal-stretch: 0.65;
                                 spacing: 4px;
-                                Text { text: root.result-pie-title; color: #cdd; font-size: 10px; overflow: elide; }
+                                Text { text: root.result-pie-title; color: #cdd; font-size: 10px * root.result-scale; overflow: elide; }
                                 Rectangle {
                                     vertical-stretch: 1;
                                     Flickable {
@@ -3719,8 +3736,8 @@ export component MainWindow inherits Window {
                                         viewport-height: resskillbox.preferred-height;
                                         resskillbox := VerticalLayout {
                                             spacing: 2px;
-                                            for s in root.result-skill-rows: ResultSkillRow { e: s; activate(u) => { root.select-result-skill(u); } }
-                                            if root.result-skill-rows.length == 0: Text { text: @tr("スキルなし"); color: #555; font-size: 11px; height: 30px; horizontal-alignment: center; vertical-alignment: center; }
+                                            for s in root.result-skill-rows: ResultSkillRow { e: s; result-scale: root.result-scale; activate(u) => { root.select-result-skill(u); } }
+                                            if root.result-skill-rows.length == 0: Text { text: @tr("スキルなし"); color: #555; font-size: 11px * root.result-scale; height: 30px; horizontal-alignment: center; vertical-alignment: center; }
                                         }
                                     }
                                 }
@@ -3762,10 +3779,10 @@ export component MainWindow inherits Window {
                                         spacing: 1px;
                                         for lg in root.result-legend: HorizontalLayout {
                                             spacing: 4px;
-                                            height: 14px;
+                                            height: 14px * root.result-scale;
                                             VerticalLayout { alignment: center; Rectangle { width: 8px; height: 8px; background: lg.color; border-radius: 2px; } }
-                                            Text { text: lg.name; color: #bbb; font-size: 9px; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
-                                            Text { text: lg.pct-text; color: #888; font-size: 9px; vertical-alignment: center; }
+                                            Text { text: lg.name; color: #bbb; font-size: 9px * root.result-scale; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
+                                            Text { text: lg.pct-text; color: #888; font-size: 9px * root.result-scale; vertical-alignment: center; }
                                         }
                                     }
                                 }
@@ -3778,7 +3795,7 @@ export component MainWindow inherits Window {
                             Text {
                                 text: root.result-skill-name == "" ? @tr("スキルDPS推移") : @tr("スキルDPS推移") + " — " + root.result-skill-name;
                                 color: #888;
-                                font-size: 10px;
+                                font-size: 10px * root.result-scale;
                                 overflow: elide;
                             }
                             SparkGraph {
@@ -3791,6 +3808,7 @@ export component MainWindow inherits Window {
                                 axis-mid: root.result-skill-axis-mid;
                                 duration-ms: root.result-duration-ms;
                                 empty-text: @tr("スキルを選択");
+                                result-scale: root.result-scale;
                             }
                         }
                     }
@@ -3802,7 +3820,7 @@ export component MainWindow inherits Window {
                     Text {
                         text: root.result-watermark;
                         color: #555;
-                        font-size: 9px;
+                        font-size: 9px * root.result-scale;
                         vertical-alignment: center;
                         horizontal-stretch: 1;
                         overflow: elide;
@@ -3811,25 +3829,25 @@ export component MainWindow inherits Window {
                         width: 76px;
                         height: 24px;
                         clicked => { root.copy-result-image(); }
-                        Rectangle { background: root.result-img-copied ? #2e7d32 : (copy-img-r.has-hover ? #ffffff20 : #ffffff10); animate background { duration: 100ms; easing: ease-out; } border-radius: 4px; Text { text: root.result-img-copied ? @tr("済") : @tr("画像コピー"); color: #ccc; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; } }
+                        Rectangle { background: root.result-img-copied ? #2e7d32 : (copy-img-r.has-hover ? #ffffff20 : #ffffff10); animate background { duration: 100ms; easing: ease-out; } border-radius: 4px; Text { text: root.result-img-copied ? @tr("済") : @tr("画像コピー"); color: #ccc; font-size: 11px * root.result-scale; horizontal-alignment: center; vertical-alignment: center; } }
                     }
                     copy-r := TouchArea {
                         width: 64px;
                         height: 24px;
                         clicked => { root.copy-result(); }
-                        Rectangle { background: copy-r.has-hover ? #ffffff20 : #ffffff10; animate background { duration: 100ms; easing: ease-out; } border-radius: 4px; Text { text: @tr("コピー"); color: #ccc; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; } }
+                        Rectangle { background: copy-r.has-hover ? #ffffff20 : #ffffff10; animate background { duration: 100ms; easing: ease-out; } border-radius: 4px; Text { text: @tr("コピー"); color: #ccc; font-size: 11px * root.result-scale; horizontal-alignment: center; vertical-alignment: center; } }
                     }
                     restart-r := TouchArea {
                         width: 64px;
                         height: 24px;
                         clicked => { root.restart-measure(); }
-                        Rectangle { background: restart-r.has-hover ? #ffffff20 : #ffffff10; animate background { duration: 100ms; easing: ease-out; } border-radius: 4px; Text { text: @tr("再計測"); color: #ccc; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; } }
+                        Rectangle { background: restart-r.has-hover ? #ffffff20 : #ffffff10; animate background { duration: 100ms; easing: ease-out; } border-radius: 4px; Text { text: @tr("再計測"); color: #ccc; font-size: 11px * root.result-scale; horizontal-alignment: center; vertical-alignment: center; } }
                     }
                     closebtn-r := TouchArea {
                         width: 64px;
                         height: 24px;
                         clicked => { root.close-result(); }
-                        Rectangle { background: closebtn-r.has-hover ? Theme.accent.with-alpha(0.2) : Theme.accent.with-alpha(0.133); animate background { duration: 100ms; easing: ease-out; } border-width: 1px; border-color: Theme.accent.with-alpha(0.45); border-radius: 4px; Text { text: @tr("閉じる"); color: Theme.accent; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; } }
+                        Rectangle { background: closebtn-r.has-hover ? Theme.accent.with-alpha(0.2) : Theme.accent.with-alpha(0.133); animate background { duration: 100ms; easing: ease-out; } border-width: 1px; border-color: Theme.accent.with-alpha(0.45); border-radius: 4px; Text { text: @tr("閉じる"); color: Theme.accent; font-size: 11px * root.result-scale; horizontal-alignment: center; vertical-alignment: center; } }
                     }
                 }
             }

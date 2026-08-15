@@ -137,6 +137,26 @@ fn notice_scale(win: &MainWindow) -> f32 {
     (w / 900.0).min(h / 620.0).clamp(1.0, 1.6)
 }
 
+/// 3分計測 結果モーダルの文字倍率（1.0〜1.3）。notice_scale と同じ理由（.slint 側で窓サイズ
+/// から font-size を計算すると「文字サイズ→preferred-height→レイアウト→窓サイズ」の束縛
+/// ループになる）で Rust 側が窓サイズから算出して毎ポーリング set する。設定パネルの
+/// 「フォントサイズ」(font_scale。本体テーブル用)には一切連動させない＝独立した軸。
+/// 基準は app.slint の MainWindow.preferred-width/height（520x360）＝リサイズ前の既定サイズ。
+/// これ以下では 1.0 のまま＝普段リサイズしないユーザーの見た目は変わらない。notice_scale
+/// （案内文1つ用・上限1.6）より上限を抑えているのは、結果モーダルは表・凡例・折れ線グラフの
+/// 軸ラベルなど固定px幅の列を多数抱えており、拡大しすぎると数値やボタン文言がはみ出す
+/// リスクがあるため（アクション行のボタン幅は文字と一緒には拡げていない）。
+fn result_scale(win: &MainWindow) -> f32 {
+    let factor = win.window().scale_factor();
+    if factor <= 0.0 {
+        return 1.0;
+    }
+    let size = win.window().size();
+    let w = size.width as f32 / factor;
+    let h = size.height as f32 / factor;
+    (w / 520.0).min(h / 360.0).clamp(1.0, 1.3)
+}
+
 /// 二重起動防止（Windows 名前付き Mutex）。既に起動済みなら true。
 #[cfg(windows)]
 fn already_running() -> bool {
@@ -4408,6 +4428,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let scale = notice_scale(&m);
         if (m.get_notice_scale() - scale).abs() > f32::EPSILON {
             m.set_notice_scale(scale);
+        }
+
+        // 3分計測 結果モーダルの文字倍率。設定の「フォントサイズ」には依存させず、窓が広い
+        // ほど大きくする（notice_scale と同じ理由で .slint 側に計算を持たせると束縛ループに
+        // なるため Rust 側で持つ）。結果パネルが閉じていても軽い計算なので毎回更新して構わない。
+        let rscale = result_scale(&m);
+        if (m.get_result_scale() - rscale).abs() > f32::EPSILON {
+            m.set_result_scale(rscale);
         }
 
         // 一時停止状態をボタンへ反映

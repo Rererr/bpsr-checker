@@ -1330,11 +1330,16 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
 
         let is_heal = damage.r#type == pb::DmgKind::Heal as i32;
 
-        // M3計測: 召喚の帰属漏れ（top_summoner_id==0 で attacker が召喚エンティティ自身になり
-        // compute.rs の Player フィルタで DPS 一覧から落ちるケース）を件数・実効値合計で計上する。
-        // 総ダメージ(encounter.dmg_stats)には残るため、ここで捨ててはいない＝計測のみ。
+        // M3計測: attacker が Player 以外に積まれたダメージを件数・実効値合計で計上する。
+        // ここで捨ててはいない（総ダメージ encounter.dmg_stats には残る）＝計測のみ。
+        // 内訳には「召喚の帰属漏れ（自分の火力が一覧から落ちる）」と「モンスターの与ダメージ
+        // （自分とは無関係）」が混在するため、合計だけで結論を出さないこと。詳細は probe 側の doc。
         if !is_heal && attacker_entity_type != EntityKind::Player {
-            crate::probe::record_non_player_attacker(actual_value(&damage));
+            crate::probe::record_non_player_attacker(
+                actual_value(&damage),
+                attacker_uuid,
+                damage.top_summoner_id,
+            );
         }
 
         // Encounter-level totals first (avoids holding attacker_entity borrow across encounter.* mutations)

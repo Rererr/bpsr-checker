@@ -362,6 +362,10 @@ static LUCKY_VALUE_COLLISION_COUNT: AtomicU64 = AtomicU64::new(0);
 /// BPSR_PROBE=1 のセッションでは M4(DROPPED_FRAMES) を同時計測するため、per-record で
 /// ログI/Oを出し続けると観測対象自体を悪化させてしまう（S4）。
 const LUCKY_COLLISION_LOG_SAMPLE: u64 = 50;
+/// M3: 非Player attacker の内訳ログを出した回数（サンプル上限の判定用）
+static NON_PLAYER_ATTACKER_LOGGED: AtomicU64 = AtomicU64::new(0);
+/// M3: record_non_player_attacker で実際に内訳ログを出す最大件数（理由は上の SAMPLE と同じ）
+const NON_PLAYER_ATTACKER_LOG_SAMPLE: u64 = 40;
 
 /// M2: attacker_uuid 不明で捨てたレコードを計上する。`actual_value` は
 /// combat_stats::actual_value と同じ「lucky_value優先」の実効値（processor.rs 側で
@@ -384,16 +388,34 @@ pub fn record_skip_no_skill(actual_value: i64) {
     SKIP_NO_SKILL_VALUE.fetch_add(actual_value, Ordering::Relaxed);
 }
 
-/// M3: attacker が Player 以外のエンティティ種別に積まれたダメージを計上する
-/// （召喚の帰属漏れ＝top_summoner_id==0 で DPS 一覧から落ちるケース）。
+/// M3: attacker が Player 以外のエンティティ種別に積まれたダメージを計上する。
 /// `actual_value` は combat_stats::actual_value と同じ「lucky_value優先」の実効値
 /// （既存の dmg_stats 合計と揃えて比較できるように processor.rs 側で計算して渡す）。
-pub fn record_non_player_attacker(actual_value: i64) {
+///
+/// **この計数には性質の異なる2つが混在する**ので、合計値だけで結論を出してはいけない。
+/// - 召喚の帰属漏れ（top_summoner_id==0 で attacker が召喚エンティティ自身になり、
+///   compute.rs の Player フィルタで DPS 一覧から落ちる）＝自分の火力が減る
+/// - モンスター自身の与ダメージ（反撃する木人・敵の攻撃）＝そもそも自分とは無関係
+///
+/// 2026-08-15 の実機計測では、反撃する木人で 45〜104 件立っていたものが、
+/// **反撃しない木人では 0 件**になった。つまり当時観測されていたのは後者（木人の反撃）で、
+/// 帰属漏れではなかった。合計だけを見て「帰属漏れが原因」と誤結論した実例がある。
+/// 種別を切り分けられるよう、先頭 [`NON_PLAYER_ATTACKER_LOG_SAMPLE`] 件は内訳をログする。
+pub fn record_non_player_attacker(actual_value: i64, attacker_uuid: i64, top_summoner_id: i64) {
     if !enabled() {
         return;
     }
     NON_PLAYER_ATTACKER_COUNT.fetch_add(1, Ordering::Relaxed);
     NON_PLAYER_ATTACKER_VALUE.fetch_add(actual_value, Ordering::Relaxed);
+    if NON_PLAYER_ATTACKER_LOGGED.fetch_add(1, Ordering::Relaxed) >= NON_PLAYER_ATTACKER_LOG_SAMPLE
+    {
+        return;
+    }
+    let kind = pb::EntityKind::from(attacker_uuid);
+    info!(
+        "PROBE non-player-attacker: attacker_uuid={attacker_uuid} kind={kind:?} \
+         top_summoner_id={top_summoner_id} value={actual_value}"
+    );
 }
 
 /// M5: value と lucky_value が両方非ゼロで同時出現したレコードを計上する。

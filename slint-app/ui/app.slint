@@ -820,19 +820,19 @@ component PlayerRowItem inherits Rectangle {
                 fill: transparent;
             }
         }
-        Text { text: root.entry.dmg-text; color: #e6e6f0; font-size: 12px * root.font-scale; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
-        Text { text: root.entry.dps-text; color: Theme.accent; font-size: 12px * root.font-scale; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
-        Text { text: root.entry.pct-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.crit: Text { text: root.entry.crit-text; color: #f39c12; font-size: 11px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.crit-value: Text { text: root.entry.crit-value-text; color: #f39c12; font-size: 11px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.lucky: Text { text: root.entry.lucky-text; color: #2ecc71; font-size: 11px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.lucky-value: Text { text: root.entry.lucky-value-text; color: #2ecc71; font-size: 11px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.hits: Text { text: root.entry.hits-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.hpm: Text { text: root.entry.hpm-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.score: Text { text: root.entry.score-text; color: #99aa99; font-size: 11px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.entry.dmg-text; color: #e6e6f0; font-size: 12px * root.font-scale; width: 64px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.entry.dps-text; color: Theme.accent; font-size: 12px * root.font-scale; width: 58px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.entry.pct-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: 44px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.crit: Text { text: root.entry.crit-text; color: #f39c12; font-size: 11px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.crit-value: Text { text: root.entry.crit-value-text; color: #f39c12; font-size: 11px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.lucky: Text { text: root.entry.lucky-text; color: #2ecc71; font-size: 11px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.lucky-value: Text { text: root.entry.lucky-value-text; color: #2ecc71; font-size: 11px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.hits: Text { text: root.entry.hits-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.hpm: Text { text: root.entry.hpm-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.score: Text { text: root.entry.score-text; color: #99aa99; font-size: 11px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
         // 通常DPS列(Theme.accent、既定は青系だがユーザーが任意hexへ変更可能)と並んでも
         // 判別できるよう、隣接しない色相(紫)を固定で使う（アクセント色に連動させない）。
-        if root.cols.eff-dps: Text { text: root.entry.eff-dps-text; color: #b39ddb; font-size: 11px * root.font-scale; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.eff-dps: Text { text: root.entry.eff-dps-text; color: #b39ddb; font-size: 11px * root.font-scale; width: 58px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
         watch := TouchArea {
             width: 14px;
             clicked => { root.toggle-watch(root.entry.uid-str); }
@@ -942,8 +942,8 @@ component CompactRowItem inherits Rectangle {
                 icon-box: 16px * root.font-scale;
             }
         }
-        Text { text: root.entry.dmg-text; color: #e6e6f0; font-size: 11px * root.font-scale; width: 56px; horizontal-alignment: right; vertical-alignment: center; }
-        Text { text: root.entry.dps-text; color: Theme.accent; font-size: 11px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.entry.dmg-text; color: #e6e6f0; font-size: 11px * root.font-scale; width: 56px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.entry.dps-text; color: Theme.accent; font-size: 11px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
     }
 
     // 自キャラ マーカー（RowItem と同様。クラス色バー左の左余白に〉）。
@@ -992,9 +992,9 @@ component SkillRowItem inherits Rectangle {
             VerticalLayout { alignment: center; ElementIcon { id: root.entry.elem-id; tint: root.entry.elem-color; box: 14px * root.font-scale; } }
             Text { text: root.entry.name; color: white; font-size: 12px * root.font-scale; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; }
         }
-        Text { text: root.entry.total-text; color: #e6e6f0; font-size: 12px * root.font-scale; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
-        Text { text: root.entry.dps-text; color: Theme.accent; font-size: 12px * root.font-scale; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
-        Text { text: root.entry.pct-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.entry.total-text; color: #e6e6f0; font-size: 12px * root.font-scale; width: 64px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.entry.dps-text; color: Theme.accent; font-size: 12px * root.font-scale; width: 58px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.entry.pct-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: 44px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
     }
     ta := TouchArea {
         enabled: root.clickable;
@@ -3089,7 +3089,7 @@ export component MainWindow inherits Window {
                         text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ"));
                         color: #888;
                         font-size: 10px * root.font-scale;
-                        width: 64px;
+                        width: 64px * root.font-scale;
                         horizontal-alignment: right;
                         vertical-alignment: center;
                     }
@@ -3097,19 +3097,19 @@ export component MainWindow inherits Window {
                         text: root.tab == 1 ? @tr("HPS") : (root.tab == 2 ? @tr("被DPS") : @tr("DPS"));
                         color: #888;
                         font-size: 10px * root.font-scale;
-                        width: 58px;
+                        width: 58px * root.font-scale;
                         horizontal-alignment: right;
                         vertical-alignment: center;
                     }
-                    Text { text: @tr("%"); color: #888; font-size: 10px * root.font-scale; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.effective-cols.crit: Text { text: @tr("会心率"); color: #888; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.effective-cols.crit-value: Text { text: @tr("会心ダメ率"); color: #888; font-size: 9px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.effective-cols.lucky: Text { text: @tr("幸運率"); color: #888; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.effective-cols.lucky-value: Text { text: @tr("幸運ダメ率"); color: #888; font-size: 9px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.effective-cols.hits: Text { text: @tr("ヒット数"); color: #888; font-size: 9px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.effective-cols.hpm: Text { text: @tr("毎分ヒット数"); color: #888; font-size: 9px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.effective-cols.score: Text { text: @tr("戦力"); color: #888; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.effective-cols.eff-dps: Text { text: @tr("有効DPS"); color: #888; font-size: 9px * root.font-scale; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
+                    Text { text: @tr("%"); color: #888; font-size: 10px * root.font-scale; width: 44px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.effective-cols.crit: Text { text: @tr("会心率"); color: #888; font-size: 10px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.effective-cols.crit-value: Text { text: @tr("会心ダメ率"); color: #888; font-size: 9px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.effective-cols.lucky: Text { text: @tr("幸運率"); color: #888; font-size: 10px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.effective-cols.lucky-value: Text { text: @tr("幸運ダメ率"); color: #888; font-size: 9px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.effective-cols.hits: Text { text: @tr("ヒット数"); color: #888; font-size: 9px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.effective-cols.hpm: Text { text: @tr("毎分ヒット数"); color: #888; font-size: 9px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.effective-cols.score: Text { text: @tr("戦力"); color: #888; font-size: 10px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.effective-cols.eff-dps: Text { text: @tr("有効DPS"); color: #888; font-size: 9px * root.font-scale; width: 58px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
                     // データ行末尾のウォッチピン(14px)に合わせた見出し用スペーサー（列ズレ防止）
                     Rectangle { width: 14px; }
                 }

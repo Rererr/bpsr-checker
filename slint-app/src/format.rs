@@ -29,11 +29,16 @@ fn class_of(class_name: &str) -> Option<Class> {
         .find(|c| c.name_ja() == class_name || c.name_en() == class_name)
 }
 
+/// 数値を M/K 単位へ丸めて表示する。小数は **M・K とも2桁**に揃える。
+///
+/// K を1桁にしていると DPS が `98.3K` 刻みでしか読めず、ゲーム内の計測パネル（`92.65K` の
+/// ように2桁表示）と突き合わせたときに、丸めのせいなのか実際の差なのかが判別できない。
+/// 桁を揃えることで、差が出たときに原因の切り分けができるようにする。
 pub fn format_number(n: f64) -> String {
     if n >= 1_000_000.0 {
         format!("{:.2}M", n / 1_000_000.0)
     } else if n >= 1_000.0 {
-        format!("{:.1}K", n / 1_000.0)
+        format!("{:.2}K", n / 1_000.0)
     } else {
         format!("{}", n.round() as i64)
     }
@@ -676,7 +681,7 @@ mod tests {
     fn empty_imagine_tokens_do_not_split_body() {
         assert_eq!(
             parts_of("", "", "{name}{imagine}{roleSkill}({score})"),
-            vec![body("ソラ(47.4K)", true)]
+            vec![body("ソラ(47.42K)", true)]
         );
     }
 

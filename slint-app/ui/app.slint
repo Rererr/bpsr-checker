@@ -78,6 +78,7 @@ struct SettingsUi {
     three-min-auto-open: bool,
     compact-split: bool,
     graph-for-local: bool,
+    allow-solo-hotkeys: bool,    // 修飾キー無しの単独ショートカット割当を許可（issue #8）
     startup-tab: string,
     language: string,            // UI 表示言語（"ja" / "en"）
     accent-theme: string,
@@ -2787,6 +2788,9 @@ export component MainWindow inherits Window {
     in property <[ShortcutUi]> shortcuts;
     in property <int> shortcut-capturing: -1;       // -1=非キャプチャ / 0.. = その行をキャプチャ中
     in property <bool> shortcut-dialog-open: false; // ショートカット設定ダイアログの開閉
+    // 「修飾キーなしでも割り当てを許可」を ON にする前の確認モーダル（issue #8）。
+    // ダイアログを開くたびに false へ戻す（前回開いた時の状態を持ち越さない）。
+    property <bool> solo-confirm-open: false;
     callback quit();
     callback minimize();
     callback start-drag();
@@ -2829,6 +2833,9 @@ export component MainWindow inherits Window {
     callback shortcut-capture(int);           // 「変更」押下（index）
     callback shortcut-clear(int);             // 「解除」押下（index）
     callback shortcut-key(string, bool, bool, bool, bool, bool);  // text, ctrl, shift, alt, meta, repeat
+    // 「修飾キーなしでも割り当てを許可」の切替（issue #8）。ON にするときは呼ぶ前に
+    // 確認モーダル（solo-confirm-open）を通す。OFF は即時。
+    callback shortcut-set-allow-solo(bool);
 
     // ヘッダの固定幅合計（タブ＋ボタン）が収まらない幅ではアイコン/短縮ラベル表示に切り替える。
     // root.width への直接バインディングはヘッダ文字列経由で layoutinfo と循環するため、
@@ -3531,7 +3538,8 @@ export component MainWindow inherits Window {
                     }
                     // ── グローバルショートカット（本体はメイン窓内モーダル。ここは起動ボタンのみ・常に全幅）──
                     ShortcutOpenSection {
-                        open-dialog => { root.shortcut-open-dialog(); }
+                        // 前回の確認モーダルが開いたまま閉じられた場合に持ち越さない（issue #8）。
+                        open-dialog => { root.solo-confirm-open = false; root.shortcut-open-dialog(); }
                     }
                     // ── バージョン情報（設定パネル最下部）──
                     Text {
@@ -3889,6 +3897,14 @@ export component MainWindow inherits Window {
                 // 持っていた場合に、打鍵がそちらへ漏れるのを防ぐ）。
                 init => { self.focus(); }
                 key-pressed(event) => {
+                    // 確認モーダル表示中は Escape でモーダルだけ閉じ、他のキーは飲む
+                    // （キャプチャ開始やダイアログ閉じへ抜けさせない）。
+                    if root.solo-confirm-open {
+                        if event.text == Key.Escape {
+                            root.solo-confirm-open = false;
+                        }
+                        return accept;
+                    }
                     if root.shortcut-capturing >= 0 {
                         // キャプチャ中は全キーを飲み込む（背後に漏らさない）。
                         root.shortcut-key(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt, event.modifiers.meta, event.repeat);
@@ -3921,10 +3937,25 @@ export component MainWindow inherits Window {
                         }
                     }
                     Text {
-                        text: @tr("ゲームにフォーカスがある状態でも使えます。F1〜F12 以外は Ctrl / Alt / Win のいずれかと組み合わせてください。");
+                        text: root.cfg-ui.allow-solo-hotkeys
+                            ? @tr("ゲームにフォーカスがある状態でも使えます。割り当てたキーは他のアプリでも押せなくなります。")
+                            : @tr("ゲームにフォーカスがある状態でも使えます。F1〜F12 以外は Ctrl / Alt / Win のいずれかと組み合わせてください。");
                         color: SettingsStyle.hint;
                         font-size: SettingsStyle.hint-size;
                         wrap: word-wrap;
+                    }
+                    // 単独割当の解禁トグル（issue #8）。ON にするときだけ確認モーダルを挟む。
+                    solo-toggle := ToggleRow {
+                        label: @tr("修飾キーなしでも割り当てを許可する");
+                        checked: root.cfg-ui.allow-solo-hotkeys;
+                        pad-x: 4px;
+                        toggled => {
+                            if (root.cfg-ui.allow-solo-hotkeys) {
+                                root.shortcut-set-allow-solo(false);
+                            } else {
+                                root.solo-confirm-open = true;
+                            }
+                        }
                     }
                     // 行部分のみスクロール対象にする（タイトル/× と説明文は常に見える位置に固定）。
                     sd-scroll := Flickable {
@@ -3940,6 +3971,78 @@ export component MainWindow inherits Window {
                                 change => { root.shortcut-capture(i); key-scope.focus(); }
                                 clear => { root.shortcut-clear(i); }
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── 単独割当の解禁 確認モーダル（issue #8。ショートカットダイアログより後方＝前面）──
+    // ショートカットダイアログが閉じたら道連れで消えるよう、両方の条件で表示する
+    // （閉じた後に確認だけが残って次回開いた時に出る、を構造的に防ぐ）。
+    if root.shortcut-dialog-open && root.solo-confirm-open: Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #000000cc;
+        TouchArea { clicked => { root.solo-confirm-open = false; } } // 背景クリック＝キャンセル
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: Math.min(420px, parent.width - 24px);
+            height: Math.min(confirm-col.preferred-height + 24px, parent.height - 24px);
+            background: #14141ef7;
+            border-width: 1px;
+            border-color: #ffffff26;
+            border-radius: 8px;
+            TouchArea {} // カード内クリックを吸収し背景のキャンセルへ落とさない
+            confirm-col := VerticalLayout {
+                padding: 14px;
+                spacing: 10px;
+                Text {
+                    text: @tr("修飾キーなしの割当を許可しますか？");
+                    color: #ffb454;
+                    font-size: 13px;
+                    wrap: word-wrap;
+                }
+                Text {
+                    text: @tr("単独で割り当てたキーは、このアプリの起動中は他のアプリやゲームでも押せなくなります。A や Space のような日常的に使うキーを割り当てると文字入力に支障が出ます。");
+                    color: SettingsStyle.row-label;
+                    font-size: 11px;
+                    wrap: word-wrap;
+                }
+                Text {
+                    text: @tr("元に戻すには、この画面を開いて「解除」を押してください。この画面を開いている間はショートカットが一時的に無効になるため、キーが効かなくなってもマウスだけで戻せます。");
+                    color: SettingsStyle.hint;
+                    font-size: SettingsStyle.hint-size;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    cancel-btn := TouchArea {
+                        width: 96px;
+                        height: 26px;
+                        clicked => { root.solo-confirm-open = false; }
+                        Rectangle {
+                            background: cancel-btn.has-hover ? SettingsStyle.control-bg-hover : SettingsStyle.control-bg;
+                            animate background { duration: 100ms; easing: ease-out; }
+                            border-radius: SettingsStyle.radius;
+                            Text { text: @tr("キャンセル"); color: #cdd; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+                        }
+                    }
+                    allow-btn := TouchArea {
+                        width: 96px;
+                        height: 26px;
+                        clicked => {
+                            root.shortcut-set-allow-solo(true);
+                            root.solo-confirm-open = false;
+                        }
+                        Rectangle {
+                            background: allow-btn.has-hover ? #c0392b : #8e2f24;
+                            animate background { duration: 100ms; easing: ease-out; }
+                            border-radius: SettingsStyle.radius;
+                            Text { text: @tr("許可する"); color: white; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
                         }
                     }
                 }

@@ -84,6 +84,9 @@ struct SpecialKey {
     solo_ok: bool,
 }
 
+/// テンキー（Numpad0〜9 等）は入っていない。`global_hotkey` 側には Code::Numpad* があるが、
+/// キャプチャ経路が Slint の KeyEvent（`slint::platform::Key`）で、そこにテンキーの定義が無く
+/// 最上段の数字と区別できないため（要望は issue #8。対応するならキャプチャ経路の追加が必要）。
 const SPECIAL_KEYS: &[SpecialKey] = &[
     SpecialKey { slint_key: Key::F1, code: Code::F1, display: "F1", solo_ok: true },
     SpecialKey { slint_key: Key::F2, code: Code::F2, display: "F2", solo_ok: true },
@@ -158,13 +161,14 @@ fn key_from_display(s: &str) -> Option<(Code, bool)> {
     None
 }
 
-/// 必須修飾（Ctrl/Alt/Win のいずれか）を満たしているか、または単独割当を許可されたキー
-/// （solo_ok。F1〜F12）か。Shift は RegisterHotKey がシステム全体の通常入力（例 Shift+A の
-/// 大文字）を奪うため、単独の必須修飾としては認めない（Ctrl 等と併用する追加修飾は可）。
+/// 必須修飾（Ctrl/Alt/Win のいずれか）を満たしているか、単独割当を許可されたキー
+/// （solo_ok。F1〜F12）か、または設定で単独割当が全面解禁されている（allow_solo。issue #8）か。
+/// Shift は RegisterHotKey がシステム全体の通常入力（例 Shift+A の大文字）を奪うため、
+/// 単独の必須修飾としては認めない（Ctrl 等と併用する追加修飾は可）。
 /// capture_key（キャプチャ時点）と parse_saved（保存値の再検証。手編集や旧バージョンで
 /// 保存された "Shift+A" 等を弾く）の両方がここから判定する（W-A）。
-fn has_required_modifier(ctrl: bool, alt: bool, meta: bool, solo_ok: bool) -> bool {
-    ctrl || alt || meta || solo_ok
+fn has_required_modifier(ctrl: bool, alt: bool, meta: bool, solo_ok: bool, allow_solo: bool) -> bool {
+    ctrl || alt || meta || solo_ok || allow_solo
 }
 
 /// parse_saved の失敗理由。呼び出し側（Hotkeys）でエラー文言を使い分けるために区別する（W-A）。
@@ -186,7 +190,9 @@ enum SavedKeyError {
 /// キャプチャ経由の値との往復は保証される。
 /// 必須修飾も capture_key と同じ has_required_modifier() から判定する（W-A。手編集や
 /// 旧バージョンの保存値 "Shift+A" 等、キャプチャ経由では作れない値を弾く）。
-fn parse_saved(s: &str) -> Result<HotKey, SavedKeyError> {
+/// `allow_solo` は設定の「単独割当を許可」（issue #8）。OFF に戻したときに、許可中へ保存された
+/// 単独キーがここで MissingModifier になり、登録されず理由が行に出る（設定値自体は消さない）。
+fn parse_saved(s: &str, allow_solo: bool) -> Result<HotKey, SavedKeyError> {
     let mut ctrl = false;
     let mut shift = false;
     let mut alt = false;
@@ -209,7 +215,7 @@ fn parse_saved(s: &str) -> Result<HotKey, SavedKeyError> {
         rest = r;
     }
     let (code, solo_ok) = key_from_display(rest).ok_or(SavedKeyError::Unparseable)?;
-    if !has_required_modifier(ctrl, alt, meta, solo_ok) {
+    if !has_required_modifier(ctrl, alt, meta, solo_ok, allow_solo) {
         return Err(SavedKeyError::MissingModifier);
     }
     let mut mods = Modifiers::empty();
@@ -262,6 +268,7 @@ pub enum CaptureOutcome {
 }
 
 /// FocusScope の `key-pressed` から渡された1イベントを判定する。
+/// `allow_solo` は設定の「単独割当を許可」（issue #8。`Settings::allow_solo_hotkeys`）。
 pub fn capture_key(
     text: &str,
     ctrl: bool,
@@ -269,6 +276,7 @@ pub fn capture_key(
     alt: bool,
     meta: bool,
     repeat: bool,
+    allow_solo: bool,
 ) -> CaptureOutcome {
     if repeat {
         return CaptureOutcome::Continue(None);
@@ -301,10 +309,10 @@ pub fn capture_key(
         return CaptureOutcome::Continue(Some(msg_parse_failed()));
     };
 
-    // 必須修飾は Ctrl/Alt/Win のいずれか（F1〜F12 は solo_ok で単独許可）。判定は
-    // parse_saved の保存値再検証と共通の has_required_modifier() から（同じ判定式を
-    // 2箇所に書かない）。
-    if !has_required_modifier(ctrl, alt, meta, solo_ok) {
+    // 必須修飾は Ctrl/Alt/Win のいずれか（F1〜F12 は solo_ok で単独許可、設定 allow_solo なら
+    // 全キー単独許可）。判定は parse_saved の保存値再検証と共通の has_required_modifier() から
+    // （同じ判定式を2箇所に書かない）。
+    if !has_required_modifier(ctrl, alt, meta, solo_ok, allow_solo) {
         return CaptureOutcome::Continue(Some(msg_need_modifier()));
     }
 
@@ -345,8 +353,14 @@ fn msg_manager_init_failed() -> &'static str {
 /// 捕まえたときの案内。Shift 単独を必須修飾として認めると RegisterHotKey がシステム全体の
 /// 通常入力（例: Shift+A の大文字）を奪うため、必須修飾からは意図的に外している
 /// （Shift はここに挙げた3つと併用する追加修飾としてのみ有効）。
+/// 同じダイアログ内に解除用のチェックボックス（issue #8）があるので、そこへ誘導する。
+/// 位置（上/下）は書かない。行との並び順が変わったときに文言だけ取り残されるため。
 fn msg_need_modifier() -> &'static str {
-    if crate::is_ja() { "Ctrl / Alt / Win のいずれかと組み合わせてください" } else { "Combine with Ctrl, Alt, or Win" }
+    if crate::is_ja() {
+        "Ctrl / Alt / Win と組み合わせるか、単独割当を許可してください"
+    } else {
+        "Combine with Ctrl, Alt or Win, or allow single keys"
+    }
 }
 
 // ─── マネージャ ──────────────────────────────────────────────────────
@@ -421,7 +435,7 @@ impl Hotkeys {
                 errors[action.index()] = msg_duplicate().to_string();
                 continue;
             }
-            if let Err(e) = parse_saved(text) {
+            if let Err(e) = parse_saved(text, settings.allow_solo_hotkeys) {
                 errors[action.index()] = match e {
                     SavedKeyError::MissingModifier => msg_need_modifier().to_string(),
                     SavedKeyError::Unparseable => msg_parse_failed().to_string(),
@@ -461,7 +475,7 @@ impl Hotkeys {
             if text.is_empty() || !errors[action.index()].is_empty() {
                 continue; // 未割当、またはアプリ内重複/パース不可で既にエラー確定済みの行は登録を試みない
             }
-            let Ok(hk) = parse_saved(text) else {
+            let Ok(hk) = parse_saved(text, settings.allow_solo_hotkeys) else {
                 // compute_static_errors で弾かれなかった値がここで失敗するのはロジックの
                 // ずれを意味する。握り潰さず警告だけ残す（本来到達しないはず）。
                 log::warn!("hotkey parse_saved unexpectedly failed for {action:?}: {text:?}");
@@ -531,43 +545,98 @@ mod tests {
         }
     }
 
+    // 単独割当を許可していない既定状態（issue #8 のチェックボックス OFF）。
+    const SOLO_OFF: bool = false;
+    // 単独割当を許可した状態（チェックボックス ON）。
+    const SOLO_ON: bool = true;
+
     // W-A: 手編集・旧バージョンの保存値に含まれうる「必須修飾なし」を拒否する。
     #[test]
     fn parse_saved_rejects_shift_only_modifier() {
-        assert_eq!(parse_saved("Shift+A"), Err(SavedKeyError::MissingModifier));
+        assert_eq!(parse_saved("Shift+A", SOLO_OFF), Err(SavedKeyError::MissingModifier));
     }
 
     #[test]
     fn parse_saved_rejects_no_modifier_non_function_key() {
-        assert_eq!(parse_saved("A"), Err(SavedKeyError::MissingModifier));
+        assert_eq!(parse_saved("A", SOLO_OFF), Err(SavedKeyError::MissingModifier));
     }
 
     #[test]
     fn parse_saved_accepts_required_modifier() {
-        assert!(parse_saved("Ctrl+A").is_ok());
-        assert!(parse_saved("Alt+A").is_ok());
-        assert!(parse_saved("Win+A").is_ok());
+        assert!(parse_saved("Ctrl+A", SOLO_OFF).is_ok());
+        assert!(parse_saved("Alt+A", SOLO_OFF).is_ok());
+        assert!(parse_saved("Win+A", SOLO_OFF).is_ok());
     }
 
     #[test]
     fn parse_saved_accepts_function_key_without_modifier() {
-        assert!(parse_saved("F1").is_ok());
+        assert!(parse_saved("F1", SOLO_OFF).is_ok());
     }
 
     // W-B: 正準順（Ctrl→Shift→Alt→Win）以外・修飾の重複は拒否する
     // （許すと文字列は別でも OS 上は同一キーになり is_duplicate をすり抜けてしまうため）。
     #[test]
     fn parse_saved_rejects_non_canonical_modifier_order() {
-        assert_eq!(parse_saved("Alt+Ctrl+A"), Err(SavedKeyError::Unparseable));
+        assert_eq!(parse_saved("Alt+Ctrl+A", SOLO_OFF), Err(SavedKeyError::Unparseable));
     }
 
     #[test]
     fn parse_saved_rejects_duplicated_modifier() {
-        assert_eq!(parse_saved("Ctrl+Ctrl+A"), Err(SavedKeyError::Unparseable));
+        assert_eq!(parse_saved("Ctrl+Ctrl+A", SOLO_OFF), Err(SavedKeyError::Unparseable));
     }
 
     #[test]
     fn parse_saved_accepts_canonical_multi_modifier_order() {
-        assert!(parse_saved("Ctrl+Shift+Alt+Win+A").is_ok());
+        assert!(parse_saved("Ctrl+Shift+Alt+Win+A", SOLO_OFF).is_ok());
+    }
+
+    // issue #8: 許可 ON なら修飾キー無しの特殊キー・文字・数字を単独で受理する。
+    #[test]
+    fn parse_saved_accepts_solo_keys_when_allowed() {
+        assert!(parse_saved("Home", SOLO_ON).is_ok());
+        assert!(parse_saved("Insert", SOLO_ON).is_ok());
+        assert!(parse_saved("A", SOLO_ON).is_ok());
+        assert!(parse_saved("1", SOLO_ON).is_ok());
+        // Shift のみも「修飾キー無し」と同じ扱いで、許可 ON なら通る。
+        assert!(parse_saved("Shift+A", SOLO_ON).is_ok());
+    }
+
+    // 許可 ON でも、キー名として解決できない文字列は受理しない（許可はあくまで必須修飾の免除）。
+    #[test]
+    fn parse_saved_still_rejects_unknown_key_when_allowed() {
+        assert_eq!(parse_saved("NoSuchKey", SOLO_ON), Err(SavedKeyError::Unparseable));
+        assert_eq!(parse_saved("Alt+Ctrl+A", SOLO_ON), Err(SavedKeyError::Unparseable));
+    }
+
+    // 許可を OFF に戻すと、許可中に保存された単独キーは MissingModifier になる
+    // （＝登録されず理由が行に出る。設定値そのものは消さないので再度 ON で復帰する）。
+    #[test]
+    fn parse_saved_rejects_previously_saved_solo_key_after_disabling() {
+        let saved = "Home";
+        assert!(parse_saved(saved, SOLO_ON).is_ok());
+        assert_eq!(parse_saved(saved, SOLO_OFF), Err(SavedKeyError::MissingModifier));
+    }
+
+    // キャプチャ側も同じ判定式（has_required_modifier）を通ることの確認。
+    #[test]
+    fn capture_key_accepts_solo_key_only_when_allowed() {
+        let home = char::from(Key::Home).to_string();
+        let outcome = capture_key(&home, false, false, false, false, false, SOLO_OFF);
+        assert!(matches!(outcome, CaptureOutcome::Continue(Some(_))), "許可OFFでは確定しない");
+        match capture_key(&home, false, false, false, false, false, SOLO_ON) {
+            CaptureOutcome::Captured(s) => assert_eq!(s, "Home"),
+            _ => panic!("許可ONなら単独キーで確定するはず"),
+        }
+    }
+
+    // 許可 ON でも Escape はキャンセル用に予約されたままで、割り当てられない
+    // （割り当てられるとダイアログを閉じる手段が塞がるため）。
+    #[test]
+    fn capture_key_keeps_escape_as_cancel_even_when_solo_allowed() {
+        let esc = char::from(Key::Escape).to_string();
+        assert!(matches!(
+            capture_key(&esc, false, false, false, false, false, SOLO_ON),
+            CaptureOutcome::Cancelled
+        ));
     }
 }

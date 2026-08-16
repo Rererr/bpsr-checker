@@ -200,6 +200,12 @@ pub struct Settings {
     pub hotkey_measure: String, // 3分計測 開始/キャンセル
     pub hotkey_copy: String,    // 一覧をコピー
     pub hotkey_aot: String,     // 常に最前面 切替
+    /// 修飾キー（Ctrl/Alt/Win）無しの単独キー割当を許可するか（issue #8。既定 false）。
+    /// RegisterHotKey は登録キーをシステム全体から奪うため、既定では F1〜F12 以外の単独割当を
+    /// 禁じている。ゲーム側で Ctrl/Alt が予約済みでツール用のキーが確保できないケースがあるため、
+    /// 警告に同意したユーザーだけがこのフラグで解禁できる。ON→OFF に戻すと、単独割当された
+    /// 既存のキーは「必須修飾を欠く」エラー扱いになり登録されない（設定は消さないので再度 ON で復帰する）。
+    pub allow_solo_hotkeys: bool,
     /// DPS一覧の行バー幅比率の基準（Issue #5 由来。他メーターの模倣ではない独自実装）。
     /// "top"(既定・現行のトップ比) / "share"(全体比) / "fixed"(固定基準) / "self"(自分基準)。
     /// 定数・enum 表現は crate::dps_bar（MODE_* 定数・DpsBarMode::parse）に一本化している。
@@ -293,6 +299,7 @@ impl Default for Settings {
             hotkey_measure: String::new(),
             hotkey_copy: String::new(),
             hotkey_aot: String::new(),
+            allow_solo_hotkeys: false,
             dps_bar_mode: crate::dps_bar::MODE_TOP.to_string(),
             dps_bar_fixed_max: 100_000.0,
             dps_bar_window_secs: 10.0,

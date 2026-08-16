@@ -557,6 +557,28 @@ msgstr "Assign global shortcut keys to measurement actions."
 msgid "ゲームにフォーカスがある状態でも使えます。F1〜F12 以外は Ctrl / Alt / Win のいずれかと組み合わせてください。"
 msgstr "Works while the game window has focus. Keys other than F1-F12 must be combined with Ctrl, Alt, or Win."
 
+# 単独割当の解禁（issue #8。トグル＋ON にする前の確認モーダル）
+msgid "ゲームにフォーカスがある状態でも使えます。割り当てたキーは他のアプリでも押せなくなります。"
+msgstr "Works while the game window has focus. Assigned keys stop working in other apps."
+
+msgid "修飾キーなしでも割り当てを許可する"
+msgstr "Allow shortcuts without a modifier key"
+
+msgid "修飾キーなしの割当を許可しますか？"
+msgstr "Allow shortcuts without a modifier key?"
+
+msgid "単独で割り当てたキーは、このアプリの起動中は他のアプリやゲームでも押せなくなります。A や Space のような日常的に使うキーを割り当てると文字入力に支障が出ます。"
+msgstr "A key assigned on its own stops working in other apps and games while this app is running. Assigning an everyday key such as A or Space will interfere with typing."
+
+msgid "元に戻すには、この画面を開いて「解除」を押してください。この画面を開いている間はショートカットが一時的に無効になるため、キーが効かなくなってもマウスだけで戻せます。"
+msgstr "To undo it, open this screen and press Clear. Shortcuts are suspended while this screen is open, so you can recover with the mouse alone even if a key stops responding."
+
+msgid "キャンセル"
+msgstr "Cancel"
+
+msgid "許可する"
+msgstr "Allow"
+
 # アクション名（行順は hotkey.rs の ACTIONS と一致させること）
 msgid "計測を初期化"
 msgstr "Reset"

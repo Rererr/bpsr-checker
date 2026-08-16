@@ -1352,6 +1352,7 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         three_min_auto_open: c.three_min_auto_open,
         compact_split: c.compact_split_mode,
         graph_for_local: c.graph_for_local_player,
+        allow_solo_hotkeys: c.allow_solo_hotkeys,
         startup_tab: c.startup_tab.clone().into(),
         language: c.language.clone().into(),
         accent_theme: c.accent_theme.clone().into(),
@@ -3406,6 +3407,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             push_shortcuts_to_ui(&shortcuts_scl, &hotkeys_scl.borrow(), &cfg_scl.borrow());
         });
     }
+    // 「修飾キーなしでも割り当てを許可」の切替（issue #8）。ON にする前の確認モーダルは
+    // .slint 側（solo-confirm-open）が担当し、ここへは同意後の値だけが来る。
+    // ダイアログを開いた時点で suspend 済みなので revalidate() のみ（apply() は閉じる時。C1）。
+    // OFF に戻したときは、許可中に保存された単独キーが MissingModifier になり登録されない
+    // （設定値は消さないので、再度 ON にすればそのまま復帰する）。
+    #[cfg(windows)]
+    {
+        let w = main.as_weak();
+        let cfg_as = cfg.clone();
+        let hotkeys_as = hotkeys_holder.clone();
+        let shortcuts_as = shortcuts_model.clone();
+        main.on_shortcut_set_allow_solo(move |val| {
+            cfg_as.borrow_mut().allow_solo_hotkeys = val;
+            settings::save(&cfg_as.borrow());
+            if let Some(hk) = hotkeys_as.borrow_mut().as_mut() {
+                hk.revalidate(&cfg_as.borrow());
+            }
+            if let Some(m) = w.upgrade() {
+                // トグルの表示状態（cfg.allow-solo-hotkeys）と説明文を更新する。
+                apply_settings(&m, &cfg_as.borrow());
+            }
+            push_shortcuts_to_ui(&shortcuts_as, &hotkeys_as.borrow(), &cfg_as.borrow());
+        });
+    }
     // FocusScope の key-pressed から渡される1キー。キャプチャ中のみ判定する
     // （shortcut-capturing が -1 なら待機していないので無視）。
     #[cfg(windows)]
@@ -3425,7 +3450,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let Some(action) = hotkey::ShortcutAction::from_index(idx as usize) else {
                 return;
             };
-            match hotkey::capture_key(text.as_str(), ctrl, shift, alt, meta, repeat) {
+            let allow_solo = cfg_sk.borrow().allow_solo_hotkeys;
+            match hotkey::capture_key(text.as_str(), ctrl, shift, alt, meta, repeat, allow_solo) {
                 hotkey::CaptureOutcome::Continue(err) => {
                     // None(無視するキー)は何もしない。Some はエラー文言を出しつつ待機継続。
                     if let Some(msg) = err {

@@ -1822,6 +1822,12 @@ const OVERLAY_MAX_DELAY_MS: u64 = 200;
 // overlay_timer の初回発火まで（以降は自身が算出した値で set_interval し続けるため、
 // この値は起動直後の1回だけ効く）。
 const OVERLAY_INITIAL_DELAY_MS: u64 = 30;
+// オーバーレイを1つも表示していないときの待ち時間の下限。この状態ではコールバックが
+// 更新する対象が無く、200ms(5Hz)で起こし続けても何も滑らかにならない純粋な空回りになる。
+// 実際の待ち時間は poll_interval_ms との大きい方を採る（＝CPUを削るために poll を
+// 伸ばしたユーザーの意図をこの状態に限り尊重する。表示中は従来どおり poll から独立）。
+// 代償はオーバーレイを表示に切り替えてから最初の更新までの遅れで、上限はこの待ち時間。
+const OVERLAY_IDLE_MIN_MS: u64 = 500;
 
 /// オーバーレイ更新を実施した回で、次回発火までの待ち時間(ms)を確定する
 /// （overlay_timer が呼び出し末尾で `set_interval` に使う）。
@@ -4613,6 +4619,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // poll_interval_ms の設定変更はメインpollタイマー(poll_timer)にのみ影響し、この
     // overlay_timer の周期はそれとは独立に自身が算出した値で回り続ける
     // （＝オーバーレイの滑らかさは poll_interval_ms 設定から独立して保たれる）。
+    // 例外はオーバーレイを1つも表示していないときで、この間は更新対象が無く滑らかさの
+    // 対象も存在しないため poll_interval_ms を下限として長く休む（OVERLAY_IDLE_MIN_MS）。
     let overlay_timer: Rc<Timer> = Rc::new(Timer::default());
     {
         let overlay_timer_self = overlay_timer.clone();
@@ -4638,17 +4646,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut next_change_ms: Option<u64> = None;
 
                 // オーバーレイの文字サイズは窓ごとに独立した専用設定。
-                let (self_scale, stats_scale, imagine_scale) = {
+                // 表示可否も同時に1回だけ読む。各オーバーレイの更新分岐と、末尾の
+                // 「1つも表示していないなら休む」判定の両方がこの値を使う
+                // （同じ対象を判定する式を2箇所に書かない）。
+                let (self_scale, stats_scale, imagine_scale, show_self, show_stats, show_buff) = {
                     let c = cfg_ov.borrow();
                     (
                         (c.buff_overlay_font_size / 12.0) as f32,
                         (c.stats_overlay_font_size / 12.0) as f32,
                         (c.imagine_overlay_font_size / 12.0) as f32,
+                        c.show_self_status_overlay,
+                        c.show_stats_overlay,
+                        c.show_buff_overlay,
                     )
                 };
 
                 // 自キャラ オーバーレイ更新（表示中のみ）
-                if cfg_ov.borrow().show_self_status_overlay {
+                if show_self {
                     if let Some(o) = self_overlay_w.upgrade() {
                         o.set_font_scale(self_scale);
                         let s = compute::get_self_buff_status(&enc_ov);
@@ -4670,7 +4684,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 // 自キャラ ステータス オーバーレイ更新（表示中のみ。数値ステータスは秒刻みの
                 // 表示が無いため、この窓自体は発火予定の算出に寄与しない）
-                if cfg_ov.borrow().show_stats_overlay {
+                if show_stats {
                     if let Some(o) = stats_overlay_w.upgrade() {
                         o.set_font_scale(stats_scale);
                         let s = compute::get_self_stats(&enc_ov);
@@ -4681,7 +4695,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
 
                 // バフタイマー オーバーレイ更新（表示中のみ）
-                if cfg_ov.borrow().show_buff_overlay {
+                if show_buff {
                     if let Some(o) = buff_overlay_w.upgrade() {
                         o.set_font_scale(imagine_scale);
                         let imagine_only = cfg_ov.borrow().imagine_only_mode;
@@ -4751,7 +4765,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // 次回発火の周期を張り直す（秒境界同期＋アーク/バー滑らかさ上限クランプ＋
                 // フォールバック。詳細は overlay_next_delay_ms 参照）。Repeated タイマーのため、
                 // 万一ここへ到達できなくても直前の周期で回り続け、更新の永久停止は起きない。
-                overlay_timer_self.set_interval(Duration::from_millis(overlay_next_delay_ms(next_change_ms)));
+                // オーバーレイを1つも表示していない間だけは更新対象が無いので長く休む
+                // （OVERLAY_IDLE_MIN_MS 参照。表示中の周期は従来どおり poll から独立）。
+                let delay_ms = if show_self || show_stats || show_buff {
+                    overlay_next_delay_ms(next_change_ms)
+                } else {
+                    let poll_ms = cfg_ov.borrow().poll_interval_ms.max(50.0) as u64;
+                    OVERLAY_IDLE_MIN_MS.max(poll_ms)
+                };
+                overlay_timer_self.set_interval(Duration::from_millis(delay_ms));
             },
         );
     }

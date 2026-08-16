@@ -145,9 +145,10 @@ impl BuffTracker {
     /// RawData は BuffChange{layer, duration, create_time}。base_id を持たないため、
     /// 同一 BuffUuid の既存バフの duration/layer を更新する。
     /// received_at_local_ms の再ベースは次の契約で行う: create_time が既存と一致し、
-    /// かつ layer・duration のいずれも変化していない「冗長な再通知」だけは再ベースを
-    /// スキップする。layer 増加（スタック増加）・duration 増加（延長）・create_time
-    /// 変化（別付与）のいずれかがあれば必ず再ベースし期限を延ばす
+    /// かつ layer・duration のいずれも増加していない「冗長な再通知」は再ベースを
+    /// スキップする（スタックが落ちただけの減少通知もここに含める）。layer 増加
+    /// （スタック増加）・duration 増加（延長）・create_time 変化（別付与）の
+    /// いずれかがあれば必ず再ベースし期限を延ばす
     /// （＝スタック増加・タイマーリフレッシュ ＝ ウィンドウから消えない）。
     /// 未追跡 BuffUuid は無視。同種の「同一付与の冗長な再通知を除外する」述語は
     /// apply_effect にもあるが、create_time==0 の扱いと layer の有無が異なるため
@@ -172,10 +173,16 @@ impl BuffTracker {
         // （probe: 26,918件中1,774キー・延べ2,534件が同一 (host_uuid, buff_uuid,
         // create_time)、最大14回・18.4秒再送）、無条件の再ベースだと残り秒が
         // 毎回満タンへ巻き戻り凍結して見える。
-        // layer が変化（スタック増減）していれば create_time が同一でも実イベントの
+        // layer が「増加」していれば create_time が同一でも実イベント（スタック追加）の
         // 強い証左のため必ず再ベースする（本関数 doc の「スタック増加でウィンドウ
         // から消えない」契約を満たすために必須）。create_time が 0（不明）・
         // 別の付与・duration 増加（延長）の場合も同様に必ず再ベースする。
+        //
+        // 減少で再ベースしてはいけない。スタックが数秒ごとに1つずつ落ちる減衰型バフは
+        // 同一 create_time・同一 duration のまま layer だけ減って再通知されうるため、
+        // 「変化したら再ベース」にすると落ちるたびに残り時間が満タンへ巻き戻り、
+        // このガードで直したはずの凍結（残り秒が減らない）が別経路で再発する。
+        // layer==0（不明）は増加になり得ないのでこの式で自然に除外される。
         //
         // この関数は create_time==0 を「同一付与ではない」扱いにして必ず再ベース
         // する（is_same_grant に != 0 を必須化）。そのため v0.8.3 の凍結バグ
@@ -190,8 +197,8 @@ impl BuffTracker {
             let normalized = if change.duration < 0 { 0 } else { change.duration };
             normalized > state.duration_ms
         };
-        let layer_changed = change.layer != 0 && change.layer != state.layer;
-        if !is_same_grant || duration_increased || layer_changed {
+        let layer_increased = change.layer > state.layer;
+        if !is_same_grant || duration_increased || layer_increased {
             state.received_at_local_ms = now_ms;
         }
 
@@ -590,6 +597,37 @@ mod tests {
         let snaps = tracker.snapshot_for(uid, 4500);
         assert_eq!(snaps.len(), 1);
         assert_eq!(snaps[0].remaining_ms, 500);
+    }
+
+    // 同一 create_time で layer が「減った」だけの再通知は再ベースしない。
+    // スタックが数秒ごとに1つ落ちる減衰型バフは同一 create_time・同一 duration のまま
+    // layer だけ減って再通知されうるため、減少でも再ベースすると落ちるたびに残り時間が
+    // 満タンへ巻き戻り、凍結（残り秒が減らない）が再発する。
+    #[test]
+    fn test_buff_change_decreased_layer_does_not_rebase() {
+        let mut tracker = BuffTracker::new();
+        let uid = 5000;
+
+        // AddBuff: create_time=1000, duration=5000, layer=1（期限 0+5000=5000ms）
+        let mut info = make_buff_info(1, player_uuid(1), 5000);
+        info.create_time = 1000;
+        tracker.apply_buff_add(77, &info, 0, uid);
+
+        // t=1000: スタック追加(1→3)。増加なので再ベースされ期限は 1000+5000=6000ms。
+        let up = pb::BuffChange { layer: 3, duration: 5000, create_time: 1000 };
+        tracker.apply_buff_change(uid, 77, &up, 1000);
+
+        // t=3000: スタックが1つ落ちる(3→2)。create_time も duration も同じ＝減少のみ。
+        let down = pb::BuffChange { layer: 2, duration: 5000, create_time: 1000 };
+        tracker.apply_buff_change(uid, 77, &down, 3000);
+
+        // 減少で再ベースしていなければ期限は 6000ms のまま。5500ms 時点で残り 500ms。
+        // （再ベースしてしまうと 3000+5000=8000ms になり残り 2500ms へ巻き戻る）
+        let snaps = tracker.snapshot_for(uid, 5500);
+        assert_eq!(snaps.len(), 1);
+        assert_eq!(snaps[0].remaining_ms, 500, "スタック減少で残り時間が巻き戻っている");
+        // 再ベースしないだけで layer 自体は最新値へ更新する。
+        assert_eq!(snaps[0].layer, 2);
     }
 
     // BuffTick が create_time=0 で来ても、既存の正規 create_time を 0 で潰さない。

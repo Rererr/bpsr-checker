@@ -664,7 +664,7 @@ dependencies = [
 
 [[package]]
 name = "bpsr-app"
-version = "1.24.1"
+version = "1.25.0"
 dependencies = [
  "arboard",
  "bpsr-core",

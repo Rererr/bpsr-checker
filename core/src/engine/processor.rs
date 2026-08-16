@@ -1290,11 +1290,10 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
             crate::probe::log_lucky_collision(damage.value, damage.lucky_value, damage.hp_lessen_value);
         }
 
-        let is_boss = encounter
-            .entities
-            .get(&target_uid)
-            .and_then(|e| e.monster_id)
-            .is_some_and(|id| MONSTER_NAMES_BOSS.contains_key(&id));
+        // target の monster_id は is_boss 判定と M8計測（対象別内訳）の両方で使う。
+        // 同じ対象を判定する式を2つ書かないよう、1つの変数から導出する。
+        let target_monster_id = encounter.entities.get(&target_uid).and_then(|e| e.monster_id);
+        let is_boss = target_monster_id.is_some_and(|id| MONSTER_NAMES_BOSS.contains_key(&id));
 
         let attacker_uuid = if damage.top_summoner_id != 0 {
             damage.top_summoner_id
@@ -1347,6 +1346,14 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
             );
         }
 
+        // M7計測: 召喚体が出し、top_summoner_id で主人へ寄せ**られた**ダメージをスキル別に記録する。
+        // 上の record_non_player_attacker は逆に「寄せられなかった」ものを数える別観点なので、
+        // 条件を共有させず独立に判定する（両者は排他）。ゲーム内の木人計測パネルが召喚体の
+        // ダメージを数えていない疑いがあり、その差分を実測で確定させるための計測。
+        if !is_heal && damage.top_summoner_id != 0 {
+            crate::probe::record_summon_damage(skill_uid, actual_value(&damage));
+        }
+
         // モンスターが出したダメージ/回復（＝自分たちの成果ではないもの）を総計から除外する
         // ための判定。dmg と heal で同じ述語（attacker が Monster かどうか）を共有する。
         // 以前は dmg=target基準（対象がPlayerか）・heal=attacker基準、と2通りに分かれており、
@@ -1364,6 +1371,9 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
             }
         } else if !from_monster {
             process_stats(&damage, &mut encounter.dmg_stats);
+            // M8計測: dmg_stats に積んだのと同じ条件・同じ値で対象別に記録する
+            // （分岐を分けると「総ダメージには入るが内訳には出ない」ズレが生まれるため）。
+            crate::probe::record_damage_target(target_uid, target_monster_id, actual_value(&damage));
             if is_boss {
                 process_stats(&damage, &mut encounter.dmg_stats_boss_only);
             }

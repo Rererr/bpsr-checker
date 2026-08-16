@@ -1,28 +1,63 @@
-//! プロトコル棚卸し用の調査ログ（`BPSR_PROBE=1` で有効化。通常運用ではゼロコスト）。
-//!
-//! マップ移動・ログイン・ダンジョン読込などの際に「実際に何が届いているか」を全て
-//! `PROBE` プレフィックス付きで通常ログへ記録する。目的はプロトコルの網羅的な実態調査で、
+//! プロトコル棚卸し用の調査ログ（環境変数 `BPSR_PROBE` で有効化。無効時はゼロコスト）。
 //! 集計ロジックには一切影響しない。結果の分析・知見は docs-private/protocol/ に永続化する。
 //!
-//! 記録内容:
+//! # モードの選び方
+//!
+//! ログは起動ごとの truncate だけでローテーションを持たないため、**用途に足りる最小のモードを
+//! 選ぶこと**。
+//!
+//! - `BPSR_PROBE=summary` … 集計カウンタとエンカウンター終了時のサマリー行のみ。ログはほぼ
+//!   増えない。**DPS の突合など「数値の内訳」を見たいだけならこれで足りる**
+//! - `BPSR_PROBE=1`（`full` も可） … 上記に加えてプロトコルの全ダンプ。1計測で数MB、長い
+//!   セッションでは数十MB規模になる。**プロトコルの実態調査そのものが目的のときだけ使う**
+//!
+//! full で記録される内容:
 //! - 全 notify メソッド（既知/未知を問わず。service, method, ペイロード長）
 //! - パケットの protobuf トップレベルフィールド構造（field 番号・wire type・長さ）
 //! - エンティティ attr の全量ダンプ（attr id と値。既知アームで decode しない id も含む）
+//! - buff のスナップショット/tick/変更通知の生データ
 
 use crate::protocol::pb;
 use log::info;
-use std::sync::LazyLock;
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 
-static ENABLED: LazyLock<bool> =
-    LazyLock::new(|| std::env::var("BPSR_PROBE").is_ok_and(|v| v == "1"));
+/// probe の詳細度。環境変数 `BPSR_PROBE` の値で決まる。
+///
+/// ログはローテーションを持たない（起動ごとの truncate のみ）ため、全ダンプを常用すると
+/// 1セッションで数十MBに達する。集計カウンタだけが欲しい調査では `summary` を使うこと。
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ProbeLevel {
+    /// 無効（既定）。
+    Off,
+    /// 集計カウンタとエンカウンター終了時のサマリー行のみ。ログはほとんど増えない。
+    Summary,
+    /// 上記に加えてプロトコルの全ダンプ（パケット・attr・buff）。**ログが数十MB規模に膨らむ**。
+    Full,
+}
 
+static LEVEL: LazyLock<ProbeLevel> =
+    LazyLock::new(|| match std::env::var("BPSR_PROBE").as_deref() {
+        Ok("1") | Ok("full") => ProbeLevel::Full,
+        Ok("summary") => ProbeLevel::Summary,
+        _ => ProbeLevel::Off,
+    });
+
+/// 集計カウンタを取るか（`summary` / `full` の両方で true）。
 pub fn enabled() -> bool {
-    *ENABLED
+    *LEVEL != ProbeLevel::Off
+}
+
+/// プロトコルの全ダンプを出すか（`full` のみ）。**per-record でログI/Oが走る**ため、
+/// カウンタだけで足りる調査ではこれを外した `summary` を使う（ログ肥大と、書き込み負荷が
+/// キャプチャスレッドを止めて取りこぼしを増やすのを避けるため）。
+pub fn dump_enabled() -> bool {
+    *LEVEL == ProbeLevel::Full
 }
 
 pub fn log_client_tcp(conn: &crate::capture::server::Server, seq: u32, data: &[u8]) {
-    if !enabled() || data.is_empty() {
+    if !dump_enabled() || data.is_empty() {
         return;
     }
     info!(
@@ -33,7 +68,7 @@ pub fn log_client_tcp(conn: &crate::capture::server::Server, seq: u32, data: &[u
 }
 
 pub fn log_client_frame(conn: &crate::capture::server::Server, data: &[u8]) {
-    if !enabled() {
+    if !dump_enabled() {
         return;
     }
     info!(
@@ -44,7 +79,7 @@ pub fn log_client_frame(conn: &crate::capture::server::Server, data: &[u8]) {
 }
 
 pub fn log_server_tcp(conn: &crate::capture::server::Server, seq: u32, data: &[u8]) {
-    if !enabled() || data.is_empty() {
+    if !dump_enabled() || data.is_empty() {
         return;
     }
     info!(
@@ -55,7 +90,7 @@ pub fn log_server_tcp(conn: &crate::capture::server::Server, seq: u32, data: &[u
 }
 
 pub fn log_server_frame(conn: &crate::capture::server::Server, data: &[u8]) {
-    if !enabled() {
+    if !dump_enabled() {
         return;
     }
     info!(
@@ -66,7 +101,7 @@ pub fn log_server_frame(conn: &crate::capture::server::Server, data: &[u8]) {
 }
 
 pub fn log_udp(src: &str, src_port: u16, dst: &str, dst_port: u16, data: &[u8]) {
-    if !enabled() || data.is_empty() {
+    if !dump_enabled() || data.is_empty() {
         return;
     }
     info!(
@@ -78,7 +113,7 @@ pub fn log_udp(src: &str, src_port: u16, dst: &str, dst_port: u16, data: &[u8]) 
 
 /// 全 notify メソッドの到達記録（packet_parser から呼ぶ）。mapped=既知 opcode 名（未知は None）。
 pub fn log_method(service: u64, method: u32, mapped: Option<&str>, payload_len: usize) {
-    if !enabled() {
+    if !dump_enabled() {
         return;
     }
     match mapped {
@@ -93,7 +128,7 @@ pub fn log_method(service: u64, method: u32, mapped: Option<&str>, payload_len: 
 /// 定義されていないフィールドも含めた実態の棚卸し用）。`depth_field` を指定すると、その
 /// field 番号の length-delimited 中身を1段だけ再帰スキャンする（例: 0x15 の v_data=1）。
 pub fn scan_message(tag: &str, data: &[u8], depth_field: Option<u32>) {
-    if !enabled() {
+    if !dump_enabled() {
         return;
     }
     let fields = scan_fields(data);
@@ -123,7 +158,7 @@ pub fn scan_message(tag: &str, data: &[u8], depth_field: Option<u32>) {
 
 /// エンティティ attr の全量ダンプ。値は varint として読めれば数値、読めなければ先頭 hex。
 pub fn log_attrs(ctx: &str, uuid: i64, attrs: &[pb::RawAttr]) {
-    if !enabled() {
+    if !dump_enabled() {
         return;
     }
     let rendered: Vec<String> = attrs
@@ -259,7 +294,7 @@ fn full_hex(data: &[u8]) -> String {
 }
 
 pub fn log_buff_snapshot(ctx: &str, raw: &[u8], info: &pb::BuffSnapshot) {
-    if !enabled() {
+    if !dump_enabled() {
         return;
     }
     let source = info
@@ -286,7 +321,7 @@ pub fn log_buff_snapshot(ctx: &str, raw: &[u8], info: &pb::BuffSnapshot) {
 }
 
 pub fn log_buff_tick(ctx: &str, raw: &[u8], tick: &pb::BuffTick) {
-    if !enabled() {
+    if !dump_enabled() {
         return;
     }
     info!(
@@ -303,7 +338,7 @@ pub fn log_buff_tick(ctx: &str, raw: &[u8], tick: &pb::BuffTick) {
 }
 
 pub fn log_buff_event(event: &pb::BuffEvent, payload: Option<&pb::BuffPayload>) {
-    if !enabled() {
+    if !dump_enabled() {
         return;
     }
     let (buff_type, detail) = payload
@@ -323,7 +358,7 @@ pub fn log_buff_event(event: &pb::BuffEvent, payload: Option<&pb::BuffPayload>) 
 }
 
 pub fn log_buff_change(ctx: &str, raw: &[u8], change: &pb::BuffChange) {
-    if !enabled() {
+    if !dump_enabled() {
         return;
     }
     info!(
@@ -439,6 +474,77 @@ pub fn log_lucky_collision(value: i64, lucky_value: i64, hp_lessen_value: i64) {
     }
 }
 
+/// M7: 召喚エンティティ由来（`top_summoner_id != 0`）のダメージのスキル別内訳。
+/// 値は (件数, 実効値合計)。キーは skill_uid（`owner_id`）。
+static SUMMON_DAMAGE_BY_SKILL: LazyLock<Mutex<HashMap<i32, (u64, i64)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// M8: 総ダメージ（`encounter.dmg_stats`）へ計上した非Healダメージの対象別内訳。
+/// 値は (件数, 実効値合計)。キーは (target_uid, target の monster_id)。
+static DAMAGE_BY_TARGET: LazyLock<Mutex<HashMap<(i64, Option<u32>), (u64, i64)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// M7/M8 の内訳ログに並べる最大件数（1行が肥大しないよう上位のみ出す）。
+const BREAKDOWN_TOP_N: usize = 12;
+
+/// M7: 召喚体が出したダメージをスキル別に計上する。`actual_value` は
+/// combat_stats::actual_value と同じ「lucky_value優先」の実効値。
+///
+/// [`record_non_player_attacker`] とは**別の観点**であることに注意。あちらは
+/// `top_summoner_id` が付かず主人へ寄せ *られなかった* ものを数える（＝帰属漏れの検出）。
+/// こちらは `top_summoner_id` で主人へ正しく寄せた上で「元々は召喚体が出した分」を数える。
+/// 当アプリはこれを主人の火力として合算するが、ゲーム内の木人計測パネルが召喚体のダメージを
+/// 数えていない場合、**この合計がそのまま両者の表示差になる**。
+pub fn record_summon_damage(skill_uid: i32, actual_value: i64) {
+    if !enabled() {
+        return;
+    }
+    // 中身は計数のみでロック跨ぎの不変条件を持たないため、poison しても値は使える
+    // （他スレッドの panic で調査ログが丸ごと死ぬほうが困る）。
+    let mut map = SUMMON_DAMAGE_BY_SKILL
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let slot = map.entry(skill_uid).or_insert((0, 0));
+    slot.0 += 1;
+    slot.1 += actual_value;
+}
+
+/// M8: `encounter.dmg_stats` へ実際に積んだ非Healダメージを対象別に計上する
+/// （`actual_value` の意味は上と同じ）。呼び出し位置は dmg_stats への加算と同じ分岐に置くこと。
+///
+/// 用途は「ターゲットロックが要るか」の判定。当アプリの総ダメージは target を一切見ずに
+/// 加算するため、範囲攻撃が計測対象以外へ当たっていればここに別キーとして現れる。
+/// 木人計測中に distinct が 1 のままなら、対象を絞る実装は当環境では不要と判断できる。
+pub fn record_damage_target(target_uid: i64, monster_id: Option<u32>, actual_value: i64) {
+    if !enabled() {
+        return;
+    }
+    let mut map = DAMAGE_BY_TARGET
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let slot = map.entry((target_uid, monster_id)).or_insert((0, 0));
+    slot.0 += 1;
+    slot.1 += actual_value;
+}
+
+/// 内訳マップを「実効値の降順・上位 [`BREAKDOWN_TOP_N`] 件」の1行文字列にする。
+/// 打ち切った件数は `+N more` として必ず明示する（黙って切ると「全部これだけ」と誤読される）。
+fn format_breakdown<K>(entries: Vec<(K, (u64, i64))>, label: impl Fn(&K) -> String) -> String {
+    let mut entries = entries;
+    entries.sort_by(|a, b| b.1.1.cmp(&a.1.1));
+    let shown: Vec<String> = entries
+        .iter()
+        .take(BREAKDOWN_TOP_N)
+        .map(|(k, (n, v))| format!("{} n={n} value={v}", label(k)))
+        .collect();
+    let rest = entries.len().saturating_sub(shown.len());
+    if rest == 0 {
+        format!("[{}]", shown.join(", "))
+    } else {
+        format!("[{}, +{rest} more]", shown.join(", "))
+    }
+}
+
 /// M6: 戦闘時計（time_fight_start_ms）が起動した瞬間、そのデルタが damages を含んでいたか。
 /// false なら自己バフ・詠唱等の非ダメージ delta で時計が起動しており、分母（経過時間）が
 /// 実ダメージ開始より早く進み始めている可能性を示す。
@@ -471,5 +577,34 @@ pub fn log_and_reset_encounter_summary() {
 
     info!(
         "PROBE encounter-summary: skip_no_attacker(n={skip_attacker_n}, value={skip_attacker_v}) skip_no_skill(n={skip_skill_n}, value={skip_skill_v}) non_player_attacker(n={non_player_n}, value={non_player_v}) lucky_collision(n={lucky_n}) capture(subnet_cap_hits={subnet_cap_hits}, reassembly_gaps={reassembly_gaps}, dropped_frames={dropped_frames})"
+    );
+
+    // M7: 召喚体由来のダメージ（主人へ合算済み）の内訳。ゲーム内の木人パネルが召喚体を
+    // 数えていないなら、この total がそのまま表示差になるはず、という突合に使う。
+    let summon: HashMap<i32, (u64, i64)> = {
+        let mut map = SUMMON_DAMAGE_BY_SKILL
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        std::mem::take(&mut *map)
+    };
+    let summon_n: u64 = summon.values().map(|(n, _)| n).sum();
+    let summon_v: i64 = summon.values().map(|(_, v)| v).sum();
+    let summon_breakdown = format_breakdown(summon.into_iter().collect(), |k| format!("skill={k}"));
+    info!("PROBE encounter-summon: total(n={summon_n}, value={summon_v}) by_skill={summon_breakdown}");
+
+    // M8: 総ダメージへ積んだ非Healダメージの対象別内訳。distinct が 1 なら計測対象以外へは
+    // 一切飛んでいない＝ターゲットロックは当環境では不要、と判断できる。
+    let targets: HashMap<(i64, Option<u32>), (u64, i64)> = {
+        let mut map = DAMAGE_BY_TARGET
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        std::mem::take(&mut *map)
+    };
+    let targets_distinct = targets.len();
+    let targets_breakdown = format_breakdown(targets.into_iter().collect(), |(uid, monster_id)| {
+        format!("target={uid} monster_id={monster_id:?}")
+    });
+    info!(
+        "PROBE encounter-targets: distinct={targets_distinct} by_target={targets_breakdown}"
     );
 }

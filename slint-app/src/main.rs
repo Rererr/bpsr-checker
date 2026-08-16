@@ -393,7 +393,7 @@ fn build_rows(
             non_local_above < graph_count
         };
         let spark = if show_spark {
-            build_spark_commands(&p.time_series, 100.0, 16.0)
+            build_spark_commands(&p.time_series)
         } else {
             String::new()
         };
@@ -593,36 +593,51 @@ fn build_history_rows(
     out
 }
 
-/// 時系列を viewbox(vw×vh) 内の折れ線 SVG パスへ。値抽出は sel で指定。Sparkline.tsx 移植。
+/// 折れ線パスの座標系。**0..1 の正規化座標**で生成し、.slint 側の Path が
+/// `viewbox-width/height: 1` ＋ `fit: fill` で要素サイズへ引き伸ばす。
+/// 実寸(px)を Rust 側へ渡す経路を持たないため、レイアウト前に生成したパスでも縮尺がズレない
+/// （issue #7 の回帰防止。旧実装はプロット実寸px座標で生成し `changed width/height` で
+/// 再生成していたが、モーダルを開いた初回は発火せず暫定値のまま描かれていた）。
+///
+/// **この値を変えるときは app.slint 側の `viewbox-width` / `viewbox-height`
+/// （SparkGraph の Path と PlayerRowItem の推移列 Path）も同じ値にすること。**
+/// 食い違うと fit:fill が別の倍率で引き伸ばし、折れ線だけが軸とズレる。
+const SPARK_VB: f32 = 1.0;
+
+/// 正規化座標1点を M/L コマンドへ。座標系が 0..1 のため小数4桁で出す
+/// （1500px 幅でも 0.15px 相当の分解能があり、目視では等倍と区別できない）。
+fn spark_point(s: &mut String, first: bool, x: f32, y: f32) {
+    if first {
+        s.push_str(&format!("M {x:.4} {y:.4}"));
+    } else {
+        s.push_str(&format!(" L {x:.4} {y:.4}"));
+    }
+}
+
+/// 時系列を正規化座標(0..1)の折れ線 SVG パスへ。値抽出は sel で指定。Sparkline.tsx 移植。
 /// 点が2未満なら空文字（呼び出し側で非表示判定に使う）。
 fn build_spark_with(
     points: &[bpsr_core::models::TimeSeriesPoint],
-    vw: f32,
-    vh: f32,
     sel: impl Fn(&bpsr_core::models::TimeSeriesPoint) -> f64,
 ) -> String {
     if points.len() < 2 {
         return String::new();
     }
     let max = points.iter().map(&sel).fold(1.0_f64, f64::max);
-    let step = vw / (points.len() - 1) as f32;
-    let mut s = String::with_capacity(points.len() * 12);
+    let step = SPARK_VB / (points.len() - 1) as f32;
+    let mut s = String::with_capacity(points.len() * 18);
     for (i, p) in points.iter().enumerate() {
         let x = i as f32 * step;
-        let y = vh - (sel(p) / max) as f32 * vh;
-        if i == 0 {
-            s.push_str(&format!("M {x:.1} {y:.1}"));
-        } else {
-            s.push_str(&format!(" L {x:.1} {y:.1}"));
-        }
+        let y = SPARK_VB - (sel(p) / max) as f32 * SPARK_VB;
+        spark_point(&mut s, i == 0, x, y);
     }
     s
 }
 
 /// 窓DPS の折れ線（ヘッダー/プレイヤースパークライン＋3分計測 結果のキャラ/スキル推移用）。
 /// 累積ダメージだと単調右肩上がりでバースト区間が判別できないため、区間DPS で起伏を見せる。
-fn build_spark_commands(points: &[bpsr_core::models::TimeSeriesPoint], vw: f32, vh: f32) -> String {
-    build_spark_with(points, vw, vh, |p| p.total_dps)
+fn build_spark_commands(points: &[bpsr_core::models::TimeSeriesPoint]) -> String {
+    build_spark_with(points, |p| p.total_dps)
 }
 
 /// PlayerRow → コピーテンプレ用データ（copy-list / 結果コピーで共用）。
@@ -829,51 +844,46 @@ fn build_result_skill_rows(
 /// ただし左端は 0:00 へ接地する: 初使用が 0:00 より後の系列（途中から使ったスキル/途中参戦
 /// キャラ）は (x=0, dps=0) から初使用直前まで底辺の平坦線を引き、折れ線を必ず左端へ届かせる。
 /// 右端は確定時の終端サンプル（compute::seal_3min_series）で計測末尾へ接地済み。
-/// 折れ線パスを「プロット実寸(px)座標」で生成する（M/L コマンド文字列）。
-/// SparkGraph 側は viewbox をプロット実寸に一致させるため、ここでも実寸 vw×vh で座標を出す
-/// （Slint Path の縦横比保持による中央寄せ・横潰れを回避＝X全幅・Y軸グリッドと整合）。
-/// 実寸が変わったら再生成が必要（SparkGraph.resized 経由で呼ぶ）。
+/// 座標は正規化(0..1。`SPARK_VB`)で、要素サイズへの引き伸ばしは .slint の `fit: fill` が行う。
 fn build_spark_dps_time(
     points: &[bpsr_core::models::TimeSeriesPoint],
     duration_ms: f64,
-    vw: f32,
-    vh: f32,
 ) -> String {
-    if points.len() < 2 || vw <= 0.0 || vh <= 0.0 {
+    if points.len() < 2 {
         return String::new();
     }
     let max = points.iter().map(|p| p.total_dps).fold(1.0_f64, f64::max);
     let dur = duration_ms.max(1.0);
-    let mut s = String::with_capacity((points.len() + 2) * 14);
+    let mut s = String::with_capacity((points.len() + 2) * 18);
 
     // 左端接地: 最初のサンプルが 0:00 より後（途中から使ったスキル/途中参戦キャラ）なら、
     // (x=0, dps=0) から初使用直前まで底辺の平坦線を引き、折れ線を必ず左端へ届かせる。
     // 未使用区間=0 の表現なので誤解はなく、右端は終端サンプルで既に接地している。
-    let first_x = (points[0].t_ms / dur).clamp(0.0, 1.0) as f32 * vw;
+    // 閾値は「およそ0.5px相当」（幅1000px前後のプロットを想定）。これ未満のズレで接地線を
+    // 引くと、左端に潰れた縦線が出るだけで情報が増えないため描かない。
+    const GROUND_EPS: f32 = 0.0005 * SPARK_VB;
+    let first_x = (points[0].t_ms / dur).clamp(0.0, 1.0) as f32 * SPARK_VB;
     let mut drawn = false;
-    if first_x > 0.5 {
-        s.push_str(&format!("M 0.0 {vh:.1} L {first_x:.2} {vh:.1}"));
+    if first_x > GROUND_EPS {
+        spark_point(&mut s, true, 0.0, SPARK_VB);
+        spark_point(&mut s, false, first_x, SPARK_VB);
         drawn = true;
     }
     for p in points {
-        let x = (p.t_ms / dur).clamp(0.0, 1.0) as f32 * vw;
-        let y = vh - (p.total_dps / max) as f32 * vh;
-        if drawn {
-            s.push_str(&format!(" L {x:.2} {y:.2}"));
-        } else {
-            s.push_str(&format!("M {x:.2} {y:.2}"));
-            drawn = true;
-        }
+        let x = (p.t_ms / dur).clamp(0.0, 1.0) as f32 * SPARK_VB;
+        let y = SPARK_VB - (p.total_dps / max) as f32 * SPARK_VB;
+        spark_point(&mut s, !drawn, x, y);
+        drawn = true;
     }
     s
 }
 
 /// 選択キャラの区間DPS折れ線（エリア1）。snap の player_rows[uid] の time_series から。
-fn build_char_spark(snap: &bpsr_core::models::EncounterSnapshot, uid: i64, vw: f32, vh: f32) -> String {
+fn build_char_spark(snap: &bpsr_core::models::EncounterSnapshot, uid: i64) -> String {
     snap.player_rows
         .iter()
         .find(|p| p.uid as i64 == uid)
-        .map(|p| build_spark_dps_time(&p.time_series, snap.duration_ms, vw, vh))
+        .map(|p| build_spark_dps_time(&p.time_series, snap.duration_ms))
         .unwrap_or_default()
 }
 
@@ -882,13 +892,11 @@ fn build_skill_spark(
     skills: &[bpsr_core::models::SkillRow],
     selected_skill_uid: i64,
     duration_ms: f64,
-    vw: f32,
-    vh: f32,
 ) -> String {
     skills
         .iter()
         .find(|s| s.uid as i64 == selected_skill_uid)
-        .map(|s| build_spark_dps_time(&s.time_series, duration_ms, vw, vh))
+        .map(|s| build_spark_dps_time(&s.time_series, duration_ms))
         .unwrap_or_default()
 }
 
@@ -924,10 +932,9 @@ fn apply_result_skill_selection(
     selected_skill_uid: i64,
     result_skill_rows: &slint::VecModel<ResultSkillRowUi>,
     duration_ms: f64,
-    skill_dims: (f32, f32),
 ) {
     result_skill_rows.set_vec(build_result_skill_rows(skills, selected_skill_uid));
-    let spark = build_skill_spark(skills, selected_skill_uid, duration_ms, skill_dims.0, skill_dims.1);
+    let spark = build_skill_spark(skills, selected_skill_uid, duration_ms);
     m.set_result_skill_spark_visible(!spark.is_empty());
     m.set_result_skill_spark(spark.into());
     let (stop, smid) = skill_axis_labels(skills, selected_skill_uid);
@@ -957,13 +964,11 @@ fn apply_result_selection(
     selected_player: &std::cell::Cell<i64>,
     selected_skill: &std::cell::Cell<i64>,
     privacy: bool,
-    char_dims: (f32, f32),
-    skill_dims: (f32, f32),
 ) {
     selected_player.set(uid);
     result_rows.set_vec(build_result_rows(snap, uid, privacy));
     // エリア1: 選択キャラの区間DPS折れ線
-    let char_spark = build_char_spark(snap, uid, char_dims.0, char_dims.1);
+    let char_spark = build_char_spark(snap, uid);
     m.set_result_char_spark_visible(!char_spark.is_empty());
     m.set_result_char_spark(char_spark.into());
     let (ctop, cmid) = char_axis_labels(snap, uid);
@@ -994,7 +999,7 @@ fn apply_result_selection(
     let skills = captured.get(&uid).unwrap_or(&empty);
     let default_skill = skills.first().map(|s| s.uid as i64).unwrap_or(0);
     selected_skill.set(default_skill);
-    apply_result_skill_selection(m, skills, default_skill, result_skill_rows, snap.duration_ms, skill_dims);
+    apply_result_skill_selection(m, skills, default_skill, result_skill_rows, snap.duration_ms);
     // エリア3: TOP10＋その他 の円グラフ＋凡例
     let entries = top10_with_other(skills);
     let colored: Vec<(slint::Color, f64)> = entries.iter().map(|(_, c, v)| (*c, *v)).collect();
@@ -1016,8 +1021,6 @@ fn show_result(
     selected_player: &std::cell::Cell<i64>,
     selected_skill: &std::cell::Cell<i64>,
     privacy: bool,
-    char_dims: (f32, f32),
-    skill_dims: (f32, f32),
 ) {
     m.set_result_dps(format::format_dps(snap.total_dps).into());
     m.set_result_dmg(format::format_number(snap.total_dmg).into());
@@ -1035,8 +1038,6 @@ fn show_result(
         selected_player,
         selected_skill,
         privacy,
-        char_dims,
-        skill_dims,
     );
     m.set_result_open(true);
 }
@@ -2725,10 +2726,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let result_countup_timer = Rc::new(Timer::default());
     // カウントアップ中の最終値（画像コピー時に即完了させ、途中値が写り込むのを防ぐため共有）。
     let result_countup_final = Rc::new(Cell::new((0.0_f64, 0.0_f64)));
-    // 折れ線プロットの実寸(px)。SparkGraph.resized で更新し、再生成時の座標スケールに使う。
-    // 初期値は初回レイアウト前の暫定（resized 発火で実値に置換される）。
-    let char_plot_dims = Rc::new(Cell::new((600.0_f32, 40.0_f32)));
-    let skill_plot_dims = Rc::new(Cell::new((600.0_f32, 40.0_f32)));
 
     // 自キャラUID 候補モデル
     let uid_candidates = Rc::new(VecModel::<UidCandidate>::default());
@@ -4089,8 +4086,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let sel_p = selected_result_player.clone();
         let sel_s = selected_result_skill.clone();
         let cfg_sp = cfg.clone();
-        let cdim = char_plot_dims.clone();
-        let sdim = skill_plot_dims.clone();
         main.on_select_result_player(move |uid_str| {
             let uid: i64 = uid_str.as_str().parse().unwrap_or(0);
             let snap = lr.borrow();
@@ -4110,8 +4105,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     &sel_p,
                     &sel_s,
                     cfg_sp.borrow().privacy_mask_names,
-                    cdim.get(),
-                    sdim.get(),
                 );
             }
         });
@@ -4123,7 +4116,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let rsr = result_skill_rows.clone();
         let sel_p = selected_result_player.clone();
         let sel_s = selected_result_skill.clone();
-        let sdim = skill_plot_dims.clone();
         main.on_select_result_skill(move |uid_str| {
             let skill_uid: i64 = uid_str.as_str().parse().unwrap_or(0);
             sel_s.set(skill_uid);
@@ -4132,44 +4124,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let skills = captured.get(&sel_p.get()).unwrap_or(&empty);
             if let Some(m) = w.upgrade() {
                 let dur = m.get_result_duration_ms() as f64;
-                apply_result_skill_selection(&m, skills, skill_uid, &rsr, dur, sdim.get());
+                apply_result_skill_selection(&m, skills, skill_uid, &rsr, dur);
             }
-        });
-    }
-    // 3分計測 結果パネル: キャラ折れ線プロットの実寸変化→実寸座標でパス再生成
-    {
-        let w = main.as_weak();
-        let lr = last_result.clone();
-        let sel_p = selected_result_player.clone();
-        let cdim = char_plot_dims.clone();
-        main.on_result_char_spark_resized(move |pw, ph| {
-            cdim.set((pw, ph));
-            let Some(m) = w.upgrade() else { return; };
-            let snap = lr.borrow();
-            let Some(snap) = snap.as_ref() else { return; };
-            let s = build_char_spark(snap, sel_p.get(), pw, ph);
-            m.set_result_char_spark_visible(!s.is_empty());
-            m.set_result_char_spark(s.into());
-        });
-    }
-    // 3分計測 結果パネル: スキル折れ線プロットの実寸変化→実寸座標でパス再生成
-    {
-        let w = main.as_weak();
-        let lr = last_result.clone();
-        let cs = captured_skills.clone();
-        let sel_p = selected_result_player.clone();
-        let sel_s = selected_result_skill.clone();
-        let sdim = skill_plot_dims.clone();
-        main.on_result_skill_spark_resized(move |pw, ph| {
-            sdim.set((pw, ph));
-            let Some(m) = w.upgrade() else { return; };
-            let dur = lr.borrow().as_ref().map(|s| s.duration_ms).unwrap_or(1.0);
-            let captured = cs.borrow();
-            let empty = Vec::new();
-            let skills = captured.get(&sel_p.get()).unwrap_or(&empty);
-            let s = build_skill_spark(skills, sel_s.get(), dur, pw, ph);
-            m.set_result_skill_spark_visible(!s.is_empty());
-            m.set_result_skill_spark(s.into());
         });
     }
     // 3分計測 結果パネル: 上位10行を copy_template でコピー
@@ -4323,8 +4279,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let selected_result_skill_poll = selected_result_skill.clone();
     let captured_skills_poll = captured_skills.clone();
     let last_result_poll = last_result.clone();
-    let char_plot_dims_poll = char_plot_dims.clone();
-    let skill_plot_dims_poll = skill_plot_dims.clone();
     let compact_left_poll = compact_left.clone();
     let compact_right_poll = compact_right.clone();
     let uid_candidates_poll = uid_candidates.clone();
@@ -4498,8 +4452,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             &selected_result_player_poll,
                             &selected_result_skill_poll,
                             c.privacy_mask_names,
-                            char_plot_dims_poll.get(),
-                            skill_plot_dims_poll.get(),
                         );
                         // 新記録バッジ/自己ベスト併記の表示プロパティへ反映（モーダルを開く時のみ）。
                         apply_result_best_record_ui(&m, best_outcome);
@@ -5005,5 +4957,43 @@ mod tests {
         assert_eq!(time, "");
         assert_eq!(label, "");
         assert_eq!(tint, slint::Color::from_rgb_u8(0xb0, 0x7c, 0xff));
+    }
+
+    fn ts_point(t_ms: f64, dps: f64) -> bpsr_core::models::TimeSeriesPoint {
+        bpsr_core::models::TimeSeriesPoint { t_ms, total_dmg: 0.0, total_dps: dps }
+    }
+
+    /// パス文字列から数値トークンだけを取り出す（M/L と座標が空白区切りで並ぶ前提）。
+    fn spark_coords(cmds: &str) -> Vec<f32> {
+        cmds.split_whitespace().filter_map(|t| t.parse::<f32>().ok()).collect()
+    }
+
+    // issue #7 回帰防止: 最終サンプルが計測末尾なら折れ線は右端(SPARK_VB)まで届く。
+    // 旧実装はプロット実寸(px)を引数で受けており、実寸が渡らないと途中で切れていた
+    // （現在は実寸を受ける引数自体が無く、引き伸ばしは .slint の fit:fill が行う）。
+    #[test]
+    fn spark_path_reaches_right_edge_when_last_sample_is_at_duration() {
+        let pts = vec![ts_point(0.0, 10.0), ts_point(90_000.0, 20.0), ts_point(180_000.0, 5.0)];
+        let cmds = build_spark_dps_time(&pts, 180_000.0);
+        let coords = spark_coords(&cmds);
+        let last_x = coords[coords.len() - 2]; // 末尾は (x, y) の並び
+        assert!((last_x - SPARK_VB).abs() < 1e-4, "右端まで届いていない: {cmds}");
+    }
+
+    // 座標が正規化範囲(0..SPARK_VB)を出ないこと。範囲外の点は fit:fill 後に要素外へ出て
+    // クリップされ、DPSが低い区間の線が消える（issue #7 で実際に起きた症状）。
+    #[test]
+    fn spark_path_coords_stay_inside_normalized_viewbox() {
+        let pts = vec![ts_point(0.0, 0.0), ts_point(60_000.0, 12_345.0), ts_point(180_000.0, 1.0)];
+        let cmds = build_spark_dps_time(&pts, 180_000.0);
+        for v in spark_coords(&cmds) {
+            assert!((0.0..=SPARK_VB).contains(&v), "正規化座標の範囲外: {v} / {cmds}");
+        }
+        // 最大DPSの点は上端(y=0)、最小は下端(y=SPARK_VB)＝Y方向も全高を使う。
+        let ys: Vec<f32> = spark_coords(&cmds).iter().skip(1).step_by(2).copied().collect();
+        let ymin = ys.iter().copied().fold(f32::INFINITY, f32::min);
+        let ymax = ys.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        assert!(ymin.abs() < 1e-4, "最大DPSが上端に接していない: {cmds}");
+        assert!((ymax - SPARK_VB).abs() < 1e-4, "DPS=0 が下端に接していない: {cmds}");
     }
 }

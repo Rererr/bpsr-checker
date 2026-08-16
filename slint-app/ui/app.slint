@@ -33,7 +33,7 @@ struct Row {
     score-text: string,
     eff-dps-text: string, // 有効DPS（実働時間ベース）
     watched: bool,
-    spark-commands: string, // この行のDPS推移（空=非表示行）。viewbox 100x16
+    spark-commands: string, // この行のDPS推移（空=非表示行）。正規化座標(viewbox 1x1)
     food-active: bool,      // 食事バフ使用中
     food-remaining: float,  // 食事の残量割合 0..1（アイコンの色が上から縦に抜ける）
     food-time: string,      // ホバー時の残り時間（例: 45s）
@@ -812,8 +812,10 @@ component PlayerRowItem inherits Rectangle {
                 height: 14px;
                 viewbox-x: 0;
                 viewbox-y: 0;
-                viewbox-width: 100;
-                viewbox-height: 16;
+                // 正規化座標(0..1)。fit:fill でセルいっぱいへ引き伸ばす（SparkGraph と同じ規約）。
+                viewbox-width: 1;
+                viewbox-height: 1;
+                fit: fill;
                 commands: root.entry.spark-commands;
                 stroke: root.entry.class-color;
                 stroke-width: 1.2px;
@@ -1168,25 +1170,22 @@ component NewRecordBadge inherits Rectangle {
 // 折れ線グラフ＋左Y軸目安(上=最大/中=半分/下=0)＋時間X軸(区切り本数は横幅で可変)＋グリッド線。
 component SparkGraph inherits VerticalLayout {
     in property <bool> visible-graph;
-    // 結果モーダル全体の文字倍率（MainWindow.result-scale から伝播）。折れ線本体は実寸px方式で
-    // resized のたびに再生成されるためこの倍率と無関係に窓へ追随する（対象は軸ラベルの文字のみ）。
+    // 結果モーダル全体の文字倍率（MainWindow.result-scale から伝播）。折れ線本体は正規化座標で
+    // プロット全体へ引き伸ばされるためこの倍率と無関係（対象は軸ラベルの文字のみ）。
     in property <float> result-scale: 1.0;
-    // パスコマンド（M/L）。座標は viewbox=プロット実寸(px) に一致させた「ピクセル座標」。
-    // Slint の Path は viewbox を縦横比保持でスケールするため、viewbox を要素実寸に合わせ、
-    // パスも実寸座標で渡すことで等倍描画（X全幅・Y軸グリッド整合）にする。実寸が変わると
-    // パスを作り直す必要があるため resized で通知する。
+    // パスコマンド（M/L）。座標は **0..1 の正規化座標**（Rust 側 SPARK_VB）。下の Path が
+    // viewbox 1x1 ＋ fit:fill でプロット実寸へ引き伸ばす（X全幅・Y軸グリッドと整合）。
+    // 実寸(px)を Rust へ渡さないので、レイアウト前に生成されたパスでも縮尺がズレない
+    // （旧実装は実寸px座標＋changed width/height 通知だったが、モーダルを開いた初回は
+    //  発火せず暫定値のまま描かれ、折れ線が途中で切れていた。issue #7）。
     in property <string> commands;
     in property <color> line-color;
     in property <string> axis-top;
     in property <string> axis-mid;
     in property <string> empty-text;
     in property <float> duration-ms;                 // X軸の総時間（ms）
-    // プロット実寸(px)が変わったら通知（呼び出し側がこの寸法でパスを再生成する）。
-    callback resized(float /* width-px */, float /* height-px */);
     // X軸の区切り本数（横幅で可変。約80pxごとに1区切り、2〜7本）。
     property <int> x-ticks: Math.max(2, Math.min(7, Math.floor(plot.width / 80px)));
-    property <float> vbw: plot.width / 1px;
-    property <float> vbh: plot.height / 1px;
     spacing: 2px;
 
     // 主行: 左Y軸 ＋ グラフ
@@ -1204,8 +1203,6 @@ component SparkGraph inherits VerticalLayout {
         plot := Rectangle {
             horizontal-stretch: 1;
             clip: true;
-            changed width => { root.resized(self.width / 1px, self.height / 1px); }
-            changed height => { root.resized(self.width / 1px, self.height / 1px); }
             // 横グリッド（上/中/下）
             Rectangle { y: 0; width: 100%; height: 1px; background: #ffffff14; }
             Rectangle { y: parent.height / 2; width: 100%; height: 1px; background: #ffffff10; }
@@ -1224,8 +1221,11 @@ component SparkGraph inherits VerticalLayout {
                 height: 100%;
                 viewbox-x: 0;
                 viewbox-y: 0;
-                viewbox-width: root.vbw;
-                viewbox-height: root.vbh;
+                viewbox-width: 1;
+                viewbox-height: 1;
+                // fill=縦横比を保たず要素いっぱいへ引き伸ばす。既定の contain だと
+                // 縦横比保持で横が縮み中央寄せされる（X軸ラベルと折れ線がズレる）。
+                fit: fill;
                 commands: root.commands;
                 stroke: root.line-color;
                 stroke-width: 1px;
@@ -2754,14 +2754,12 @@ export component MainWindow inherits Window {
     in property <string> result-dps;
     in property <string> result-dmg;
     in property <string> result-duration;
-    in property <string> result-char-spark;         // エリア1: 選択キャラの区間DPS折れ線（実寸px座標）
+    in property <string> result-char-spark;         // エリア1: 選択キャラの区間DPS折れ線（正規化座標）
     in property <bool> result-char-spark-visible;
-    callback result-char-spark-resized(float, float); // プロット実寸(px)変化→Rustが再生成
     in property <[ResultRowUi]> result-rows;        // エリア1: キャラ一覧（最大5）
     in property <[ResultSkillRowUi]> result-skill-rows; // エリア2: スキル内訳
-    in property <string> result-skill-spark;        // エリア2: 選択スキルの区間DPS折れ線（実寸px座標）
+    in property <string> result-skill-spark;        // エリア2: 選択スキルの区間DPS折れ線（正規化座標）
     in property <bool> result-skill-spark-visible;
-    callback result-skill-spark-resized(float, float); // プロット実寸(px)変化→Rustが再生成
     in property <[PieSlice]> result-pie;            // エリア3: TOP10+その他 円グラフ
     in property <[SkillLegendUi]> result-legend;
     in property <string> result-pie-title;
@@ -3710,7 +3708,6 @@ export component MainWindow inherits Window {
                                 vertical-stretch: 1;
                                 visible-graph: root.result-char-spark-visible;
                                 commands: root.result-char-spark;
-                                resized(w, h) => { root.result-char-spark-resized(w, h); }
                                 line-color: Theme.accent;
                                 axis-top: root.result-char-axis-top;
                                 axis-mid: root.result-char-axis-mid;
@@ -3802,7 +3799,6 @@ export component MainWindow inherits Window {
                                 vertical-stretch: 1;
                                 visible-graph: root.result-skill-spark-visible;
                                 commands: root.result-skill-spark;
-                                resized(w, h) => { root.result-skill-spark-resized(w, h); }
                                 line-color: #66bb6a;
                                 axis-top: root.result-skill-axis-top;
                                 axis-mid: root.result-skill-axis-mid;

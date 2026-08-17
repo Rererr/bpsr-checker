@@ -15,7 +15,7 @@
 ## スクリーンショット
 
 <p align="center">
-  <img src="../images/result-3min.png" alt="3分計測結果のスキル内訳" width="820">
+  <img src="../images/feature-skill-breakdown.png" alt="プレイヤーのスキル別ダメージ内訳" width="820">
 </p>
 
 計測結果の下部に、選択したプレイヤーのスキル内訳と、スキル構成を示す円グラフが表示されます。

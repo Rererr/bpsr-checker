@@ -26,7 +26,7 @@ DPS 一覧の各行に表示する横バーの基準を、4種類から選べま
 各プレイヤー行の背景に、設定した基準に応じたバーが表示されます。
 
 <p align="center">
-  <img src="../images/settings.png" alt="設定パネルの表示例" width="820">
+  <img src="../images/feature-settings-overview.png" alt="バー表示方式とバー濃度を含む設定パネル" width="820">
 </p>
 
 バー表示方式、濃度、アニメーションは設定パネルで変更できます。

@@ -21,7 +21,7 @@
 食事・シロップのタイマーは、名前列の情報と同じ場所に表示されます。
 
 <p align="center">
-  <img src="../images/settings.png" alt="食事とシロップ表示を含む設定パネル" width="820">
+  <img src="../images/feature-settings-overview.png" alt="食事とシロップ表示を含む設定パネル" width="820">
 </p>
 
 設定パネルの表示欄からまとめて切り替えられます。

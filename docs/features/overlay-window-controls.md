@@ -18,7 +18,7 @@
 ## スクリーンショット
 
 <p align="center">
-  <img src="../images/main.png" alt="最前面ピンと最小化ボタンのあるメイン画面" width="820">
+  <img src="../images/feature-footer.png" alt="最前面ピンとウィンドウ操作ボタンのあるメイン画面" width="820">
 </p>
 
 メイン画面のヘッダーから、最前面ピンや最小化などの操作を行えます。

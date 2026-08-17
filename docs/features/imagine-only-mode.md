@@ -17,13 +17,13 @@ DPS と回復の集計を停止し、イマジンデバフタイマーだけを�
 ## スクリーンショット
 
 <p align="center">
-  <img src="../images/debuff-timer.png" alt="デバフタイマー専用モードで使うタイマー" width="820">
+  <img src="../images/feature-imagine-only.png" alt="イマジン専用モードの専用バナー" width="820">
 </p>
 
 専用モードでは、集計を止めたままタイマー表示を確認できます。
 
 <p align="center">
-  <img src="../images/settings.png" alt="イマジン専用モードを含む設定パネル" width="820">
+  <img src="../images/feature-settings-overview.png" alt="イマジン専用モードを含む設定パネル" width="820">
 </p>
 
 設定パネルのイマジンタイマー欄から切り替えます。

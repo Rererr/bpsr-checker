@@ -18,13 +18,13 @@
 ## スクリーンショット
 
 <p align="center">
-  <img src="../images/settings.png" alt="設定パネルの表示例" width="820">
+  <img src="../images/feature-shortcuts.png" alt="グローバルショートカット設定ダイアログ" width="820">
 </p>
 
 グローバルショートカットは設定パネルから登録・変更します。
 
 <p align="center">
-  <img src="../images/main.png" alt="ショートカット操作の対象になるメイン画面" width="820">
+  <img src="../images/feature-settings-bottom.png" alt="ショートカット設定を開く設定パネル" width="820">
 </p>
 
 登録したキーで、ゲーム中でもメイン画面の計測やコピーを操作できます。

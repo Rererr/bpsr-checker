@@ -16,7 +16,7 @@
 ## スクリーンショット
 
 <p align="center">
-  <img src="../images/settings.png" alt="外観設定を含む設定パネル" width="820">
+  <img src="../images/feature-overlay-appearance.png" alt="透明度・フォント・文字色を含む外観設定" width="820">
 </p>
 
 設定パネルでは、オーバーレイ用の外観をまとめて調整できます。

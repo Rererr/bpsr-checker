@@ -15,13 +15,13 @@
 ## スクリーンショット
 
 <p align="center">
-  <img src="../images/main.png" alt="メイン画面の表示例" width="820">
+  <img src="../images/feature-footer.png" alt="GitHubで報告とお問い合わせを表示したメイン画面" width="820">
 </p>
 
 フッターはメイン画面の下端に表示される問い合わせ導線です。
 
 <p align="center">
-  <img src="../images/settings.png" alt="設定パネルの表示例" width="820">
+  <img src="../images/feature-settings-overview.png" alt="フッター表示を含む設定パネル" width="820">
 </p>
 
 設定パネルからフッター表示の ON/OFF を切り替えられます。

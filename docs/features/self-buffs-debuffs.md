@@ -21,7 +21,7 @@
 バフとデバフを分け、残時間バーとスタック数を表示します。
 
 <p align="center">
-  <img src="../images/settings.png" alt="バフとデバフ表示を切り替える設定パネル" width="820">
+  <img src="../images/feature-overlay-appearance.png" alt="バフとデバフのオーバーレイ設定を含む設定パネル" width="820">
 </p>
 
 設定パネルのオーバーレイ欄から表示を切り替えます。

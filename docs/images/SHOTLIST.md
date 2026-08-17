@@ -9,6 +9,17 @@ README と機能ドキュメントが参照する画像一覧。全てデモモ�
 | `result-3min.png` | 3 分計測の結果画面（DPS 推移折れ線＋スキル円グラフ＋画像コピー） |
 | `debuff-timer.png` | イマジンデバフタイマー（4人追跡・色リング） |
 | `self-status.png` | 自キャラ バフ/デバフ（残時間バー・×N スタック表示） |
+| `feature-compact-layout.png` | 軽量分割表示を ON にした実際の2列 DPS 一覧 |
+| `feature-effective-dps.png` | 有効 DPS 列を表示した実際の DPS 一覧 |
+| `feature-history.png` | 履歴タブを開いた実際のメイン画面 |
+| `feature-skill-breakdown.png` | プレイヤーのスキル別ダメージ内訳画面 |
+| `feature-imagine-only.png` | イマジン専用モードの専用バナー画面 |
+| `feature-self-status.png` | 自キャラステータスの独立オーバーレイ |
+| `feature-shortcuts.png` | グローバルショートカット設定ダイアログ |
+| `feature-settings-overview.png` | 機能設定を含む設定パネル上部 |
+| `feature-settings-bottom.png` | ウィンドウ・テンプレート・ショートカット設定 |
+| `feature-overlay-appearance.png` | オーバーレイ外観設定（透明度・フォント・文字色） |
+| `feature-footer.png` | フッターリンクとウィンドウ操作を含むメイン画面 |
 | `settings.png` | 設定パネル（3列レスポンシブ） |
 
 ## デモモードでの再撮影手順

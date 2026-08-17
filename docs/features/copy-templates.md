@@ -18,7 +18,7 @@
 ## スクリーンショット
 
 <p align="center">
-  <img src="../images/settings.png" alt="コピーテンプレートを含む設定パネル" width="820">
+  <img src="../images/feature-settings-bottom.png" alt="名前列テンプレートとコピーテンプレートを含む設定パネル" width="820">
 </p>
 
 コピーテンプレートは設定パネル下部で編集できます。

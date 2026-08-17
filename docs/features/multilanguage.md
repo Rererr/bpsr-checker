@@ -23,7 +23,7 @@
 メイン画面のタブ、列、オーバーレイは言語を切り替えても同じ構成で使えます。
 
 <p align="center">
-  <img src="../images/settings.png" alt="設定パネルの表示例" width="820">
+  <img src="../images/feature-settings-overview.png" alt="日本語とEnglishを切り替える設定パネル" width="820">
 </p>
 
 設定パネルから表示や言語に関する項目を変更できます。

@@ -22,7 +22,7 @@
 イマジンごとに異なる色のリングで残時間を表示します。
 
 <p align="center">
-  <img src="../images/settings.png" alt="イマジンタイマー設定を含む設定パネル" width="820">
+  <img src="../images/feature-settings-overview.png" alt="イマジンタイマー設定を含む設定パネル" width="820">
 </p>
 
 設定パネルから同期、表示種類、密表示を切り替えられます。

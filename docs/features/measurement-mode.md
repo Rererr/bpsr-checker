@@ -24,7 +24,7 @@
 結果画面には DPS、総ダメージ、計測時間、順位、推移グラフ、スキル内訳がまとまっています。
 
 <p align="center">
-  <img src="../images/settings.png" alt="計測時間を含む設定パネル" width="820">
+  <img src="../images/feature-settings-overview.png" alt="計測時間を含む設定パネル" width="820">
 </p>
 
 設定パネルの戦闘欄で計測秒数を変更できます。

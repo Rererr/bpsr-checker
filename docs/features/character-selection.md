@@ -18,13 +18,13 @@
 ## スクリーンショット
 
 <p align="center">
-  <img src="../images/settings.png" alt="自キャラUIDと候補を表示する設定パネル" width="820">
+  <img src="../images/feature-settings-overview.png" alt="自キャラUIDと候補を表示する設定パネル" width="820">
 </p>
 
 設定パネルの候補ボタンから自キャラを選択できます。
 
 <p align="center">
-  <img src="../images/main.png" alt="自分を強調したDPS一覧" width="820">
+  <img src="../images/feature-compact-layout.png" alt="プレイヤー名と職業アイコンを含むDPS一覧" width="820">
 </p>
 
 固定した自キャラは一覧で強調表示され、名前列の情報と一緒に確認できます。

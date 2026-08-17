@@ -15,13 +15,13 @@
 ## スクリーンショット
 
 <p align="center">
-  <img src="../images/main.png" alt="DPS一覧のメイン画面" width="820">
+  <img src="../images/feature-effective-dps.png" alt="有効DPS列を表示したDPS一覧" width="820">
 </p>
 
 DPS 一覧の列は設定に応じて切り替えられます。
 
 <p align="center">
-  <img src="../images/settings.png" alt="列表示を設定するパネル" width="820">
+  <img src="../images/feature-settings-overview.png" alt="有効DPS列を選択する設定パネル" width="820">
 </p>
 
 列表示の設定で、必要な情報だけを残して横幅を調整できます。

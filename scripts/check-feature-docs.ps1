@@ -35,8 +35,23 @@ foreach ($markdownPath in @($readmePath) + @($featureFiles | ForEach-Object { $_
         }
     }
 
-    if ($markdownPath -like "*\docs\features\*" -and $markdown -notmatch 'src="\.\./images/') {
-        $errors.Add("$markdownPath has no screenshot")
+    if ($markdownPath -like "*\docs\features\*") {
+        $images = @(
+            [regex]::Matches($markdown, 'src="\.\./images/([^"]+)"') |
+                ForEach-Object { $_.Groups[1].Value }
+        )
+
+        if ($images.Count -eq 0) {
+            $errors.Add("$markdownPath has no screenshot")
+        }
+        foreach ($image in $images) {
+            if (-not (Test-Path -LiteralPath (Join-Path $repoRoot "docs\images\$image"))) {
+                $errors.Add("$markdownPath references missing image $image")
+            }
+        }
+        if (-not ($images | Where-Object { $_ -notin @("main.png", "settings.png") })) {
+            $errors.Add("$markdownPath only uses generic screenshots")
+        }
     }
 }
 

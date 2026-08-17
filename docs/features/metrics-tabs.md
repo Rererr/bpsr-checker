@@ -21,7 +21,7 @@
 メイン画面のタブ切替と、プレイヤーごとの集計を確認できます。回復・被ダメージ・履歴も同じ画面構成で表示されます。
 
 <p align="center">
-  <img src="../images/settings.png" alt="起動時タブを含む設定パネル" width="820">
+  <img src="../images/feature-history.png" alt="履歴タブを開いたメイン画面" width="820">
 </p>
 
 設定パネルでは、起動時に開くタブを DPS・回復・履歴から選べます。

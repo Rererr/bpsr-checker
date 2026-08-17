@@ -15,13 +15,13 @@
 ## スクリーンショット
 
 <p align="center">
-  <img src="../images/settings.png" alt="設定パネルの表示例" width="820">
+  <img src="../images/feature-settings-overview.png" alt="自キャラステータスをONにする設定パネル" width="820">
 </p>
 
 設定パネルでは、自キャラ情報の表示項目をグループ単位で切り替えられます。
 
 <p align="center">
-  <img src="../images/self-status.png" alt="自キャラ用オーバーレイの表示例" width="820">
+  <img src="../images/feature-self-status.png" alt="自キャラステータスの独立オーバーレイ" width="820">
 </p>
 
 別の自キャラ用オーバーレイも、ゲーム画面の近くに固定できます。

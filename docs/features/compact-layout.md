@@ -15,13 +15,13 @@ DPS テーブルを左右2列に分割し、同じ人数をより小さい横幅
 ## スクリーンショット
 
 <p align="center">
-  <img src="../images/main.png" alt="DPS一覧の表示例" width="820">
+  <img src="../images/feature-compact-layout.png" alt="軽量分割表示をONにした2列のDPS一覧" width="820">
 </p>
 
 通常の一覧では、行バーや推移グラフを含む情報を表示します。
 
 <p align="center">
-  <img src="../images/settings.png" alt="軽量分割表示を含む設定パネル" width="820">
+  <img src="../images/feature-settings-overview.png" alt="軽量分割表示を含む設定パネル" width="820">
 </p>
 
 軽量分割表示は設定パネルの表示欄から切り替えます。

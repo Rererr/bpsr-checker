@@ -17,7 +17,7 @@ DPS 一覧の名前列に、プレイヤーが装備しているバトルイマ�
 ## スクリーンショット
 
 <p align="center">
-  <img src="../images/feature-compact-layout.png" alt="イマジン名とロールスキルを含むコンパクト表示" width="820">
+  <img src="../images/main.png" alt="イマジン名とロールスキルを含む通常のDPS一覧" width="820">
 </p>
 
 メイン画面の名前列には、プレイヤー名とゲーム内情報をまとめて表示できます。

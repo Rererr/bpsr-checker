@@ -15,7 +15,7 @@ DPS 一覧の名前列に、職業アイコンをロール色で表示します�
 ## スクリーンショット
 
 <p align="center">
-  <img src="../images/feature-compact-layout.png" alt="ロール色の職業アイコンを含むDPS一覧" width="820">
+  <img src="../images/main.png" alt="ロール色の職業アイコンを含む通常のDPS一覧" width="820">
 </p>
 
 名前列の左側に、ロールを示す色付きのアイコンが表示されます。

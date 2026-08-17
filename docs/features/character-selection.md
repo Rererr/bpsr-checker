@@ -24,7 +24,7 @@
 設定パネルの候補ボタンから自キャラを選択できます。
 
 <p align="center">
-  <img src="../images/feature-compact-layout.png" alt="プレイヤー名と職業アイコンを含むDPS一覧" width="820">
+  <img src="../images/main.png" alt="プレイヤー名と職業アイコンを含む通常のDPS一覧" width="820">
 </p>
 
 固定した自キャラは一覧で強調表示され、名前列の情報と一緒に確認できます。

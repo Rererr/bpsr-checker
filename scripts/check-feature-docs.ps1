@@ -3,26 +3,31 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $readmePath = Join-Path $repoRoot "README.md"
+$readmeEnPath = Join-Path $repoRoot "README.en.md"
 $featureDir = Join-Path $repoRoot "docs\features"
 $featureFiles = @(Get-ChildItem -LiteralPath $featureDir -Filter "*.md" -File)
-$readme = Get-Content -Raw -Encoding UTF8 -LiteralPath $readmePath
 $errors = [System.Collections.Generic.List[string]]::new()
 
-$listedFeatures = @(
-    [regex]::Matches($readme, "\(docs/features/([^)]+\.md)\)") |
-        ForEach-Object { $_.Groups[1].Value } |
-        Sort-Object -Unique
-)
 $expectedFeatures = @($featureFiles | ForEach-Object { $_.Name } | Sort-Object -Unique)
+$listedFeatures = @()
 
-foreach ($missing in @($expectedFeatures | Where-Object { $_ -notin $listedFeatures })) {
-    $errors.Add("README.md is missing $missing")
-}
-foreach ($stale in @($listedFeatures | Where-Object { $_ -notin $expectedFeatures })) {
-    $errors.Add("README.md links to missing feature file $stale")
+foreach ($readmeFile in @($readmePath, $readmeEnPath)) {
+    $readme = Get-Content -Raw -Encoding UTF8 -LiteralPath $readmeFile
+    $listed = @(
+        [regex]::Matches($readme, "\(docs/features/([^)]+\.md)\)") |
+            ForEach-Object { $_.Groups[1].Value } |
+            Sort-Object -Unique
+    )
+    foreach ($missing in @($expectedFeatures | Where-Object { $_ -notin $listed })) {
+        $errors.Add("$(Split-Path -Leaf $readmeFile) is missing $missing")
+    }
+    foreach ($stale in @($listed | Where-Object { $_ -notin $expectedFeatures })) {
+        $errors.Add("$(Split-Path -Leaf $readmeFile) links to missing feature file $stale")
+    }
+    if ($readmeFile -eq $readmePath) { $listedFeatures = $listed }
 }
 
-foreach ($markdownPath in @($readmePath) + @($featureFiles | ForEach-Object { $_.FullName })) {
+foreach ($markdownPath in @($readmePath, $readmeEnPath) + @($featureFiles | ForEach-Object { $_.FullName })) {
     $markdown = Get-Content -Raw -Encoding UTF8 -LiteralPath $markdownPath
     $baseDir = Split-Path -Parent $markdownPath
 

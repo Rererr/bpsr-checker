@@ -15,13 +15,13 @@ DPS 一覧の名前列に、職業アイコンをロール色で表示します�
 ## スクリーンショット
 
 <p align="center">
-  <img src="../images/main.png" alt="ロール色の職業アイコンを含む通常のDPS一覧" width="820">
+  <img src="../images/feature-main-overview.png" alt="ロール色の職業アイコンを含む通常のDPS一覧" width="820">
 </p>
 
 名前列の左側に、ロールを示す色付きのアイコンが表示されます。
 
 <p align="center">
-  <img src="../images/feature-settings-overview.png" alt="名前列テンプレートを含む設定パネル" width="820">
+  <img src="../images/feature-settings-actions.png" alt="職業アイコンの位置を決める名前列テンプレート" width="820">
 </p>
 
 アイコンの表示位置は名前列テンプレートで調整できます。

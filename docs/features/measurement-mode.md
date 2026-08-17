@@ -18,7 +18,7 @@
 ## スクリーンショット
 
 <p align="center">
-  <img src="../images/result-3min.png" alt="3分計測の結果画面" width="820">
+  <img src="../images/result-measurement.png" alt="計測モードの結果画面" width="820">
 </p>
 
 結果画面には DPS、総ダメージ、計測時間、順位、推移グラフ、スキル内訳がまとまっています。

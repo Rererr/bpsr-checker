@@ -15,7 +15,7 @@
 ## スクリーンショット
 
 <p align="center">
-  <img src="../images/feature-settings-overview.png" alt="自キャラステータスをONにする設定パネル" width="820">
+  <img src="../images/feature-self-status-settings.png" alt="自キャラステータスと表示項目を設定するパネル" width="820">
 </p>
 
 設定パネルでは、自キャラ情報の表示項目をグループ単位で切り替えられます。

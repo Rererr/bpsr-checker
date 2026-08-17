@@ -15,7 +15,7 @@
 ## スクリーンショット
 
 <p align="center">
-  <img src="../images/main.png" alt="名前列を含むDPS一覧" width="820">
+  <img src="../images/feature-food-syrup.png" alt="食事とシロップの残時間アイコンを含むDPS一覧" width="820">
 </p>
 
 食事・シロップのタイマーは、名前列の情報と同じ場所に表示されます。

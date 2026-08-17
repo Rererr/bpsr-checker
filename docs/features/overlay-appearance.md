@@ -16,13 +16,13 @@
 ## スクリーンショット
 
 <p align="center">
-  <img src="../images/feature-overlay-appearance.png" alt="透明度・フォント・文字色を含む外観設定" width="820">
+  <img src="../images/feature-overlay-appearance-detail.png" alt="透明度・フォント・文字色を含む外観設定" width="820">
 </p>
 
 設定パネルでは、オーバーレイ用の外観をまとめて調整できます。
 
 <p align="center">
-  <img src="../images/debuff-timer.png" alt="外観設定を反映したデバフタイマー" width="820">
+  <img src="../images/feature-imagine-debuff-timer.png" alt="外観設定を反映したデバフタイマー" width="820">
 </p>
 
 文字色と背景の見え方は、ゲーム画面の上に置いたときの視認性を基準に調整します。

@@ -20,7 +20,7 @@ DPS 一覧の各行に表示する横バーの基準を、4種類から選べま
 ## スクリーンショット
 
 <p align="center">
-  <img src="../images/main.png" alt="DPS一覧の行バー" width="820">
+  <img src="../images/feature-main-overview.png" alt="通常のDPS一覧に表示された行バー" width="820">
 </p>
 
 各プレイヤー行の背景に、設定した基準に応じたバーが表示されます。

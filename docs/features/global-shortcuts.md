@@ -24,7 +24,7 @@
 グローバルショートカットは設定パネルから登録・変更します。
 
 <p align="center">
-  <img src="../images/feature-settings-bottom.png" alt="ショートカット設定を開く設定パネル" width="820">
+  <img src="../images/feature-settings-actions.png" alt="ショートカット設定を開く設定パネル" width="820">
 </p>
 
 登録したキーで、ゲーム中でもメイン画面の計測やコピーを操作できます。

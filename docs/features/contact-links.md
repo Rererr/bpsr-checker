@@ -15,7 +15,7 @@
 ## スクリーンショット
 
 <p align="center">
-  <img src="../images/feature-footer.png" alt="GitHubで報告とお問い合わせを表示したメイン画面" width="820">
+  <img src="../images/feature-main-overview.png" alt="GitHubで報告とお問い合わせを表示した通常のメイン画面" width="820">
 </p>
 
 フッターはメイン画面の下端に表示される問い合わせ導線です。

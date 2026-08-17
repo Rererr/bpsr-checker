@@ -24,7 +24,7 @@
 コピーテンプレートは設定パネル下部で編集できます。
 
 <p align="center">
-  <img src="../images/result-3min.png" alt="結果画面のコピー操作" width="820">
+  <img src="../images/result-measurement.png" alt="計測結果画面のコピー操作" width="820">
 </p>
 
 計測結果画面には通常コピーと画像コピーの操作があります。

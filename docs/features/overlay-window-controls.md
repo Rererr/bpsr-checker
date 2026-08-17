@@ -18,13 +18,13 @@
 ## スクリーンショット
 
 <p align="center">
-  <img src="../images/feature-footer.png" alt="最前面ピンとウィンドウ操作ボタンのあるメイン画面" width="820">
+  <img src="../images/feature-main-overview.png" alt="最前面ピンとウィンドウ操作ボタンのある通常メイン画面" width="820">
 </p>
 
 メイン画面のヘッダーから、最前面ピンや最小化などの操作を行えます。
 
 <p align="center">
-  <img src="../images/debuff-timer.png" alt="独立オーバーレイの例" width="820">
+  <img src="../images/feature-imagine-debuff-timer.png" alt="独立オーバーレイの例" width="820">
 </p>
 
 イマジンタイマーやバフ・デバフ窓も、メイン画面とは別の位置へ移動して使えます。

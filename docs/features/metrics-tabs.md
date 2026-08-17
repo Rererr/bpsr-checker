@@ -15,7 +15,7 @@
 ## スクリーンショット
 
 <p align="center">
-  <img src="../images/main.png" alt="DPSタブのメイン画面" width="820">
+  <img src="../images/feature-main-overview.png" alt="DPSタブの通常メイン画面" width="820">
 </p>
 
 メイン画面のタブ切替と、プレイヤーごとの集計を確認できます。回復・被ダメージ・履歴も同じ画面構成で表示されます。
@@ -24,7 +24,7 @@
   <img src="../images/feature-history.png" alt="履歴タブを開いたメイン画面" width="820">
 </p>
 
-設定パネルでは、起動時に開くタブを DPS・回復・履歴から選べます。
+実際に保存された計測結果が、時間・DPS・総ダメージ・人数とともに履歴へ並びます。
 
 ## 関連
 

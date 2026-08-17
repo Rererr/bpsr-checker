@@ -15,13 +15,13 @@ DPS 一覧の各プレイヤー行に、時間ごとの DPS 推移を小さな�
 ## スクリーンショット
 
 <p align="center">
-  <img src="../images/main.png" alt="各行のDPSスパークライン" width="820">
+  <img src="../images/feature-main-overview.png" alt="通常のDPS一覧に表示されたスパークライン" width="820">
 </p>
 
 一覧の推移列に、プレイヤーごとの小グラフが表示されます。
 
 <p align="center">
-  <img src="../images/result-3min.png" alt="計測結果のDPS推移グラフ" width="820">
+  <img src="../images/result-measurement.png" alt="計測結果のDPS推移グラフ" width="820">
 </p>
 
 計測結果では時間軸付きの大きな推移グラフを表示します。

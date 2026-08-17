@@ -13,39 +13,47 @@
 Built with **Slint (a native Rust GUI)**. It focuses on just the features you actually need during combat and measurement, so it keeps CPU and memory usage low and stays smooth even over long sessions, while still letting you display a semi-transparent overlay on top of the game. **It never sends any data to external servers.**
 
 <p align="center">
-  <img src="docs/images/main.png" alt="Main window — DPS list (semi-transparent overlay)" width="820">
+  <img src="docs/images/feature-language-english.png" alt="Main window — normal DPS list in English" width="820">
 </p>
 
 ## Features
 
-- **DPS / Healing / Damage Taken / History tabs** — Aggregates damage dealt, healing, and damage taken with tab switching (column headers and totals follow the tab). Encounters are saved automatically when combat ends, and **past logs survive app restarts** (stored on disk).
-- **Per-skill breakdown** — Click a player to see damage, hit count, and crit rate for each of that player's skills.
-- **Battle Imagine name** — Shows each player's equipped Battle Imagines (Tina / Airona / Tatta / Basilisk, etc.) with their tier level appended to the name column of the DPS list (e.g. `Sora-Tina(3)/Airona(1)`). Your own is detected on every map transition; other players are detected when a dungeon loads or a boss room transition occurs, so even Imagines that rarely activate are reliably shown. Simplified Battle Imagines slotted into the Role Skill category (up to 4 at once) are shown separately from your two equipped Battle Imagines, appended in `(R:name)` form (e.g. `Sora-Tina(3)/Airona(1) (R:Tempest Ogre/Fafala)`). `{imagine}` (the two equipped slots) and `{roleSkill}` (the Role Skill slots) are independent tokens in the name-column template, so each can be repositioned or removed to hide. When the column runs out of width, role skills are shortened first, then Imagines, and the player name last. It is always shown in the header of the per-skill breakdown you open by clicking a player. Imagine names can be maintained manually in a dedicated editor window opened from Settings — override display names or hide specific Imagines (overrides affect display only, never detection or records).
-- **Measurement mode** — A dedicated mode for training dummies and boss practice that aggregates for a fixed duration from the start of combat (default 180s, adjustable). The results screen shows per-character and per-skill DPS trend graphs (with time and DPS axes) and a pie chart of the skill breakdown (TOP 10 + others). It also **auto-records your personal best per measurement duration** and celebrates with a "New record!" badge; the TOP 3 are highlighted in gold/silver/bronze, and a timestamped result image can be copied with one click to share on Discord and elsewhere. DPS during and after the measurement is divided by the fixed duration from the start of the measurement (idle time counts toward the denominator too, matching the in-game measurement).
-- **Effective DPS column** — Shows DPS divided only by the time you were actually attacking, side by side with the regular DPS (toggle it in the column settings). Useful in real fights with movement and downtime, where you want your output with the idle time excluded.
-- **Imagine (Battle Imagine) debuff timer** — Displays the remaining immunity-debuff time for Tina / Aluna / Tata / Basilisk / Kartgriff in a separate overlay. By default it syncs with the DPS list, automatically following which players are shown and their order (order-following can be turned off individually); use the pin icon to hide/show each player in the timer. Turn sync off to fall back to the classic mode that only shows targets you pinned manually, with a clear-all action provided. The Imagine types shown can be selected individually to match your party composition. A compact dense layout is also supported. Column headers show the katakana name and a per-character color ring (Tina red / Aluna green / Tata purple / Basilisk brown / Kartgriff cyan) for visibility.
-- **Self buff/debuff display** — Shows the buffs/debuffs currently on your own character in a separate window. They are shown as icons with a remaining-time bar so you can grasp them at a glance. Stacking buffs follow the stack count (×N) and timer updates.
-- **Self status display** — Shows your character's stats such as Attack, Crit, and HP in a dedicated real-time overlay. Which items to show can be freely customized per in-game panel group (bulk ON/OFF supported).
-- **Food / syrup display** — Shows each player's food and syrup buff usage as a vertical remaining-time timer in the name column of the DPS list. Hover an icon to see the effect and remaining time. Remaining time is preserved across combat end, manual reset, and app restart (expired ones disappear automatically). Can be toggled ON/OFF in settings.
-- **Debuff-timer-only mode (lightweight)** — A resource-saving mode that stops DPS/healing aggregation and runs only the debuff timer. While it is on, the DPS list shows "Imagine-only mode is active" so the paused aggregation is obvious, with a button to turn it off without opening the settings panel.
-- **Class icon display** — Shows the class icon, tinted by role color (attacker / tank / healer), at the `{classIcon}` position in the DPS name-column template (before the name by default). Remove the token to hide it.
-- **Selectable row-bar display mode** — Choose from 4 scales for the horizontal bar (gauge) of each row in the DPS list: relative to top (default) / share of party total / fixed scale (the right edge is pinned to a user-specified value and the bar length shows your average DPS over the last N seconds) / self-relative (your own bar is fixed at the 50% position and other players are shown relative to you, with a 50% guide line). Bar intensity can be set to none / subtle / strong, and an optional animation smooths bar-width changes (off by default since it slightly increases CPU usage).
-- **2-column compact layout** — A layout mode that splits the DPS table into two columns to save horizontal space.
-- **DPS trend graph** — Visualizes each player row's DPS trend as a small sparkline.
-- **Always-on-top / click-through / taskbar–tray switching** — Essential for overlay use. Buttons in the title bar let you minimize and toggle always-on-top pinning with one tap, and when the window is narrow the header automatically switches to icon-only. Minimizing collapses to the **system tray** by default (minimizing the main window also tucks away the overlays; restore via left-click on the tray icon or right-click → "Show main"). Enabling "Keep in taskbar" in settings makes the main window and each overlay their **own taskbar buttons**, so each window's minimize button minimizes it to the taskbar. Each overlay can be closed with the × button at the top right (linked to the show toggle in settings). Click-through (passing clicks through to the game behind) is toggled and released from the tray. Each window can be resized by dragging its edges.
-- **Global shortcut keys** — Assign global shortcut keys (they work even while the game window has focus) to reset, pause/resume, start/cancel the 3-minute measurement, copy the list, and toggle always-on-top. Configured from the settings panel; nothing is assigned by default. Keys other than F1-F12 must be combined with Ctrl, Alt, or Win, but a checkbox in the dialog also allows single-key shortcuts.
-- **Overlay appearance customization** — The background opacity, font, text size, bold, and text color of each overlay can be configured independently of the main window. Text color and the app's accent color can be freely adjusted with an HSV picker.
-- **Copy templates** — Copy aggregated results to the clipboard in any format (e.g. for pasting into Discord).
-- **Multi-language** — Japanese / English.
-- **Character selection** — When auto-detection is wrong, you can fix your own character by entering its UID directly in the settings panel or selecting from the current player candidates (the name is resolved and shown from the name cache).
-- **Footer contact links** — A semi-transparent footer at the bottom of the main window (can be hidden in settings) lets you open a contact form or file a GitHub issue in your default browser.
+Feature details and screenshots are organized into separate pages.
 
-### Screenshots
+### Metrics and measurement
 
-| | |
-|---|---|
-| <img src="docs/images/result-3min.png" alt="3-minute measurement results" width="400"><br>**3-minute measurement results** — Per-character/skill DPS trends and a breakdown pie chart | <img src="docs/images/debuff-timer.png" alt="Imagine debuff timer" width="400"><br>**Imagine debuff timer** — Immunity-debuff remaining time shown with per-character color rings |
-| <img src="docs/images/self-status.png" alt="Self buff/debuff display" width="400"><br>**Self buff/debuff display** — A glanceable list of icons with remaining-time bars | <img src="docs/images/settings.png" alt="Settings panel" width="400"><br>**Settings panel** — Opacity, column visibility, copy templates, and more |
+- [DPS, healing, damage taken, and history tabs](docs/features/metrics-tabs.md)
+- [Per-skill breakdown](docs/features/skill-breakdown.md)
+- [Measurement mode](docs/features/measurement-mode.md)
+- [Effective DPS column](docs/features/effective-dps.md)
+- [DPS trend graphs](docs/features/dps-trend.md)
+
+### Player information and buffs
+
+- [Battle Imagine names](docs/features/battle-imagine-names.md)
+- [Imagine debuff timer](docs/features/imagine-debuff-timer.md)
+- [Self buff/debuff overlay](docs/features/self-buffs-debuffs.md)
+- [Self status overlay](docs/features/self-status.md)
+- [Food and syrup display](docs/features/food-syrup.md)
+- [Imagine-only mode](docs/features/imagine-only-mode.md)
+- [Class icons](docs/features/class-icons.md)
+- [Character selection](docs/features/character-selection.md)
+
+### Display and controls
+
+- [Row-bar display modes](docs/features/dps-bars.md)
+- [Two-column compact layout](docs/features/compact-layout.md)
+- [Overlay window controls](docs/features/overlay-window-controls.md)
+- [Global shortcuts](docs/features/global-shortcuts.md)
+- [Overlay appearance](docs/features/overlay-appearance.md)
+- [Copy templates](docs/features/copy-templates.md)
+
+### Other
+
+- [Language support](docs/features/multilanguage.md)
+- [Footer contact links](docs/features/contact-links.md)
+
+> Feature pages are currently written in Japanese; the screenshots include both Japanese and English UI where relevant.
 
 ## Installation
 
@@ -121,7 +129,7 @@ For details, see [`core/src/capture/windivert.rs`](./core/src/capture/windivert.
 1. Launch the app (UAC will request administrator privileges, just like the game).
 2. Start the game and begin combat — damage is detected automatically.
 3. Click a player row to see the per-skill breakdown.
-4. When combat ends (no damage for 10 seconds by default), it is saved to history automatically.
+4. When combat ends (no damage for 8 seconds by default), it is saved to history automatically.
 
 ### System tray
 
@@ -133,7 +141,7 @@ For details, see [`core/src/capture/windivert.rs`](./core/src/capture/windivert.
 
 ### Settings panel
 
-Open it with the **S** button in the header. Main items:
+Open it with the **Settings** button in the header (slider icon in narrow layouts). Main items:
 
 - Fixing your character UID / selecting from candidates
 - Opacity, font size, column visibility (including ON/OFF for food/syrup display)

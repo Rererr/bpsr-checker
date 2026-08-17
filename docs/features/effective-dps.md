@@ -21,7 +21,7 @@
 DPS 一覧の列は設定に応じて切り替えられます。
 
 <p align="center">
-  <img src="../images/feature-settings-overview.png" alt="有効DPS列を選択する設定パネル" width="820">
+  <img src="../images/feature-effective-dps-settings.png" alt="有効DPS列を有効にした設定パネル" width="820">
 </p>
 
 列表示の設定で、必要な情報だけを残して横幅を調整できます。

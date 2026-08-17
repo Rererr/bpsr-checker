@@ -11,6 +11,7 @@ struct NamePart {
     has-name: bool,
 }
 
+
 struct Row {
     rank: int,
     uid-str: string,   // f64 uid を精度落ちさせず Rust へ返すため文字列で持つ
@@ -3226,6 +3227,8 @@ export component MainWindow inherits Window {
                     // 左カラム（前半）
                     VerticalLayout {
                         horizontal-stretch: 1;
+                        min-width: 0px;
+                        preferred-width: 0px;
                         alignment: start;
                         Rectangle {
                             height: 16px;
@@ -3238,19 +3241,32 @@ export component MainWindow inherits Window {
                                 Text { text: root.tab == 1 ? @tr("HPS") : (root.tab == 2 ? @tr("被DPS") : @tr("DPS")); color: #888; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
                             }
                         }
-                        for row in root.compact-left: CompactRowItem {
-                            entry: row;
-                            highlight-local: root.highlight-local;
-                            font-scale: root.font-scale;
-                            bar-intensity: root.cfg-ui.dps-bar-intensity;
-                            bar-animate: root.cfg-ui.dps-bar-animate;
-                            show-self-guide: root.bar-self-guide;
-                            activate(u) => { root.open-drill(u); }
+                        // 動的リピーターを VerticalLayout に任せると余白を行へ誤配分するため、固定行高で配置する。
+                        left-rows := Rectangle {
+                            horizontal-stretch: 1;
+                            min-width: 0px;
+                            preferred-width: 0px;
+                            height: root.compact-left.length * 18px;
+                            vertical-stretch: 0;
+                            for row[i] in root.compact-left: CompactRowItem {
+                                x: 0;
+                                y: i * 18px;
+                                width: 100%;
+                                entry: row;
+                                highlight-local: root.highlight-local;
+                                font-scale: root.font-scale;
+                                bar-intensity: root.cfg-ui.dps-bar-intensity;
+                                bar-animate: root.cfg-ui.dps-bar-animate;
+                                show-self-guide: root.bar-self-guide;
+                                activate(u) => { root.open-drill(u); }
+                            }
                         }
                     }
                     // 右カラム（後半）
                     VerticalLayout {
                         horizontal-stretch: 1;
+                        min-width: 0px;
+                        preferred-width: 0px;
                         alignment: start;
                         Rectangle {
                             height: 16px;
@@ -3263,14 +3279,24 @@ export component MainWindow inherits Window {
                                 Text { text: root.tab == 1 ? @tr("HPS") : (root.tab == 2 ? @tr("被DPS") : @tr("DPS")); color: #888; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
                             }
                         }
-                        for row in root.compact-right: CompactRowItem {
-                            entry: row;
-                            highlight-local: root.highlight-local;
-                            font-scale: root.font-scale;
-                            bar-intensity: root.cfg-ui.dps-bar-intensity;
-                            bar-animate: root.cfg-ui.dps-bar-animate;
-                            show-self-guide: root.bar-self-guide;
-                            activate(u) => { root.open-drill(u); }
+                        right-rows := Rectangle {
+                            horizontal-stretch: 1;
+                            min-width: 0px;
+                            preferred-width: 0px;
+                            height: root.compact-right.length * 18px;
+                            vertical-stretch: 0;
+                            for row[i] in root.compact-right: CompactRowItem {
+                                x: 0;
+                                y: i * 18px;
+                                width: 100%;
+                                entry: row;
+                                highlight-local: root.highlight-local;
+                                font-scale: root.font-scale;
+                                bar-intensity: root.cfg-ui.dps-bar-intensity;
+                                bar-animate: root.cfg-ui.dps-bar-animate;
+                                show-self-guide: root.bar-self-guide;
+                                activate(u) => { root.open-drill(u); }
+                            }
                         }
                         if root.rows.length == 0 && (!root.cfg-ui.imagine-only || root.capture-state == 3): Text { text: @tr("データなし"); color: #666; font-size: 12px; height: 40px; horizontal-alignment: center; vertical-alignment: center; }
                     }
@@ -4513,4 +4539,3 @@ export component BuffOverlay inherits Window {
     if root.overlay-opacity > 0.001 && root.show-minimize: OverlayMinButton { x: root.width - 2 * self.width - 6px; y: 2px; minimize => { root.minimize(); } }
     if root.overlay-opacity > 0.001: OverlayCloseButton { x: root.width - self.width - 2px; y: 2px; close => { root.close-window(); } }
 }
-

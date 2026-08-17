@@ -21,10 +21,10 @@ DPS テーブルを左右2列に分割し、同じ人数をより小さい横幅
 通常の一覧では、行バーや推移グラフを含む情報を表示します。
 
 <p align="center">
-  <img src="../images/feature-settings-overview.png" alt="軽量分割表示を含む設定パネル" width="820">
+  <img src="../images/feature-compact-layout-settings.png" alt="軽量分割表示を有効にした設定パネル" width="820">
 </p>
 
-軽量分割表示は設定パネルの表示欄から切り替えます。
+軽量分割表示は設定パネルの表示欄から切り替えます。上の画像では、軽量分割表示が有効になった状態も確認できます。
 
 ## 関連
 

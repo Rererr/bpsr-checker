@@ -907,9 +907,12 @@ component CompactRowItem inherits Rectangle {
     in property <string> bar-intensity; // バー濃度（"none"/"subtle"/"strong"）
     in property <bool> bar-animate;     // バー幅変化のアニメーション
     in property <bool> show-self-guide; // 自分基準モード時のみ true（50%ガイド線を表示）
+    // 行高は配置側（left-rows/right-rows の絶対配置）と同一値でなければ行が重なるため、
+    // 呼び出し元から単一ソース（MainWindow::compact-row-h）で受け取る。
+    in property <length> row-height: 18px;
     callback activate(string);
-    height: 18px;
-    preferred-height: 18px;
+    height: root.row-height;
+    preferred-height: root.row-height;
     background: cta.has-hover ? #ffffff12 : transparent;
     animate background { duration: 100ms; easing: ease-out; }
     RowPctBar {
@@ -970,7 +973,11 @@ component SkillRowItem inherits Rectangle {
     in property <bool> clickable;
     in property <float> font-scale: 1.0;
     callback activate(string);
-    height: 20px;
+    // 行高はフォントサイズに追随させる。固定 20px のままだと font-scale>1 で日本語の行高が
+    // 行に収まらず、`overflow: elide` の Text が1文字も描画されなくなる（数値列は ASCII で
+    // 行高が小さく elide も無いため表示され、「名前だけ消える」ように見える）。
+    height: 20px * root.font-scale;
+    preferred-height: 20px * root.font-scale;
     background: (root.clickable && ta.has-hover) ? #ffffff12 : transparent;
     animate background { duration: 100ms; easing: ease-out; }
 
@@ -1012,7 +1019,13 @@ component HistoryRowItem inherits Rectangle {
     in property <HistoryRowUi> e;
     in property <float> font-scale: 1.0;
     callback toggle(string);
-    height: root.e.is-header ? 24px : (root.e.is-skill ? 18px : 20px);
+    // SkillRowItem と同じ理由でフォントサイズに追随させる（固定高のままだと font-scale>1 で
+    // `overflow: elide` の名前列が描画されなくなる）。height/preferred-height はこの1つの
+    // プロパティから導出する（`preferred-height: self.height` は repeater 内で
+    // "get_item_ref called on dynamic tree" パニックになるため使わない）。
+    property <length> row-h: (root.e.is-header ? 24px : (root.e.is-skill ? 18px : 20px)) * root.font-scale;
+    height: root.row-h;
+    preferred-height: root.row-h;
     background: root.e.is-header
         ? (hta.has-hover ? #ffffff14 : #ffffff08)
         : ((!root.e.is-skill && hta.has-hover) ? #ffffff0d : transparent);
@@ -2893,6 +2906,10 @@ export component MainWindow inherits Window {
     // 各行で "dps-bar-mode == self" を個別に比較させない）。モードが self でも自キャラの値が
     // まだ無い間（開幕直後等）はバー計算がトップ比へフォールバックするため、ガイド線も合わせて隠す。
     property <bool> bar-self-guide: root.cfg-ui.dps-bar-mode == "self" && root.self-guide-has-data;
+    // コンパクト表示の行高。行は VerticalLayout ではなく絶対配置（y: i * この値）で並べるため、
+    // CompactRowItem の height と配置の刻みを必ずこの1箇所から導出する。フォントサイズに
+    // 追随させないと、font-scale>1 で日本語の行高が行に収まらず名前列が描画されなくなる。
+    property <length> compact-row-h: 18px * root.font-scale;
     // 設定パネルの列数（窓幅でレスポンシブに 1/2/3）。短ラベルが多いので幅があれば3列まで。
     property <int> set-cols: root.width >= 660px ? 3 : (root.width >= 440px ? 2 : 1);
     // HSVピッカーをドラッグ中か。true の間は設定パネル Flickable の interactive を切り、
@@ -3237,8 +3254,8 @@ export component MainWindow inherits Window {
                                 padding-right: 6px;
                                 spacing: 5px;
                                 Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; vertical-alignment: center; }
-                                Text { text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ")); color: #888; font-size: 10px * root.font-scale; width: 56px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: root.tab == 1 ? @tr("HPS") : (root.tab == 2 ? @tr("被DPS") : @tr("DPS")); color: #888; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ")); color: #888; font-size: 10px * root.font-scale; width: 56px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.tab == 1 ? @tr("HPS") : (root.tab == 2 ? @tr("被DPS") : @tr("DPS")); color: #888; font-size: 10px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
                             }
                         }
                         // 動的リピーターを VerticalLayout に任せると余白を行へ誤配分するため、固定行高で配置する。
@@ -3246,12 +3263,13 @@ export component MainWindow inherits Window {
                             horizontal-stretch: 1;
                             min-width: 0px;
                             preferred-width: 0px;
-                            height: root.compact-left.length * 18px;
+                            height: root.compact-left.length * root.compact-row-h;
                             vertical-stretch: 0;
                             for row[i] in root.compact-left: CompactRowItem {
                                 x: 0;
-                                y: i * 18px;
+                                y: i * root.compact-row-h;
                                 width: 100%;
+                                row-height: root.compact-row-h;
                                 entry: row;
                                 highlight-local: root.highlight-local;
                                 font-scale: root.font-scale;
@@ -3275,20 +3293,21 @@ export component MainWindow inherits Window {
                                 padding-right: 6px;
                                 spacing: 5px;
                                 Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; vertical-alignment: center; }
-                                Text { text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ")); color: #888; font-size: 10px * root.font-scale; width: 56px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: root.tab == 1 ? @tr("HPS") : (root.tab == 2 ? @tr("被DPS") : @tr("DPS")); color: #888; font-size: 10px * root.font-scale; width: 50px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ")); color: #888; font-size: 10px * root.font-scale; width: 56px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.tab == 1 ? @tr("HPS") : (root.tab == 2 ? @tr("被DPS") : @tr("DPS")); color: #888; font-size: 10px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
                             }
                         }
                         right-rows := Rectangle {
                             horizontal-stretch: 1;
                             min-width: 0px;
                             preferred-width: 0px;
-                            height: root.compact-right.length * 18px;
+                            height: root.compact-right.length * root.compact-row-h;
                             vertical-stretch: 0;
                             for row[i] in root.compact-right: CompactRowItem {
                                 x: 0;
-                                y: i * 18px;
+                                y: i * root.compact-row-h;
                                 width: 100%;
+                                row-height: root.compact-row-h;
                                 entry: row;
                                 highlight-local: root.highlight-local;
                                 font-scale: root.font-scale;
@@ -3374,7 +3393,9 @@ export component MainWindow inherits Window {
             animate opacity { duration: 140ms; easing: ease-out; }
             init => { self.entered = true; }
             Rectangle {
-                height: 20px;
+                // 中の inspected-name は font-scale 連動＋`overflow: elide` のため、行高を
+                // 固定にすると SkillRowItem と同じ理由で名前が丸ごと描画されなくなる。
+                height: 20px * root.font-scale;
                 background: #20202e;
                 HorizontalLayout {
                     padding-left: 4px;
@@ -3400,9 +3421,9 @@ export component MainWindow inherits Window {
                     padding-right: 8px;
                     spacing: 6px;
                     Text { text: @tr("スキル"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; vertical-alignment: center; }
-                    Text { text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ")); color: #888; font-size: 10px * root.font-scale; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
-                    Text { text: root.tab == 1 ? @tr("HPS") : (root.tab == 2 ? @tr("被DPS") : @tr("DPS")); color: #888; font-size: 10px * root.font-scale; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
-                    Text { text: @tr("%"); color: #888; font-size: 10px * root.font-scale; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
+                    Text { text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ")); color: #888; font-size: 10px * root.font-scale; width: 64px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    Text { text: root.tab == 1 ? @tr("HPS") : (root.tab == 2 ? @tr("被DPS") : @tr("DPS")); color: #888; font-size: 10px * root.font-scale; width: 58px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    Text { text: @tr("%"); color: #888; font-size: 10px * root.font-scale; width: 44px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
                 }
             }
             Flickable {

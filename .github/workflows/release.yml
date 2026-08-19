@@ -75,7 +75,7 @@ jobs:
 
       # ── リリース後: 配布物を VirusTotal へ自動アップロードし、README のスキャンリンクを更新 ──
       # スキャンページはハッシュ単位で永続化されるため、配布する正本(release/*)を VT に上げて
-      # 実在を保証し、その SHA256 で README(ja/en)の gui/file/<hash> リンクを書き換えて master へ戻す。
+      # 実在を保証し、その SHA256 で README(ja/en)の gui/file/<hash> リンクを書き換えて main へ戻す。
       # 要 Secret: VT_API_KEY（VirusTotal 無料アカウントの API キー）。未設定なら下記は失敗→
       # README 更新はスキップされ、リリース自体は成功する（continue-on-error + outcome ガード）。
       - name: Upload artifacts to VirusTotal
@@ -102,8 +102,8 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin master
-          git checkout -B master origin/master
+          git fetch origin main
+          git checkout -B main origin/main
 
           # ラベル(インストーラ/installer・ポータブル/portable)直後の URL ハッシュだけを置換。
           # プレフィックスをキャプチャ($1)して再出力する形にし、可変長 lookbehind を避ける（日英共通）。
@@ -121,9 +121,9 @@ jobs:
           if ($pending) {
             git commit -m "docs: VirusTotal リンクを ${{ github.ref_name }} のスキャン結果へ更新"
             if ($LASTEXITCODE -ne 0) { Write-Error "git commit failed"; exit 1 }
-            git push origin master
+            git push origin main
             if ($LASTEXITCODE -ne 0) { Write-Error "git push failed"; exit 1 }
-            Write-Host "README updated and pushed to master."
+            Write-Host "README updated and pushed to main."
           } else {
             Write-Host "README VirusTotal links already up to date."
           }

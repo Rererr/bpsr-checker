@@ -606,3 +606,82 @@ msgstr "Change"
 
 msgid "解除"
 msgstr "Clear"
+
+# アプリ内更新（設定パネルの更新セクション）
+
+msgid "更新"
+msgstr "Updates"
+
+msgid "新しいバージョンが出ていないか GitHub で確認します。"
+msgstr "Checks GitHub for a newer version."
+
+msgid "確認中…"
+msgstr "Checking…"
+
+msgid "最新版を使用しています。"
+msgstr "You are on the latest version."
+
+msgid "新しいバージョン {} があります。"
+msgstr "Version {} is available."
+
+msgid "新しいバージョン {} があります（ポータブル版は手動で入れ替えてください）。"
+msgstr "Version {} is available (replace the portable build manually)."
+
+msgid "ダウンロード中… {}%"
+msgstr "Downloading… {}%"
+
+msgid "更新を確認"
+msgstr "Check for updates"
+
+msgid "更新する"
+msgstr "Update now"
+
+msgid "ダウンロード"
+msgstr "Download"
+
+msgid "起動時に更新を確認する"
+msgstr "Check for updates at startup"
+
+# アプリ内更新（通知カードとバージョン選択）
+
+msgid "更新の確認"
+msgstr "Update check"
+
+msgid "このお知らせは15秒で自動的に閉じます。"
+msgstr "This notice closes itself after 15 seconds."
+
+msgid "OK"
+msgstr "OK"
+
+msgid "別のバージョンを選ぶ"
+msgstr "Pick another version"
+
+msgid "バージョンを選ぶ（閉じる）"
+msgstr "Pick a version (close)"
+
+msgid "（確認するとここに出ます）"
+msgstr "(check for updates to list them)"
+
+msgid "使用中"
+msgstr "In use"
+
+msgid "新しい"
+msgstr "Newer"
+
+msgid "古い"
+msgstr "Older"
+
+msgid "入れ替える"
+msgstr "Switch to this"
+
+msgid "ページを開く"
+msgstr "Open page"
+
+msgid "インストーラを起動しました。このアプリはいったん終了します。"
+msgstr "The installer has started. This app will now close."
+
+msgid "完了するとインストーラが起動し、アプリはいったん終了します。"
+msgstr "When it finishes, the installer starts and this app closes."
+
+msgid "古いバージョンを選ぶと、そのバージョンへ入れ替わります（設定と履歴は残ります）。入れ替え後にアプリが自動で起動しない場合は、スタートメニューから起動してください。"
+msgstr "Picking an older version replaces your build with it. Settings and history are kept. If the app does not reopen by itself afterwards, start it from the Start menu."

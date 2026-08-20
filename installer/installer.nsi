@@ -56,8 +56,11 @@ ShowUninstDetails show
 ; （姉妹アプリ bpsr-module-optimizer 等）も使う可能性があるため **delete はしない**。
 ; sc stop は他プロセスが使用中なら拒否されるため、共存中でも相手のキャプチャを壊さない。
 ; 残留した壊れたサービスはアプリ起動時に自己修復する（recover_stale_service）。
+; 注: /T（プロセスツリー）は付けない。アプリ内更新（slint-app/src/update.rs）から起動された
+; ときインストーラは**アプリの子プロセス**になるため、/T を付けるとインストーラ自身を
+; 巻き添えで終了させてしまう。アプリ本体は子プロセスを持たないので /T は元々不要。
 !macro KillAppAndDriver
-  nsExec::ExecToLog 'taskkill /F /IM ${EXENAME} /T'
+  nsExec::ExecToLog 'taskkill /F /IM ${EXENAME}'
   Sleep 500
   nsExec::ExecToLog 'sc stop WinDivert'
   Sleep 1000
@@ -113,8 +116,16 @@ FunctionEnd
 Section "Install"
   SetOutPath "$INSTDIR"
   File "${SRCDIR}\${EXENAME}"
+  ; WinDivert の .dll/.sys は他アプリ（姉妹アプリ等）が使用中だとロックされ得る。
+  ; 既定の SetOverwrite on はその場合インストール全体を中断させ、exe だけ新しく
+  ; ドライバは古いという中途半端な状態を残すため、ここだけ try（失敗しても続行）にする。
+  ; 同梱ドライバは 2.2.2 固定なので、上書きできなくても既存ファイルと同一版で動く。
+  ; 注意: windivert/windivert-sys を上げるときは、この try を on へ戻すか版チェックを入れること。
+  ; 版が変わったまま上書きを黙って諦めると、次回起動が IncompatibleVersion (654) で失敗する。
+  SetOverwrite try
   File "${SRCDIR}\WinDivert.dll"
   File "${SRCDIR}\WinDivert64.sys"
+  SetOverwrite on
 
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
@@ -137,6 +148,13 @@ Section "Install"
   WriteRegStr HKLM "${REGKEY}" "QuietUninstallString" '"$INSTDIR\uninstall.exe" /S'
   WriteRegDWORD HKLM "${REGKEY}" "NoModify" 1
   WriteRegDWORD HKLM "${REGKEY}" "NoRepair" 1
+
+  ; サイレント（/S）実行はアプリ内更新からの呼び出し＝更新前にアプリが動いていた状況なので、
+  ; 完了後にアプリを起動して戻す（ユーザーの操作は「更新する」の 1 クリックで完結する）。
+  ; 対話インストールでは従来どおり起動しない（インストール直後の自動起動は行わない）。
+  ${If} ${Silent}
+    Exec '"$INSTDIR\${EXENAME}"'
+  ${EndIf}
 SectionEnd
 
 Section "Uninstall"

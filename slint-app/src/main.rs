@@ -17,6 +17,7 @@ mod overlay;
 mod settings;
 #[cfg(windows)]
 mod tray;
+mod update;
 mod watchlist;
 mod window_state;
 
@@ -27,6 +28,7 @@ use slint::{ComponentHandle, Model, Timer, TimerMode, VecModel};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 const SETTLE_TICKS: u64 = 5;
@@ -215,6 +217,195 @@ fn open_url(url: &str) {
 #[cfg(not(windows))]
 fn open_url(url: &str) {
     log::warn!("open_url not supported on this platform: {url}");
+}
+
+/// 通知カードの世代カウンタ。UI スレッドだけが触るが、通信スレッド経由で UI へ戻る
+/// 閉包に入る（＝Send が要る）ため Rc/Cell ではなく Arc/Atomic を使う。
+type ToastGen = Arc<AtomicU64>;
+
+/// 終了時に落としておく状態（名前キャッシュ・自キャラUID・食事/シロップ）。
+/// 通常終了とアプリ内更新の両方から呼ぶ。何度呼んでも同じ状態を書き直すだけで副作用はない。
+fn persist_state(enc: &EncounterMutex) {
+    engine::name_cache::flush();
+    engine::selected_uid::flush();
+    compute::save_consumables(enc);
+}
+
+/// 更新の通知カードを開き、15 秒後に自動で閉じる。
+///
+/// 閉じるのは「OK」かこのタイマーのどちらか早い方。カードを開き直すと世代が上がり、
+/// 古いタイマーは何もしない（＝先に張られたタイマーが後のカードを早く閉じない）。
+/// ダウンロード中はユーザーが結果を待っている最中なので、時間切れでも閉じない。
+fn open_update_toast(m: &MainWindow, toast_gen: &ToastGen) {
+    let generation = toast_gen.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
+    m.set_update_toast_open(true);
+    let w = m.as_weak();
+    let toast_gen = toast_gen.clone();
+    Timer::single_shot(Duration::from_secs(UPDATE_TOAST_SECS), move || {
+        let Some(m) = w.upgrade() else { return };
+        if toast_gen.load(Ordering::Relaxed) == generation
+            && m.get_update_state() != UpdateState::Downloading
+        {
+            m.set_update_toast_open(false);
+        }
+    });
+}
+
+/// 通知カードを自動で閉じるまでの秒数（app.slint の説明文と対で読むこと）。
+const UPDATE_TOAST_SECS: u64 = 15;
+
+/// 「更新を確認」を開始する（実処理は update.rs、通信は専用スレッド）。
+///
+/// `auto` は起動時の自動確認。自動確認では「最新でした」を通知せず、失敗もログだけに残す
+/// （ユーザーが押していない確認の結果でカードを出すのは邪魔になるため）。手動確認では逆に、
+/// 押した以上は結果を必ずカードで返す。
+fn start_update_check(
+    m: &MainWindow,
+    releases: &Arc<std::sync::Mutex<Vec<update::Release>>>,
+    toast_gen: &ToastGen,
+    auto: bool,
+) {
+    // 確認中・ダウンロード中の多重起動を防ぐ（ボタン側の enabled と二重の歯止め）。
+    let state = m.get_update_state();
+    if state == UpdateState::Checking || state == UpdateState::Downloading {
+        return;
+    }
+    m.set_update_state(UpdateState::Checking);
+    m.set_update_error(slint::SharedString::new());
+    let releases = releases.clone();
+    let toast_gen = toast_gen.clone();
+    let w = m.as_weak();
+    std::thread::spawn(move || {
+        let res = update::fetch_releases(update::RELEASE_LIST_LIMIT);
+        // インストーラ版のみワンクリック更新の対象（ポータブルは実行中 exe の自己置換になる）。
+        let installed_build = update::is_installed_build();
+        let _ = w.upgrade_in_event_loop(move |m| match res {
+            Ok(list) => {
+                // 一覧の先頭が最新版（update.rs がバージョン降順に整えている）。
+                let newest = list[0].clone();
+                let newer = newest.is_newer_than_current();
+                m.set_update_releases(release_entries(&list));
+                if let Ok(mut slot) = releases.lock() {
+                    *slot = list;
+                }
+                m.set_update_version(newest.version.text().into());
+                // 「インストーラ版で動いているか」と「その版を入れ替えられるか」は別条件。
+                // 前者は行の文言（入れ替える/ページを開く）、後者は各行の可否に効く。
+                m.set_update_installed_build(installed_build);
+                m.set_update_installable(installed_build && newest.can_install());
+                m.set_update_state(if newer { UpdateState::Available } else { UpdateState::Latest });
+                if newer || !auto {
+                    open_update_toast(&m, &toast_gen);
+                }
+            }
+            Err(e) => {
+                log::warn!("更新確認に失敗: {e}");
+                if auto {
+                    m.set_update_state(UpdateState::Idle);
+                } else {
+                    m.set_update_error(e.user_message().into());
+                    m.set_update_state(UpdateState::Failed);
+                    open_update_toast(&m, &toast_gen);
+                }
+            }
+        });
+    });
+}
+
+/// リリース一覧 → 設定パネルのバージョン選択に出す行。
+/// `installable` はその版の配布物だけで決まる（インストーラ版で動いているかは
+/// `update-installed-build` として UI へ別に渡す）。
+fn release_entries(list: &[update::Release]) -> slint::ModelRc<ReleaseEntryUi> {
+    let rows: Vec<ReleaseEntryUi> = list
+        .iter()
+        .map(|r| ReleaseEntryUi {
+            version: r.version.text().into(),
+            current: r.is_current(),
+            newer: r.is_newer_than_current(),
+            installable: r.can_install(),
+        })
+        .collect();
+    slint::ModelRc::new(VecModel::from(rows))
+}
+
+/// 選んだバージョンをダウンロード→SHA-256 検証→インストーラ起動→アプリ終了。
+/// `index` は確認で得たリリース一覧の位置（0＝最新）。バージョン選択からの過去版も同じ経路。
+///
+/// 検証に通るまでアプリは終了させない（未署名の配布物が Defender に隔離された場合に
+/// 「アプリだけ終了して更新は入らない」状態を作らないため。update.rs の契約と対）。
+fn start_update_install(
+    m: &MainWindow,
+    releases: &Arc<std::sync::Mutex<Vec<update::Release>>>,
+    enc: &Arc<EncounterMutex>,
+    toast_gen: &ToastGen,
+    index: usize,
+) {
+    let state = m.get_update_state();
+    if state == UpdateState::Downloading || state == UpdateState::Launched {
+        return;
+    }
+    let asset = releases
+        .lock()
+        .ok()
+        .and_then(|list| list.get(index).and_then(|r| r.installer.clone()));
+    let Some(asset) = asset else {
+        let e = update::UpdateError::NoInstaller;
+        log::warn!("更新の適用を中止: {e}");
+        m.set_update_error(e.user_message().into());
+        m.set_update_state(UpdateState::Failed);
+        open_update_toast(m, toast_gen);
+        return;
+    };
+    m.set_update_state(UpdateState::Downloading);
+    m.set_update_progress(0.0);
+    // 通知カードは開いたままにする。設定パネルを開いていないユーザーにとっては、ここが
+    // 進捗と失敗を知る唯一の場所になる（カードから「更新する」を押した場合が該当）。
+    open_update_toast(m, toast_gen);
+    let enc = enc.clone();
+    let toast_gen = toast_gen.clone();
+    let w = m.as_weak();
+    std::thread::spawn(move || {
+        // 進捗は 1% 刻みでのみ UI へ返す（チャンク毎に invoke するとイベントループを溢れさせる）。
+        let wp = w.clone();
+        let mut last_pct = -1i32;
+        let res = update::download_verified(&asset, move |done, total| {
+            if total == 0 {
+                return;
+            }
+            let pct = ((done * 100 / total) as i32).min(100);
+            if pct == last_pct {
+                return;
+            }
+            last_pct = pct;
+            let _ = wp.upgrade_in_event_loop(move |m| {
+                m.set_update_progress(pct as f32 / 100.0);
+            });
+        });
+        let _ = w.upgrade_in_event_loop(move |m| {
+            // インストーラは .onInit で taskkill するため、起動した瞬間からこちらは
+            // いつ落とされてもおかしくない。永続化は**起動より前**に済ませる
+            // （main の末尾にある通常終了時の保存は、強制終了されると走らない）。
+            let outcome = res.and_then(|path| {
+                persist_state(&enc);
+                update::launch_installer(&path)
+            });
+            match outcome {
+                Ok(()) => {
+                    m.set_update_state(UpdateState::Launched);
+                    // 状態表示を一瞬見せてから畳む。ここで落とされても保存済み。
+                    Timer::single_shot(Duration::from_millis(800), || {
+                        let _ = slint::quit_event_loop();
+                    });
+                }
+                Err(e) => {
+                    log::warn!("更新の適用に失敗: {e}");
+                    m.set_update_error(e.user_message().into());
+                    m.set_update_state(UpdateState::Failed);
+                    open_update_toast(&m, &toast_gen);
+                }
+            }
+        });
+    });
 }
 
 fn data_dir() -> std::path::PathBuf {
@@ -1381,6 +1572,7 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         dps_bar_mode: c.dps_bar_mode.clone().into(),
         dps_bar_intensity: c.dps_bar_intensity.clone().into(),
         dps_bar_animate: c.dps_bar_animate,
+        check_update_on_startup: c.check_update_on_startup,
     });
     // 文字色HSVピッカーの初期/同期位置（現在の文字色を HSV へ変換して反映）。
     {
@@ -3592,6 +3784,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "overlay-shadow" => c.overlay_shadow = val,
                     "show-footer" => c.show_footer = val,
                     "dps-bar-animate" => c.dps_bar_animate = val,
+                    "check-update-on-startup" => c.check_update_on_startup = val,
                     other => log::warn!("unknown setting key: {other}"),
                 }
             }
@@ -4268,7 +4461,93 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         open_url("https://github.com/Rererr/bpsr-checker/issues/new");
     });
 
+    // ── アプリ内更新（GitHub Releases）──
+    // 確認で得たリリース一覧（新しい順）を保持し、「更新する」とバージョン選択が同じ内容を使う
+    // （再取得しない）。通信スレッドから書くため Arc<Mutex>（UI スレッド専有の Rc では跨げない）。
+    let update_releases: Arc<std::sync::Mutex<Vec<update::Release>>> =
+        Arc::new(std::sync::Mutex::new(Vec::new()));
+    // 通知カードの世代。カードを開くたびに上がり、古い自動クローズを無効化する。
+    let toast_gen: ToastGen = Arc::new(AtomicU64::new(0));
+    {
+        let w = main.as_weak();
+        let releases = update_releases.clone();
+        let generation = toast_gen.clone();
+        main.on_update_check(move || {
+            if let Some(m) = w.upgrade() {
+                start_update_check(&m, &releases, &generation, false);
+            }
+        });
+    }
+    {
+        let w = main.as_weak();
+        let releases = update_releases.clone();
+        let enc_up = enc.clone();
+        let generation = toast_gen.clone();
+        main.on_update_install(move || {
+            if let Some(m) = w.upgrade() {
+                start_update_install(&m, &releases, &enc_up, &generation, 0); // 先頭＝最新版
+            }
+        });
+    }
+    {
+        let w = main.as_weak();
+        let releases = update_releases.clone();
+        let enc_up = enc.clone();
+        let generation = toast_gen.clone();
+        main.on_update_install_index(move |i| {
+            if let Some(m) = w.upgrade() {
+                if let Ok(i) = usize::try_from(i) {
+                    start_update_install(&m, &releases, &enc_up, &generation, i);
+                }
+            }
+        });
+    }
+    {
+        let releases = update_releases.clone();
+        main.on_update_open_page(move || {
+            // 確認済みならそのリリースのページ、未確認なら latest リリースへ飛ばす。
+            let url = releases
+                .lock()
+                .ok()
+                .and_then(|list| list.first().map(|r| r.page_url.clone()))
+                .unwrap_or_else(|| update::RELEASES_PAGE.to_string());
+            open_url(&url);
+        });
+    }
+    {
+        let releases = update_releases.clone();
+        main.on_update_open_page_index(move |i| {
+            let url = releases
+                .lock()
+                .ok()
+                .and_then(|list| usize::try_from(i).ok().and_then(|i| list.get(i).map(|r| r.page_url.clone())))
+                .unwrap_or_else(|| update::RELEASES_PAGE.to_string());
+            open_url(&url);
+        });
+    }
+    {
+        let w = main.as_weak();
+        main.on_update_toast_dismiss(move || {
+            if let Some(m) = w.upgrade() {
+                m.set_update_toast_open(false);
+            }
+        });
+    }
+
     main.show()?;
+
+    // 起動時の更新確認（設定でOFFにできる唯一の自動外部通信）。起動直後の描画・
+    // キャプチャ開始と競合させないよう数秒遅らせてから走らせる。
+    if cfg.borrow().check_update_on_startup {
+        let w = main.as_weak();
+        let releases = update_releases.clone();
+        let generation = toast_gen.clone();
+        Timer::single_shot(Duration::from_secs(5), move || {
+            if let Some(m) = w.upgrade() {
+                start_update_check(&m, &releases, &generation, true);
+            }
+        });
+    }
     if cfg.borrow().show_self_status_overlay {
         let _ = self_overlay.show();
     }
@@ -4800,9 +5079,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 閉じてもループを止めない。終了はトレイ「終了」/ ×ボタンの quit_event_loop のみ。
     slint::run_event_loop_until_quit()?;
 
-    engine::name_cache::flush();
-    engine::selected_uid::flush();
-    compute::save_consumables(&enc); // 終了時に最終状態を永続化
+    persist_state(&enc); // 終了時に最終状態を永続化
     Ok(())
 }
 

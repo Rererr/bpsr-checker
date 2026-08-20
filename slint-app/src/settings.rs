@@ -225,6 +225,10 @@ pub struct Settings {
     /// 正規化%）: animate ON ≈17.1% vs OFF ≈11.4-11.8%（差 +5.3〜5.7pt）。
     /// 目安の「+1〜2pt以内」を明確に超えたため既定 OFF とした（ユーザーが設定パネルで有効化可能）。
     pub dps_bar_animate: bool,
+    /// 起動時に GitHub Releases で更新の有無を確認するか（既定 true）。
+    /// これが唯一の自動的な外部通信で、OFF にすると設定パネルの「更新を確認」を
+    /// 押したときだけ通信する。送信するのは GitHub API への GET のみ（識別情報は送らない）。
+    pub check_update_on_startup: bool,
 }
 
 impl Default for Settings {
@@ -305,6 +309,7 @@ impl Default for Settings {
             dps_bar_window_secs: 10.0,
             dps_bar_intensity: crate::dps_bar::INTENSITY_SUBTLE.to_string(),
             dps_bar_animate: false,
+            check_update_on_startup: true,
         }
     }
 }

@@ -1,6 +1,50 @@
 // メイン窓（S2: タブ + プレイヤーテーブル + スキル内訳ドリルダウン）。
 // 条件付き列・被ダメドリルダウンは後続増分。
 
+// アプリ内更新の進行状態（設定パネルの UpdateSection と Rust の update.rs が共有する）。
+// latest=実行中が最新 / available=新しい版がある / launched=インストーラ起動済（直後に終了）。
+enum UpdateState {
+    idle,
+    checking,
+    latest,
+    available,
+    downloading,
+    launched,
+    failed,
+}
+
+// 設定パネルのバージョン選択に出す 1 行（Rust の update::Release から作る）。
+struct ReleaseEntryUi {
+    version: string,        // "1.25.1"（タグの v は落とす）
+    current: bool,          // 実行中と同じバージョン
+    newer: bool,            // 実行中より新しい
+    installable: bool,      // このバージョンの setup 配布物がある（＝アプリ内で入れ替えられる）
+}
+
+// 更新状態の文言。設定パネルのセクションと通知カードの両方が同じ文を出すため、
+// 分岐をここ 1 箇所に集約する（同じ判定を 2 つ書かない）。
+global UpdateText {
+    // error は失敗時の説明（Rust 側が表示言語に合わせて組み立てた文をそのまま出す）。
+    // progress は 0.0〜1.0。
+    pure public function status(state: UpdateState, version: string, installable: bool,
+                                progress: float, error: string) -> string {
+        return state == UpdateState.checking ? @tr("確認中…")
+            : state == UpdateState.latest ? @tr("最新版を使用しています。")
+            : state == UpdateState.available ? (installable
+                ? @tr("新しいバージョン {} があります。", version)
+                : @tr("新しいバージョン {} があります（ポータブル版は手動で入れ替えてください）。", version))
+            : state == UpdateState.downloading ? @tr("ダウンロード中… {}%", Math.round(progress * 100))
+            : state == UpdateState.launched ? @tr("インストーラを起動しました。このアプリはいったん終了します。")
+            : state == UpdateState.failed ? error
+            : @tr("新しいバージョンが出ていないか GitHub で確認します。");
+    }
+
+    // 文言の色。失敗だけ警告色にし、それ以外は呼び出し側の既定色を使う。
+    pure public function tone(state: UpdateState, normal: color) -> color {
+        return state == UpdateState.failed ? SettingsStyle.error : normal;
+    }
+}
+
 struct NamePart {
     text: string,
     class-icon: bool,
@@ -108,6 +152,7 @@ struct SettingsUi {
     dps-bar-mode: string,              // DPS一覧の行バー幅比率の基準（"top"/"share"/"fixed"/"self"）
     dps-bar-intensity: string,         // DPS一覧の行バーの濃度（"none"/"subtle"/"strong"）
     dps-bar-animate: bool,             // DPS一覧の行バー幅変化のアニメーション
+    check-update-on-startup: bool,     // 起動時に GitHub Releases で更新の有無を確認する
 }
 
 // 数値設定の表示用（Rust が cfg から整形して set）。ステッパーで増減する。
@@ -532,11 +577,22 @@ component HeaderButton inherits TouchArea {
     in property <bool> icon-fill: false; // true=塗り、false=線
     in property <color> active-bg: #8a5d12aa;
     in property <color> active-fg: #ffd54f;
+    // 右上の小ドット。設定ボタンで「アプリ内更新あり」を控えめに知らせる用途
+    // （設定パネルを開かないと更新セクションに気付けないため）。
+    in property <bool> badge: false;
     property <color> fg: root.active ? root.active-fg : #cdd;
     Rectangle {
         background: root.active ? root.active-bg : (root.has-hover ? #ffffff20 : transparent);
         animate background { duration: 100ms; easing: ease-out; }
         border-radius: 4px;
+        if root.badge: Rectangle {
+            width: 6px;
+            height: 6px;
+            border-radius: 3px;
+            background: Theme.accent;
+            x: parent.width - self.width - 2px;
+            y: 2px;
+        }
         if root.show-icon: Path {
             width: 13px;
             height: 13px;
@@ -2272,6 +2328,208 @@ component ShortcutOpenSection inherits SectionCard {
     }
 }
 
+// バージョン選択の 1 行。現在のバージョンには印を付け、選べない行はボタンを出さない。
+component ReleaseRow inherits Rectangle {
+    in property <ReleaseEntryUi> entry;
+    // アプリがインストーラ版で動いているか。ポータブル版では入れ替えられないので導線を変える。
+    // その版の配布物が入れ替え可能かは entry.installable（両者は別の条件）。
+    in property <bool> installed-build;
+    in property <bool> busy;
+    callback choose();
+    callback open-page();
+    height: 24px;
+    background: row-area.has-hover ? SettingsStyle.row-hover : transparent;
+    animate background { duration: 100ms; easing: ease-out; }
+    border-radius: SettingsStyle.radius;
+    // 行全体のホバー表示のみ（クリックは後方の choose-btn が先に捕まえる）。
+    // enabled: false にすると has-hover が常に false になり、ホバーが死ぬので付けない。
+    row-area := TouchArea {}
+    HorizontalLayout {
+        padding-left: 4px;
+        padding-right: 4px;
+        spacing: 8px;
+        Text {
+            text: "v" + root.entry.version;
+            color: root.entry.current ? Theme.accent : SettingsStyle.row-label;
+            font-size: SettingsStyle.row-label-size;
+            vertical-alignment: center;
+        }
+        Text {
+            text: root.entry.current ? @tr("使用中")
+                : root.entry.newer ? @tr("新しい")
+                : @tr("古い");
+            color: SettingsStyle.hint;
+            font-size: SettingsStyle.hint-size;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        choose-btn := TouchArea {
+            width: 96px;
+            height: 20px;
+            // 使用中の版は入れ直す意味がないので押させない。
+            enabled: !root.busy && !root.entry.current
+                && (root.installed-build ? root.entry.installable : true);
+            clicked => {
+                if (root.installed-build) { root.choose(); } else { root.open-page(); }
+            }
+            Rectangle {
+                background: choose-btn.has-hover ? SettingsStyle.control-bg-hover : SettingsStyle.control-bg;
+                animate background { duration: 100ms; easing: ease-out; }
+                border-radius: SettingsStyle.radius;
+                opacity: choose-btn.enabled ? 1.0 : 0.35;
+                Text {
+                    text: root.installed-build ? @tr("入れ替える") : @tr("ページを開く");
+                    color: #cdd;
+                    font-size: 10px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}
+
+// アプリ内更新のセクション（設定パネル・常に全幅）。実処理は Rust の update.rs で、
+// state は main.rs が UpdateState を set する。
+// ボタンは状態ごとに 1 つだけ出す（確認する / 更新する / ダウンロードページを開く）。
+// installable=false（ポータブル版）は実行中 exe の自己置換になるため、アプリ内更新は行わず
+// リリースページを開く導線のみにする。
+component UpdateSection inherits SectionCard {
+    in property <UpdateState> state: UpdateState.idle;
+    in property <string> latest-version;
+    in property <float> progress;      // 0.0〜1.0（downloading のときだけ意味を持つ）
+    in property <bool> installable;    // 最新版をワンクリック更新できる（インストーラ版＋配布物あり）
+    in property <bool> installed-build; // アプリ自体がインストーラ版か（バージョン選択の導線を決める）
+    in property <string> error-text;   // failed の詳細（Rust 側で表示言語に合わせた文をそのまま出す）
+    in property <bool> auto-check;
+    in property <[ReleaseEntryUi]> releases;   // 新しい順。バージョン選択の候補（最大5件）
+    property <bool> picker-open: false;        // 「別のバージョンを選ぶ」の展開状態
+    callback check();
+    callback install();
+    callback open-page();
+    callback toggle-auto();
+    callback install-index(int);       // バージョン選択から選んだ行のインストール
+    callback open-page-index(int);     // ポータブル版はその版のリリースページを開く
+    title: @tr("更新");
+    // 通信中・インストーラ起動後はボタンを押させない（多重ダウンロード防止）。
+    property <bool> busy: root.state == UpdateState.checking
+        || root.state == UpdateState.downloading
+        || root.state == UpdateState.launched;
+    // 「更新あり」の判定はここ 1 箇所。文言・色・ボタンの分岐はすべてこれを参照する。
+    property <bool> available: root.state == UpdateState.available;
+    property <bool> offer-install: root.available && root.installable;
+    property <bool> offer-page: root.available && !root.installable;
+    VerticalLayout {
+        spacing: 2px;
+        HorizontalLayout {
+            padding-left: 10px;
+            padding-right: 10px;
+            padding-top: 2px;
+            padding-bottom: 2px;
+            spacing: 10px;
+            Text {
+                text: UpdateText.status(root.state, root.latest-version, root.installable,
+                    root.progress, root.error-text);
+                color: UpdateText.tone(root.state,
+                    root.available ? SettingsStyle.row-label : SettingsStyle.hint);
+                font-size: root.available ? SettingsStyle.row-label-size : SettingsStyle.hint-size;
+                wrap: word-wrap;
+                horizontal-stretch: 1;
+                min-width: 0px;
+                vertical-alignment: center;
+            }
+            update-btn := TouchArea {
+                width: 128px;
+                height: 26px;
+                enabled: !root.busy;
+                clicked => {
+                    if (root.offer-install) { root.install(); }
+                    else if (root.offer-page) { root.open-page(); }
+                    else { root.check(); }
+                }
+                Rectangle {
+                    background: root.offer-install
+                        ? (update-btn.has-hover ? Theme.accent-strong : Theme.accent-strong.with-alpha(0.7))
+                        : (update-btn.has-hover ? SettingsStyle.control-bg-hover : SettingsStyle.control-bg);
+                    animate background { duration: 100ms; easing: ease-out; }
+                    border-radius: SettingsStyle.radius;
+                    opacity: root.busy ? 0.4 : 1.0;
+                    Text {
+                        text: root.offer-install ? @tr("更新する")
+                            : root.offer-page ? @tr("ダウンロード")
+                            : @tr("更新を確認");
+                        color: #cdd;
+                        font-size: 11px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+        // ダウンロード進捗（実行中のみ表示。総サイズ不明時は progress=0 のまま伸びない）
+        if root.state == UpdateState.downloading: Rectangle {
+            height: 4px;
+            background: SettingsStyle.control-bg;
+            border-radius: 2px;
+            Rectangle {
+                x: 0;
+                width: parent.width * root.progress;
+                height: parent.height;
+                background: Theme.accent;
+                border-radius: 2px;
+            }
+        }
+        ToggleRow {
+            label: @tr("起動時に更新を確認する");
+            checked: root.auto-check;
+            toggled => { root.toggle-auto(); }
+        }
+        // ── バージョン選択（既定は畳む。過去の版へ戻す用途で、通常は最新への更新だけで足りる）──
+        picker-toggle := TouchArea {
+            height: 22px;
+            enabled: root.releases.length > 0 && !root.busy;
+            clicked => { root.picker-open = !root.picker-open; }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 6px;
+                Text {
+                    text: root.picker-open ? @tr("バージョンを選ぶ（閉じる）") : @tr("別のバージョンを選ぶ");
+                    color: picker-toggle.has-hover ? #cdd : SettingsStyle.sub-label;
+                    font-size: SettingsStyle.sub-label-size;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                Text {
+                    text: root.releases.length > 0 ? "" : @tr("（確認するとここに出ます）");
+                    color: SettingsStyle.hint;
+                    font-size: SettingsStyle.hint-size;
+                    vertical-alignment: center;
+                }
+            }
+        }
+        if root.picker-open: VerticalLayout {
+            padding-left: 10px;
+            padding-right: 10px;
+            padding-bottom: 2px;
+            spacing: 2px;
+            Text {
+                text: @tr("古いバージョンを選ぶと、そのバージョンへ入れ替わります（設定と履歴は残ります）。入れ替え後にアプリが自動で起動しない場合は、スタートメニューから起動してください。");
+                color: SettingsStyle.hint;
+                font-size: SettingsStyle.hint-size;
+                wrap: word-wrap;
+            }
+            for entry[i] in root.releases: ReleaseRow {
+                entry: entry;
+                installed-build: root.installed-build;
+                busy: root.busy;
+                choose => { root.install-index(i); }
+                open-page => { root.open-page-index(i); }
+            }
+        }
+    }
+}
+
 // グローバルショートカット設定ダイアログの1行。index で Rust 側の ACTIONS / shortcuts と対応する。
 component ShortcutRow inherits Rectangle {
     in property <string> row-label;
@@ -2794,6 +3052,17 @@ export component MainWindow inherits Window {
     // には連動させない＝メイン一覧の設定を変えても結果モーダルの文字は変わらない独立軸。
     in property <float> result-scale: 1.0;
     in property <string> app-version;        // 設定パネル最下部の表示（バージョンのみ）
+    // ── アプリ内更新（設定パネルの UpdateSection。実処理は Rust の update.rs）──
+    in property <UpdateState> update-state: UpdateState.idle;
+    in property <string> update-version;     // 見つかった新バージョン（"1.26.0"）
+    in property <float> update-progress;     // ダウンロード進捗 0.0〜1.0
+    in property <bool> update-installable;   // 最新版をワンクリック更新できる
+    in property <bool> update-installed-build; // アプリ自体がインストーラ版か
+    in property <string> update-error;       // 失敗時の説明（表示言語に合わせて Rust 側で組み立てる）
+    in property <[ReleaseEntryUi]> update-releases;   // バージョン選択の候補（新しい順・最大5件）
+    // 更新結果の通知カード。手動確認では必ず、起動時の自動確認では更新があるときだけ開く。
+    // 閉じるのは OK ボタンか Rust 側の自動クローズ（15秒）。
+    in-out property <bool> update-toast-open: false;
     in property <string> result-watermark;   // 結果モーダルの透かし（バージョン・日時・計測時間。画像コピーに写り込む）
     in property <bool> result-img-copied;    // 画像コピー直後の一時フィードバック
     in property <bool> result-is-new-record;    // 自キャラの自己ベスト更新（計測確定時のみ判定）
@@ -2841,6 +3110,12 @@ export component MainWindow inherits Window {
     callback imagine-open-window();                   // 「別ウィンドウで開く」ボタン→ ImagineNamesWindow を show()
     callback open-contact();                           // フッター「お問い合わせ」→ 既定ブラウザでポートフォリオサイトを開く
     callback open-github-issue();                       // フッター「GitHubで報告」→ 既定ブラウザでissue作成画面を開く
+    callback update-check();                            // 更新セクション「更新を確認」→ GitHub Releases を照会
+    callback update-install();                          // 更新セクション「更新する」→ DL・検証・インストーラ起動
+    callback update-install-index(int);                 // バージョン選択の行→ その版を DL・検証・インストーラ起動
+    callback update-open-page-index(int);               // バージョン選択の行（ポータブル版）→ その版のページを開く
+    callback update-toast-dismiss();                    // 通知カードの「OK」→ 閉じる（自動クローズも同じ経路）
+    callback update-open-page();                        // 更新セクション「ダウンロード」→ 既定ブラウザでリリースページを開く
     // グローバルショートカット（issue #3）
     callback shortcut-open-dialog();          // 設定パネルのボタンから
     callback shortcut-close-dialog();         // ×・背景クリック
@@ -3041,6 +3316,9 @@ export component MainWindow inherits Window {
                     label: @tr("設定");
                     icon-commands: HeaderIcons.settings;
                     show-icon: root.narrow-header;
+                    // 更新セクションは設定パネルの中にあるため、更新ありのときだけ小ドットで知らせる
+                    // （パネルを開いている間は本文が見えているのでドットは出さない）。
+                    badge: root.update-state == UpdateState.available && !root.settings-open;
                     active: root.settings-open;
                     active-bg: #ffffff20;
                     active-fg: #cdd;
@@ -3588,6 +3866,23 @@ export component MainWindow inherits Window {
                         // 前回の確認モーダルが開いたまま閉じられた場合に持ち越さない（issue #8）。
                         open-dialog => { root.solo-confirm-open = false; root.shortcut-open-dialog(); }
                     }
+                    // ── 更新（バージョン情報の直上。実処理は Rust の update.rs）──
+                    UpdateSection {
+                        state: root.update-state;
+                        latest-version: root.update-version;
+                        progress: root.update-progress;
+                        installable: root.update-installable;
+                        installed-build: root.update-installed-build;
+                        error-text: root.update-error;
+                        auto-check: root.cfg-ui.check-update-on-startup;
+                        releases: root.update-releases;
+                        check => { root.update-check(); }
+                        install => { root.update-install(); }
+                        open-page => { root.update-open-page(); }
+                        install-index(i) => { root.update-install-index(i); }
+                        open-page-index(i) => { root.update-open-page-index(i); }
+                        toggle-auto => { root.set-bool("check-update-on-startup", !root.cfg-ui.check-update-on-startup); }
+                    }
                     // ── バージョン情報（設定パネル最下部）──
                     Text {
                         text: root.app-version;
@@ -4090,6 +4385,101 @@ export component MainWindow inherits Window {
                             animate background { duration: 100ms; easing: ease-out; }
                             border-radius: SettingsStyle.radius;
                             Text { text: @tr("許可する"); color: white; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── 更新の通知カード ──
+    // 設定パネルを開かないと気付けない問題への対処。背景は暗くせず、一覧の操作は妨げない。
+    // 閉じるのは「OK」か Rust 側の自動クローズ（15秒）。文言は設定パネルと同じ UpdateText を使う。
+    if root.update-toast-open: Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: 40px;   // ヘッダーの直下
+        width: Math.min(340px, parent.width - 20px);
+        height: toast-col.preferred-height + 20px;
+        background: #14141ef7;
+        border-width: 1px;
+        border-color: #ffffff33;
+        border-radius: 8px;
+        TouchArea {}   // カード上のクリックを下の一覧へ通さない
+        toast-col := VerticalLayout {
+            padding: 10px;
+            spacing: 8px;
+            Text {
+                text: @tr("更新の確認");
+                color: SettingsStyle.section-title;
+                font-size: SettingsStyle.section-title-size;
+                font-weight: 600;
+            }
+            Text {
+                text: UpdateText.status(root.update-state, root.update-version,
+                    root.update-installable, root.update-progress, root.update-error);
+                color: UpdateText.tone(root.update-state, #dcdce4);
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+            // ダウンロード中は進捗バーを出し、時間切れで消えない（閉じるのは OK のみ）。
+            if root.update-state == UpdateState.downloading: Rectangle {
+                height: 4px;
+                background: SettingsStyle.control-bg;
+                border-radius: 2px;
+                Rectangle {
+                    x: 0;
+                    width: parent.width * root.update-progress;
+                    height: parent.height;
+                    background: Theme.accent;
+                    border-radius: 2px;
+                }
+            }
+            Text {
+                text: root.update-state == UpdateState.downloading
+                    ? @tr("完了するとインストーラが起動し、アプリはいったん終了します。")
+                    : @tr("このお知らせは15秒で自動的に閉じます。");
+                color: SettingsStyle.hint;
+                font-size: SettingsStyle.hint-size;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: end;
+                toast-ok := TouchArea {
+                    width: 96px;
+                    height: 26px;
+                    clicked => { root.update-toast-dismiss(); }
+                    Rectangle {
+                        background: toast-ok.has-hover ? SettingsStyle.control-bg-hover : SettingsStyle.control-bg;
+                        animate background { duration: 100ms; easing: ease-out; }
+                        border-radius: SettingsStyle.radius;
+                        Text {
+                            text: @tr("OK");
+                            color: #cdd;
+                            font-size: 11px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+                // 更新があり、かつインストーラ版のときだけ、その場で適用できるようにする。
+                if root.update-state == UpdateState.available && root.update-installable: toast-update := TouchArea {
+                    width: 96px;
+                    height: 26px;
+                    clicked => {
+                        root.update-toast-dismiss();
+                        root.update-install();
+                    }
+                    Rectangle {
+                        background: toast-update.has-hover ? Theme.accent-strong : Theme.accent-strong.with-alpha(0.7);
+                        animate background { duration: 100ms; easing: ease-out; }
+                        border-radius: SettingsStyle.radius;
+                        Text {
+                            text: @tr("更新する");
+                            color: white;
+                            font-size: 11px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
                         }
                     }
                 }

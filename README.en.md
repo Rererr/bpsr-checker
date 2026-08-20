@@ -51,6 +51,7 @@ Feature details and screenshots are organized into separate pages.
 ### Other
 
 - [Language support](docs/features/multilanguage.md)
+- [In-app updates](docs/features/in-app-update.md)
 - [Footer contact links](docs/features/contact-links.md)
 
 > Feature pages are currently written in Japanese; the screenshots include both Japanese and English UI where relevant.
@@ -60,6 +61,7 @@ Feature details and screenshots are organized into separate pages.
 Download the latest `bpsr-checker-setup-x.x.x.exe` (installer) from [Releases](https://github.com/Rererr/bpsr-checker/releases) and run it. There is also a no-install portable version, `bpsr-checker-portable-x.x.x.zip` (unzip and run `bpsr-checker.exe`).
 
 - You can install updates without closing the running app.
+- The installer build can check for and apply new versions from the Updates section of the settings panel ([In-app updates](docs/features/in-app-update.md)).
 - Settings and history are preserved across reinstalls (`%APPDATA%\bpsr-checker`).
 
 ### Requirements
@@ -113,7 +115,9 @@ How to bypass:
 
 ### Does it send data anywhere?
 
-**No.** The app contains no HTTP client library, and it performs no automatic sending of telemetry, analytics, or crash reports. Everything is processed locally (except checking GitHub Releases for updates).
+**No.** It sends no telemetry, analytics, or crash reports. Neither the observed packets nor the aggregated results leave your machine, and everything needed for the display is processed locally.
+
+The only outbound traffic is update checking and downloading: the app asks the GitHub Releases API for the latest version, and fetches the release artifact when you apply an update. It never sends the data this tool handles, such as UIDs, player names, or measurement results. The startup check can be turned off in the Updates section of the settings panel; with it off, the app talks to the network only when you press Check for updates.
 
 ### How it works (simplified)
 
@@ -151,6 +155,7 @@ Open it with the **Settings** button in the header (slider icon in narrow layout
 - Self buff/debuff display ON/OFF
 - Adding to the watchlist is done via the pin icon next to the player row in the DPS list
 - Startup tab (DPS / Healing / History)
+- Checking for and applying updates, and switching between the 5 most recent versions (the startup check can be turned off)
 
 ## Known limitations
 

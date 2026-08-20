@@ -22,7 +22,9 @@ README と機能ドキュメントで使う実機 UI の撮影台帳です。す
 | `feature-self-status-settings.png` | 自キャラステータスと項目グループの設定 |
 | `feature-settings-overview.png` | 設定上部。キャラ、列、戦闘、表示、タイマー、ステータス |
 | `feature-settings-bottom.png` | オーバーレイ外観とテンプレート |
-| `feature-settings-actions.png` | テンプレート、イマジン名編集、ショートカット設定、バージョン |
+| `feature-settings-actions.png` | テンプレート、イマジン名編集、ショートカット設定、更新、バージョン |
+| `feature-update.png` | バージョン選択を開いた更新セクション |
+| `feature-update-notice.png` | 新しいバージョンが見つかったときのお知らせ |
 | `feature-shortcuts.png` | グローバルショートカット設定ダイアログ |
 | `feature-overlay-appearance.png` | オーバーレイ表示とステータス項目の設定 |
 | `feature-overlay-appearance-detail.png` | 不透明度、縁取り、影、フォント、文字色の設定 |

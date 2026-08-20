@@ -19,6 +19,16 @@ pub mod packet_layout {
 pub mod entity {
     pub const TYPE_MASK: u16 = 0xFFFF;
 
+    /// UUID 下位16bit の種別コード。`EntityKind` への変換（`protocol/mod.rs`）と
+    /// `EntityKey` の合成（`engine/entity.rs`）が共有する唯一の定義。
+    pub const MONSTER_TYPE_CODE: i64 = 64;
+    pub const PLAYER_TYPE_CODE: i64 = 640;
+
+    /// UUID からプレイヤー UID（上位ビットのエンティティ番号）を取り出す。
+    ///
+    /// **戻り値はエンティティの一意識別子ではない**。上位ビットは種別ごとに独立した連番で、
+    /// プレイヤー・モンスター・召喚体の間で同じ値が普通に使い回される。エンティティを
+    /// 一意に指すキーが要る場面では [`crate::engine::entity::EntityKey`] を使うこと。
     #[inline]
     pub fn get_player_uid(uuid: i64) -> i64 {
         uuid >> 16

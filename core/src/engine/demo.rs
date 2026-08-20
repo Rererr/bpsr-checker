@@ -4,26 +4,25 @@
 //! （ダメージ/回復/バフ）を流す。通常起動では一切使われない。
 
 use crate::engine::encounter::EncounterMutex;
-use crate::engine::entity::Entity;
+use crate::engine::entity::{Entity, EntityKey};
 use crate::engine::name_cache;
 use crate::engine::processor::{self, now_ms};
-use crate::protocol::pb::{self, EntityKind};
+use crate::protocol::pb;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-const PLAYER_TYPE: i64 = 640;
-const MONSTER_TYPE: i64 = 64;
 const SELF_UID: i64 = 90001;
 const BOSS_UID: i64 = 80001;
 const BOSS_MONSTER_ID: u32 = 118; // 訓練用ダミー（MonsterNameBoss.json 収録）
 
+// UUID の合成は EntityKey に集約する（種別コードをここで再定義しない）。
 fn player_uuid(uid: i64) -> i64 {
-    (uid << 16) | PLAYER_TYPE
+    EntityKey::player(uid).uuid()
 }
 
 fn boss_uuid() -> i64 {
-    (BOSS_UID << 16) | MONSTER_TYPE
+    EntityKey::monster(BOSS_UID).uuid()
 }
 
 /// 依存追加を避けるための xorshift64 簡易乱数。
@@ -405,7 +404,7 @@ fn prime_entities(enc: &EncounterMutex) {
     // 値はゲーム内ステータス画面（docs/images の参考スクショ）のスケールに合わせる。
     // ※ 割合系は「値 / 100 = %」（例: crit_stat 2485 = 24.85%）。
     if let Ok(mut e) = enc.lock() {
-        if let Some(ent) = e.entities.get_mut(&SELF_UID) {
+        if let Some(ent) = e.entities.get_mut(&EntityKey::player(SELF_UID)) {
             ent.curr_hp = Some(320_000);
             ent.max_hp = Some(398_624);
             ent.attack_power = Some(3_569); // 物理攻撃力
@@ -444,12 +443,12 @@ fn prime_entities(enc: &EncounterMutex) {
                 .collect()
         };
         for &(uid, names) in IMAGINE_ROSTER {
-            if let Some(ent) = e.entities.get_mut(&uid) {
+            if let Some(ent) = e.entities.get_mut(&EntityKey::player(uid)) {
                 ent.imagines = slots(names);
             }
         }
         for &(uid, names) in ROLE_SKILL_ROSTER {
-            if let Some(ent) = e.entities.get_mut(&uid) {
+            if let Some(ent) = e.entities.get_mut(&EntityKey::player(uid)) {
                 ent.role_skill_imagines = slots(names);
             }
         }
@@ -562,8 +561,7 @@ pub fn spawn(enc: Arc<EncounterMutex>) {
 
     if let Ok(mut e) = enc.lock() {
         e.local_player_uid = SELF_UID;
-        e.entities.entry(BOSS_UID).or_insert_with(|| Entity {
-            entity_type: EntityKind::Monster,
+        e.entities.entry(EntityKey::monster(BOSS_UID)).or_insert_with(|| Entity {
             monster_id: Some(BOSS_MONSTER_ID),
             curr_hp: Some(8_000_000_000),
             max_hp: Some(8_000_000_000),

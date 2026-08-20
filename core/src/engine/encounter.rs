@@ -1,8 +1,7 @@
 use crate::models::TimeSeriesPoint;
 use crate::engine::buff_tracker::BuffTracker;
 use crate::engine::combat_stats::{ActiveTime, CombatStats};
-use crate::engine::entity::Entity;
-use crate::protocol::pb::EntityKind;
+use crate::engine::entity::{Entity, EntityKey};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 pub type EncounterMutex = std::sync::Mutex<Encounter>;
@@ -25,7 +24,10 @@ pub struct Encounter {
     pub is_paused: bool,
     pub time_fight_start_ms: u128,
     pub time_last_combat_packet_ms: u128,
-    pub entities: HashMap<i64, Entity>,
+    /// 観測中の全エンティティ。キーは種別コードを含む [`EntityKey`]（＝パケットの UUID）。
+    /// `uuid >> 16` で束ねるとプレイヤーと同番号のモンスター/召喚体が同じ Entity を共有し、
+    /// PT メンバーが一覧から消える（[`EntityKey`] のドキュメント参照）。
+    pub entities: HashMap<EntityKey, Entity>,
     pub dmg_stats: CombatStats,
     pub dmg_stats_boss_only: CombatStats,
     pub heal_stats: CombatStats,
@@ -95,8 +97,7 @@ impl Encounter {
         self.has_selected_participant = false;
         self.participant_player_uids.clear();
         self.buff_tracker.clear();
-        self.entities
-            .retain(|_, entity| entity.entity_type != EntityKind::Player);
+        self.entities.retain(|key, _| !key.is_player());
         for entity in self.entities.values_mut() {
             entity.dmg_stats = CombatStats::default();
             entity.dmg_stats_boss_only = CombatStats::default();
@@ -161,7 +162,7 @@ mod tests {
     #[test]
     fn clear_combat_stats_resets_active_dmg_time() {
         let mut enc = Encounter::default();
-        let entity = enc.entities.entry(1).or_default();
+        let entity = enc.entities.entry(EntityKey::monster(1)).or_default();
         entity.active_dmg_time.record_event(1_000);
         entity.active_dmg_time.record_event(2_000);
         assert_ne!(entity.active_dmg_time.active_ms, 0);
@@ -169,7 +170,7 @@ mod tests {
         enc.clear_combat_stats();
 
         // モンスターは entities に残るがプレイヤーは除去されるため、モンスターで確認する。
-        let entity = enc.entities.entry(1).or_default();
+        let entity = enc.entities.entry(EntityKey::monster(1)).or_default();
         assert_eq!(entity.active_dmg_time.active_ms, 0);
     }
 }

@@ -1,7 +1,7 @@
 use crate::engine::buff_source::BuffSourceKind;
 use crate::engine::class::{Class, ClassSpec};
 use crate::engine::combat_stats::CombatStats;
-use crate::engine::entity::{MAX_IMAGINE_NAMES, MAX_ROLE_SKILL_IMAGINES};
+use crate::engine::entity::{EntityKey, MAX_IMAGINE_NAMES, MAX_ROLE_SKILL_IMAGINES};
 use crate::engine::runtime_settings::{self, Lang};
 use crate::engine::encounter::{Encounter, EncounterMutex};
 use crate::engine::name_cache;
@@ -12,7 +12,6 @@ use crate::models::{
     PlayerSkillSnapshot, PlayersWindow, SelfBuffSnapshot, SelfStatsData, SelfStatusData,
     SelfStatusEntry, SkillRow, SkillsWindow, TimeSeriesPoint, TrackedBuffsData,
 };
-use crate::protocol::pb::EntityKind;
 use log::info;
 use std::collections::VecDeque;
 
@@ -285,7 +284,7 @@ pub fn get_dmg_taken_attackers(
 ) -> Result<SkillsWindow, String> {
     let encounter = enc.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
 
-    let Some(player) = encounter.entities.get(&player_uid) else {
+    let Some(player) = encounter.entities.get(&EntityKey::player(player_uid)) else {
         return Err(format!("Could not find player with uid {player_uid}"));
     };
 
@@ -319,11 +318,13 @@ pub fn get_dmg_taken_attackers(
     let mut skill_rows: Vec<SkillRow> = player
         .attacker_uid_to_dmg_taken_stats
         .iter()
-        .map(|(&attacker_uid, stats)| {
+        .map(|(&attacker_key, stats)| {
             top_value = top_value.max(stats.total as f64);
             skill_row_for(
-                attacker_uid as f64,
-                attacker_display_name(&encounter, attacker_uid),
+                // 行 id は UUID（種別コード込み）。`get_dmg_taken_skills` へそのまま往復させる
+                // ため、`uuid >> 16` に潰さない（潰すとモンスターと召喚体の行が同じ id になる）。
+                attacker_key.uuid() as f64,
+                attacker_display_name(&encounter, attacker_key),
                 0,
                 0,
                 stats,
@@ -343,14 +344,17 @@ pub fn get_dmg_taken_attackers(
     })
 }
 
+/// `attacker_uuid` は [`get_dmg_taken_attackers`] が行 id として返した UUID
+/// （種別コード込み）をそのまま受け取る。プレイヤー UID ではない。
 pub fn get_dmg_taken_skills(
     enc: &EncounterMutex,
     player_uid: i64,
-    attacker_uid: i64,
+    attacker_uuid: i64,
 ) -> Result<SkillsWindow, String> {
+    let attacker_key = EntityKey::from_uuid(attacker_uuid);
     let encounter = enc.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
 
-    let Some(player) = encounter.entities.get(&player_uid) else {
+    let Some(player) = encounter.entities.get(&EntityKey::player(player_uid)) else {
         return Err(format!("Could not find player with uid {player_uid}"));
     };
 
@@ -358,7 +362,7 @@ pub fn get_dmg_taken_skills(
 
     let attacker_total = player
         .attacker_uid_to_dmg_taken_stats
-        .get(&attacker_uid)
+        .get(&attacker_key)
         .map(|s| s.total as f64)
         .unwrap_or(0.0);
     let encounter_stats = &encounter.dmg_taken_stats;
@@ -390,7 +394,7 @@ pub fn get_dmg_taken_skills(
     let mut skill_rows: Vec<SkillRow> = player
         .attacker_skill_to_dmg_taken_stats
         .iter()
-        .filter(|((uid, _), _)| *uid == attacker_uid)
+        .filter(|((key, _), _)| *key == attacker_key)
         .map(|((_, skill_uid), stats)| {
             top_value = top_value.max(stats.total as f64);
             let meta = player.skill_meta.get(skill_uid).copied().unwrap_or_default();
@@ -416,15 +420,17 @@ pub fn get_dmg_taken_skills(
     })
 }
 
-fn attacker_display_name(encounter: &Encounter, attacker_uid: i64) -> String {
-    let Some(e) = encounter.entities.get(&attacker_uid) else {
-        return format!("#{}", attacker_uid & 0xFFFF);
+fn attacker_display_name(encounter: &Encounter, attacker_key: EntityKey) -> String {
+    // 名前が引けないときの短縮表示。3通りの分岐で同じ式を書き直さないよう1箇所で導出する。
+    let short = attacker_key.player_uid() & 0xFFFF;
+    let Some(e) = encounter.entities.get(&attacker_key) else {
+        return format!("#{short}");
     };
-    if e.entity_type == EntityKind::Player {
+    if attacker_key.is_player() {
         return e
             .name
             .clone()
-            .unwrap_or_else(|| format!("プレイヤー#{}", attacker_uid & 0xFFFF));
+            .unwrap_or_else(|| format!("プレイヤー#{short}"));
     }
     if let Some(mid) = e.monster_id {
         if let Some(name) = crate::engine::monster_names::get_boss_name(mid) {
@@ -432,7 +438,7 @@ fn attacker_display_name(encounter: &Encounter, attacker_uid: i64) -> String {
         }
         return format!("モンスター#{mid}");
     }
-    format!("#{}", attacker_uid & 0xFFFF)
+    format!("#{short}")
 }
 
 /// ロック保持中に呼ぶ。ソートはロック解放後に呼び出し元で行う。
@@ -466,7 +472,7 @@ fn build_players_window_unsorted(
         top_value: 0.0,
     };
 
-    for (&entity_uid, entity) in &encounter.entities {
+    for (&entity_key, entity) in &encounter.entities {
         let entity_stats = match stat_type {
             StatType::Dmg => &entity.dmg_stats,
             StatType::DmgBossOnly => &entity.dmg_stats_boss_only,
@@ -486,9 +492,11 @@ fn build_players_window_unsorted(
         let active_dmg_ms = matches!(stat_type, StatType::Dmg | StatType::DmgBossOnly)
             .then_some(entity.active_dmg_time.active_ms);
 
-        if entity.entity_type != EntityKind::Player {
+        if !entity_key.is_player() {
             continue;
         }
+        // ここから先はプレイヤー確定なので、キーの上位ビットはプレイヤー UID として一意。
+        let entity_uid = entity_key.player_uid();
 
         let pc = encounter.consumables.get(&entity_uid);
         let has_consumable = pc.is_some_and(|c| c.food.is_some() || c.syrup.is_some());
@@ -685,7 +693,7 @@ pub fn get_skills(
 ) -> Result<SkillsWindow, String> {
     let encounter = enc.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
 
-    let Some(player) = encounter.entities.get(&player_uid) else {
+    let Some(player) = encounter.entities.get(&EntityKey::player(player_uid)) else {
         return Err(format!("Could not find player with uid {player_uid}"));
     };
 
@@ -835,7 +843,7 @@ pub fn build_encounter_snapshot(encounter: &Encounter, now: u128) -> EncounterSn
         .iter()
         .filter_map(|player_row| {
             let player_uid = player_row.uid as i64;
-            let player = encounter.entities.get(&player_uid)?;
+            let player = encounter.entities.get(&EntityKey::player(player_uid))?;
             let skill_rows = build_skill_rows_for_player(player, elapsed_secs, false, false);
             if skill_rows.is_empty() {
                 return None;
@@ -1073,7 +1081,7 @@ pub fn get_self_stats(enc: &EncounterMutex) -> SelfStatsData {
     if uid == 0 {
         return SelfStatsData::default();
     }
-    let Some(ent) = encounter.entities.get(&uid) else {
+    let Some(ent) = encounter.entities.get(&EntityKey::player(uid)) else {
         return SelfStatsData {
             local_player_uid: uid as f64,
             ..Default::default()
@@ -1211,13 +1219,13 @@ pub fn capture_3min_result_skills(
             encounter
                 .entities
                 .iter()
-                .filter(|(_, e)| e.entity_type == EntityKind::Player)
-                .filter_map(|(&uid, player)| {
+                .filter(|(key, _)| key.is_player())
+                .filter_map(|(&key, player)| {
                     let rows = build_skill_rows_for_player(player, elapsed_secs, false, true);
                     if rows.is_empty() {
                         None
                     } else {
-                        Some((uid, rows))
+                        Some((key.player_uid(), rows))
                     }
                 })
                 .collect()
@@ -1516,16 +1524,15 @@ mod tests {
     fn dps_ranking_imagine_suffix_confirmed_only_after_recheck_shows_rorora() {
         use crate::engine::entity::Entity;
         use crate::engine::processor::process_scene_delta;
-        use crate::protocol::pb::EntityKind;
 
         const SELF_UID: i64 = 42;
         let enc: EncounterMutex = std::sync::Mutex::new(Encounter::default());
         {
             let mut e = enc.lock().unwrap();
-            let mut p = Entity { entity_type: EntityKind::Player, ..Default::default() };
+            let mut p = Entity::default();
             p.name = Some("ソラ".to_string());
             p.dmg_stats.total = 1000; // ランキングに載せるためダメージ実績を持たせる
-            e.entities.insert(SELF_UID, p);
+            e.entities.insert(EntityKey::player(SELF_UID), p);
 
             // ヴェノミーンの巣 → アルーナ → ロローラ の順に召喚検知（3体・枠は2つ）。
             process_scene_delta(&mut e, summon_spawn_delta(SELF_UID, 1_007_740));
@@ -1565,13 +1572,12 @@ mod tests {
     #[test]
     fn dps_ranking_role_skill_suffix_is_separate_from_imagine_suffix() {
         use crate::engine::entity::{Entity, ImagineSlot};
-        use crate::protocol::pb::EntityKind;
 
         const SELF_UID: i64 = 43;
         let enc: EncounterMutex = std::sync::Mutex::new(Encounter::default());
         {
             let mut e = enc.lock().unwrap();
-            let mut p = Entity { entity_type: EntityKind::Player, ..Default::default() };
+            let mut p = Entity::default();
             p.name = Some("ソラ".to_string());
             p.dmg_stats.total = 1000; // ランキングに載せるためダメージ実績を持たせる
             p.imagines = vec![
@@ -1584,7 +1590,7 @@ mod tests {
                 tier: 3,
                 pending_hits: 0,
             }];
-            e.entities.insert(SELF_UID, p);
+            e.entities.insert(EntityKey::player(SELF_UID), p);
         }
 
         let window = get_dps_players(&enc);
@@ -1603,13 +1609,12 @@ mod tests {
     #[test]
     fn dps_ranking_role_skill_suffix_shows_all_simultaneous_role_skill_labels() {
         use crate::engine::entity::{Entity, ImagineSlot};
-        use crate::protocol::pb::EntityKind;
 
         const SELF_UID: i64 = 44;
         let enc: EncounterMutex = std::sync::Mutex::new(Encounter::default());
         {
             let mut e = enc.lock().unwrap();
-            let mut p = Entity { entity_type: EntityKind::Player, ..Default::default() };
+            let mut p = Entity::default();
             p.name = Some("ソラ".to_string());
             p.dmg_stats.total = 1000; // ランキングに載せるためダメージ実績を持たせる
             p.imagines = vec![
@@ -1622,7 +1627,7 @@ mod tests {
                 ImagineSlot { name: "鉄牙".to_string(), last_seen: 4, tier: 1, pending_hits: 0 },
                 ImagineSlot { name: "ムークボス".to_string(), last_seen: 5, tier: 0, pending_hits: 0 },
             ];
-            e.entities.insert(SELF_UID, p);
+            e.entities.insert(EntityKey::player(SELF_UID), p);
         }
 
         let window = get_dps_players(&enc);
@@ -1645,13 +1650,12 @@ mod tests {
     #[test]
     fn player_row_time_series_matches_requested_stat_type() {
         use crate::engine::entity::Entity;
-        use crate::protocol::pb::EntityKind;
 
         const UID: i64 = 77;
         let enc: EncounterMutex = std::sync::Mutex::new(Encounter::default());
         {
             let mut e = enc.lock().unwrap();
-            let mut p = Entity { entity_type: EntityKind::Player, ..Default::default() };
+            let mut p = Entity::default();
             p.dmg_stats.total = 100;
             p.heal_stats.total = 200;
             p.dmg_taken_stats.total = 300;
@@ -1661,7 +1665,7 @@ mod tests {
                 VecDeque::from(vec![TimeSeriesPoint { t_ms: 0.0, total_dmg: 200.0, total_dps: 20.0 }]);
             p.dmg_taken_time_series =
                 VecDeque::from(vec![TimeSeriesPoint { t_ms: 0.0, total_dmg: 300.0, total_dps: 30.0 }]);
-            e.entities.insert(UID, p);
+            e.entities.insert(EntityKey::player(UID), p);
         }
 
         let dmg_row = get_dps_players(&enc)
@@ -1747,18 +1751,17 @@ mod tests {
     #[test]
     fn get_skills_selects_stat_source_by_tab() {
         use crate::engine::entity::Entity;
-        use crate::protocol::pb::EntityKind;
 
         const UID: i64 = 88;
         let enc: EncounterMutex = std::sync::Mutex::new(Encounter::default());
         {
             let mut e = enc.lock().unwrap();
-            let mut p = Entity { entity_type: EntityKind::Player, ..Default::default() };
+            let mut p = Entity::default();
             p.dmg_stats.total = 1000;
             p.heal_stats.total = 2000;
             p.skill_uid_to_dps_stats.insert(1, CombatStats { total: 1000, ..Default::default() });
             p.skill_uid_to_heal_stats.insert(2, CombatStats { total: 2000, ..Default::default() });
-            e.entities.insert(UID, p);
+            e.entities.insert(EntityKey::player(UID), p);
         }
 
         let dps_sw = get_skills(&enc, UID, StatType::Dmg).expect("dps skills");
@@ -1775,12 +1778,8 @@ mod tests {
     #[test]
     fn history_skill_rows_are_sorted_and_omit_time_series() {
         use crate::engine::entity::Entity;
-        use crate::protocol::pb::EntityKind;
 
-        let mut player = Entity {
-            entity_type: EntityKind::Player,
-            ..Default::default()
-        };
+        let mut player = Entity::default();
         player.dmg_stats.total = 1000;
         player.skill_uid_to_dps_stats.insert(
             101,
@@ -1926,10 +1925,10 @@ mod tests {
             ..Default::default()
         };
         enc.dmg_stats.total = 1_800_000;
-        let mut p = Entity { entity_type: EntityKind::Player, ..Default::default() };
+        let mut p = Entity::default();
         p.dmg_stats.total = 1_800_000;
         p.skill_uid_to_dps_stats.insert(9, CombatStats { total: 1_800_000, ..Default::default() });
-        enc.entities.insert(UID, p);
+        enc.entities.insert(EntityKey::player(UID), p);
 
         let now = 1_000 + 180_000;
         let snap = build_encounter_snapshot(&enc, now);
@@ -1985,10 +1984,10 @@ mod tests {
         });
         {
             let mut e = enc.lock().unwrap();
-            let mut p = Entity { entity_type: EntityKind::Player, ..Default::default() };
+            let mut p = Entity::default();
             p.dmg_stats.total = 1_800_000;
             p.skill_uid_to_dps_stats.insert(9, CombatStats { total: 1_800_000, ..Default::default() });
-            e.entities.insert(UID, p);
+            e.entities.insert(EntityKey::player(UID), p);
             e.dmg_stats.total = 1_800_000;
         }
 
@@ -2018,7 +2017,7 @@ mod tests {
         {
             let mut e = enc.lock().unwrap();
             // ダメージ実績もスキル内訳も無いプレイヤー（例: 見学のみで一度も攻撃していない）。
-            e.entities.insert(UID_NO_DMG, Entity { entity_type: EntityKind::Player, ..Default::default() });
+            e.entities.insert(EntityKey::player(UID_NO_DMG), Entity::default());
         }
 
         let skills = capture_3min_result_skills(&enc);
@@ -2043,10 +2042,10 @@ mod tests {
             time_last_combat_packet_ms: 1_000 + 10_000, // 実測スパン10秒(他プレイヤー等で進行)
             ..Default::default()
         };
-        let mut p = Entity { entity_type: EntityKind::Player, ..Default::default() };
+        let mut p = Entity::default();
         p.dmg_stats.total = 100;
         p.active_dmg_time.record_event(2_000); // 一撃のみ
-        enc.entities.insert(UID, p);
+        enc.entities.insert(EntityKey::player(UID), p);
 
         let enc: EncounterMutex = std::sync::Mutex::new(enc);
         let window = get_dps_players(&enc);
@@ -2075,13 +2074,13 @@ mod tests {
             time_last_combat_packet_ms: 1_000 + 200, // 実測スパンはたった200ms
             ..Default::default()
         };
-        let mut p = Entity { entity_type: EntityKind::Player, ..Default::default() };
+        let mut p = Entity::default();
         p.dmg_stats.total = 100;
         // 初回イベントの猶予500msは実測スパン200msを上回る
         // （クランプ無しだと active_secs=0.5s → active_dps=200、実測基準の通常DPS(500)を
         // 下回ってしまう＝「有効DPSが通常DPSを下回らない」に違反する）。
         p.active_dmg_time.record_event(9_999);
-        enc.entities.insert(UID, p);
+        enc.entities.insert(EntityKey::player(UID), p);
 
         let enc: EncounterMutex = std::sync::Mutex::new(enc);
         let window = get_dps_players(&enc);
@@ -2110,11 +2109,11 @@ mod tests {
             time_last_combat_packet_ms: 1_000 + 30_000,
             ..Default::default()
         };
-        let mut p = Entity { entity_type: EntityKind::Player, ..Default::default() };
+        let mut p = Entity::default();
         p.dmg_stats.total = 100;
         p.heal_stats.total = 500;
         p.active_dmg_time.record_event(2_000); // 与ダメの実働時間は非ゼロ
-        enc.entities.insert(UID, p);
+        enc.entities.insert(EntityKey::player(UID), p);
 
         let enc: EncounterMutex = std::sync::Mutex::new(enc);
         let window = get_heal_players(&enc);
@@ -2142,10 +2141,10 @@ mod tests {
             time_last_combat_packet_ms: 1_000 + 30_000,
             ..Default::default()
         };
-        let mut p = Entity { entity_type: EntityKind::Player, ..Default::default() };
+        let mut p = Entity::default();
         p.heal_stats.total = 500;
         p.active_dmg_time.record_event(2_000);
-        enc.entities.insert(UID, p);
+        enc.entities.insert(EntityKey::player(UID), p);
 
         let enc: EncounterMutex = std::sync::Mutex::new(enc);
         let sw = get_skills(&enc, UID, StatType::Heal).expect("skills window");
@@ -2164,10 +2163,10 @@ mod tests {
             time_last_combat_packet_ms: 1_000 + 30_000,
             ..Default::default()
         };
-        let mut p = Entity { entity_type: EntityKind::Player, ..Default::default() };
+        let mut p = Entity::default();
         p.dmg_taken_stats.total = 300;
         p.active_dmg_time.record_event(2_000);
-        enc.entities.insert(UID, p);
+        enc.entities.insert(EntityKey::player(UID), p);
 
         let enc: EncounterMutex = std::sync::Mutex::new(enc);
         let sw = get_dmg_taken_attackers(&enc, UID).expect("skills window");

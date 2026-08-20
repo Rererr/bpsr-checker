@@ -3,7 +3,7 @@ use crate::engine::class::{Class, ClassSpec, get_class_from_spec, get_class_spec
 use crate::engine::combat_stats::{actual_value, process_stats};
 use crate::engine::encounter::{Encounter, EncounterMutex};
 use crate::engine::entity::{
-    Entity, ImagineSlot, MAX_IMAGINE_NAMES, MAX_ROLE_SKILL_IMAGINES, SkillMeta,
+    Entity, EntityKey, ImagineSlot, MAX_IMAGINE_NAMES, MAX_ROLE_SKILL_IMAGINES, SkillMeta,
 };
 use crate::engine::monster_names::MONSTER_NAMES_BOSS;
 use crate::engine::name_cache;
@@ -59,18 +59,11 @@ static LAST_EQUIP_LIST: LazyLock<Mutex<HashMap<i64, Vec<(i32, i32)>>>> =
 /// from the persistent name cache when the entity is freshly created
 /// and represents a player. Lets us show real names for players whose
 /// ATTR_NAME packets we missed (e.g., started the checker mid-session).
-fn get_or_create_entity(
-    encounter: &mut Encounter,
-    uid: i64,
-    entity_type: EntityKind,
-) -> &mut Entity {
-    let was_new = !encounter.entities.contains_key(&uid);
-    let entity = encounter.entities.entry(uid).or_insert_with(|| Entity {
-        entity_type,
-        ..Default::default()
-    });
-    if was_new && entity_type == EntityKind::Player {
-        if let Some(cached) = name_cache::lookup(uid) {
+fn get_or_create_entity(encounter: &mut Encounter, key: EntityKey) -> &mut Entity {
+    let was_new = !encounter.entities.contains_key(&key);
+    let entity = encounter.entities.entry(key).or_default();
+    if was_new && key.is_player() {
+        if let Some(cached) = name_cache::lookup(key.player_uid()) {
             if !cached.name.is_empty() {
                 entity.name = Some(cached.name);
             }
@@ -217,7 +210,7 @@ fn try_attribute_summon_imagine(encounter: &mut Encounter, attrs: &[pb::RawAttr]
         return;
     };
     let owner_uid = entity::get_player_uid(owner_uuid);
-    let owner = get_or_create_entity(encounter, owner_uid, EntityKind::Player);
+    let owner = get_or_create_entity(encounter, EntityKey::from_uuid(owner_uuid));
     let seq = next_imagine_seq();
 
     // rule1: 既存の確定スロットと一致 → 再検知＝現役の証拠。並び順は変えず鮮度だけ更新する
@@ -866,11 +859,14 @@ fn process_world_entity_batch(encounter: &mut Encounter, msg: pb::WorldEntityBat
         if target_uuid == 0 {
             continue;
         }
-        let target_uid = entity::get_player_uid(target_uuid);
-        let target_entity_type = EntityKind::from(target_uuid);
+        let target_key = EntityKey::from_uuid(target_uuid);
+        let target_uid = target_key.player_uid();
+        let target_entity_type = target_key.kind();
 
-        let target_entity = get_or_create_entity(encounter, target_uid, target_entity_type);
-        target_entity.entity_type = target_entity_type;
+        // 種別はキーに含まれるので、ここで Entity 側の種別を上書きする必要はない
+        // （旧実装は `uuid >> 16` をキーにしていたため、同番号の非プレイヤーが appear すると
+        //  PT メンバーの Entity 種別を Monster/Unknown へ書き換えて一覧から消していた）。
+        let target_entity = get_or_create_entity(encounter, target_key);
 
         if let Some(attrs) = &pkt_entity.attrs {
             if crate::probe::enabled() {
@@ -933,8 +929,7 @@ fn process_world_enter_snapshot(
         }
     }
 
-    let target_entity = get_or_create_entity(encounter, player_uid, EntityKind::Player);
-    target_entity.entity_type = EntityKind::Player;
+    let target_entity = get_or_create_entity(encounter, EntityKey::player(player_uid));
 
     let mut cache_name: Option<String> = None;
     let mut cache_class: Option<i32> = None;
@@ -1142,13 +1137,14 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
     if target_uuid == 0 {
         return;
     }
-    let target_uid = entity::get_player_uid(target_uuid);
-    let target_entity_type = EntityKind::from(target_uuid);
+    let target_key = EntityKey::from_uuid(target_uuid);
+    let target_uid = target_key.player_uid();
+    let target_entity_type = target_key.kind();
     let imagine_only = crate::engine::runtime_settings::imagine_only_mode();
 
     // Process attributes on the target entity（軽量モードではスキップ）
     if !imagine_only {
-        let target_entity = get_or_create_entity(encounter, target_uid, target_entity_type);
+        let target_entity = get_or_create_entity(encounter, target_key);
 
         if let Some(attrs_collection) = scene_delta.attrs {
             if crate::probe::enabled() {
@@ -1292,7 +1288,7 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
 
         // target の monster_id は is_boss 判定と M8計測（対象別内訳）の両方で使う。
         // 同じ対象を判定する式を2つ書かないよう、1つの変数から導出する。
-        let target_monster_id = encounter.entities.get(&target_uid).and_then(|e| e.monster_id);
+        let target_monster_id = encounter.entities.get(&target_key).and_then(|e| e.monster_id);
         let is_boss = target_monster_id.is_some_and(|id| MONSTER_NAMES_BOSS.contains_key(&id));
 
         let attacker_uuid = if damage.top_summoner_id != 0 {
@@ -1307,8 +1303,9 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
             crate::probe::record_skip_no_attacker(actual_value(&damage));
             continue; // no attacker — skip
         };
-        let attacker_uid = entity::get_player_uid(attacker_uuid);
-        let attacker_entity_type = EntityKind::from(attacker_uuid);
+        let attacker_key = EntityKey::from_uuid(attacker_uuid);
+        let attacker_uid = attacker_key.player_uid();
+        let attacker_entity_type = attacker_key.kind();
 
         let skill_uid = damage.owner_id;
         if skill_uid == 0 {
@@ -1384,7 +1381,7 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
         let damage_hits_player = target_entity_type == EntityKind::Player;
         if !is_heal && damage_hits_player {
             process_stats(&damage, &mut encounter.dmg_taken_stats);
-            let target_entity = get_or_create_entity(encounter, target_uid, target_entity_type);
+            let target_entity = get_or_create_entity(encounter, target_key);
             process_stats(&damage, &mut target_entity.dmg_taken_stats);
             target_entity.skill_meta.entry(skill_uid).or_insert(SkillMeta {
                 property: damage.property as u8,
@@ -1392,17 +1389,17 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
             });
             let by_attacker = target_entity
                 .attacker_uid_to_dmg_taken_stats
-                .entry(attacker_uid)
+                .entry(attacker_key)
                 .or_default();
             process_stats(&damage, by_attacker);
             let by_attacker_skill = target_entity
                 .attacker_skill_to_dmg_taken_stats
-                .entry((attacker_uid, skill_uid))
+                .entry((attacker_key, skill_uid))
                 .or_default();
             process_stats(&damage, by_attacker_skill);
         }
 
-        let attacker_entity = get_or_create_entity(encounter, attacker_uid, attacker_entity_type);
+        let attacker_entity = get_or_create_entity(encounter, attacker_key);
 
         // Infer class spec from skill id
         if attacker_entity
@@ -1538,8 +1535,8 @@ pub(crate) fn take_time_series_sample(encounter: &mut Encounter, ts: u128, force
     }
 
     // Per-entity sampling (only for entities with activity on at least one of the 3 metrics)
-    for entity in encounter.entities.values_mut() {
-        if entity.entity_type != EntityKind::Player {
+    for (key, entity) in encounter.entities.iter_mut() {
+        if !key.is_player() {
             continue;
         }
         let dmg_total = entity.dmg_stats.total;
@@ -1679,8 +1676,7 @@ fn process_enter_scene(encounter: &mut Encounter, msg: pb::EnterScene, conn: Opt
     } else if encounter.local_player_uid == 0 {
         encounter.local_player_uid = player_uid;
     }
-    let target_entity = get_or_create_entity(encounter, player_uid, EntityKind::Player);
-    target_entity.entity_type = EntityKind::Player;
+    let target_entity = get_or_create_entity(encounter, EntityKey::player(player_uid));
     process_player_attrs(player_uid, target_entity, &attrs.attrs, "enter_scene");
 }
 
@@ -1898,7 +1894,7 @@ mod tests {
     }
 
     fn player() -> Entity {
-        Entity { entity_type: EntityKind::Player, ..Default::default() }
+        Entity::default()
     }
 
     // 3分計測中は TS_SAMPLES(=60) を超えても全ウィンドウ分のサンプルを保持し、
@@ -1914,12 +1910,12 @@ mod tests {
             measure_mode: MeasureMode::Active3Min { armed_at_ms: 0, duration_ms: window_ms },
             ..Default::default()
         };
-        enc.entities.insert(1, player());
+        enc.entities.insert(EntityKey::player(1), player());
 
         let mut ts: u128 = 0;
         while ts <= window_ms {
             enc.dmg_stats.total += 1000;
-            enc.entities.get_mut(&1).unwrap().dmg_stats.total += 1000;
+            enc.entities.get_mut(&EntityKey::player(1)).unwrap().dmg_stats.total += 1000;
             enc.time_last_combat_packet_ms = ts;
             take_time_series_sample(&mut enc, ts, false);
             ts += interval;
@@ -1938,7 +1934,7 @@ mod tests {
             "right edge not at window"
         );
 
-        let p = &enc.entities[&1];
+        let p = &enc.entities[&EntityKey::player(1)];
         assert_eq!(p.time_series.front().unwrap().t_ms, 0.0);
         assert_eq!(p.time_series.back().unwrap().t_ms, window_ms as f64);
     }
@@ -1950,16 +1946,16 @@ mod tests {
     fn heal_only_entity_samples_heal_series_independently_of_dmg() {
         set_ts_config(60, 1000);
         let mut enc = Encounter::default();
-        enc.entities.insert(1, player());
+        enc.entities.insert(EntityKey::player(1), player());
 
         for i in 0..3u128 {
             let ts = i * 1000;
-            enc.entities.get_mut(&1).unwrap().heal_stats.total += 500;
+            enc.entities.get_mut(&EntityKey::player(1)).unwrap().heal_stats.total += 500;
             enc.time_last_combat_packet_ms = ts;
             take_time_series_sample(&mut enc, ts, false);
         }
 
-        let p = &enc.entities[&1];
+        let p = &enc.entities[&EntityKey::player(1)];
         assert_eq!(p.heal_time_series.len(), 3, "heal series should sample every tick");
         assert!(p.time_series.is_empty(), "dmg series should stay empty (dmg total is 0)");
         assert!(p.dmg_taken_time_series.is_empty(), "taken series should stay empty (taken total is 0)");
@@ -1973,12 +1969,12 @@ mod tests {
     fn all_three_metrics_sample_independently_at_same_tick() {
         set_ts_config(60, 1000);
         let mut enc = Encounter::default();
-        enc.entities.insert(1, player());
+        enc.entities.insert(EntityKey::player(1), player());
 
         for i in 0..3u128 {
             let ts = i * 1000;
             {
-                let e = enc.entities.get_mut(&1).unwrap();
+                let e = enc.entities.get_mut(&EntityKey::player(1)).unwrap();
                 e.dmg_stats.total += 100;
                 e.heal_stats.total += 200;
                 e.dmg_taken_stats.total += 300;
@@ -1987,7 +1983,7 @@ mod tests {
             take_time_series_sample(&mut enc, ts, false);
         }
 
-        let p = &enc.entities[&1];
+        let p = &enc.entities[&EntityKey::player(1)];
         assert_eq!(p.time_series.len(), 3);
         assert_eq!(p.heal_time_series.len(), 3);
         assert_eq!(p.dmg_taken_time_series.len(), 3);
@@ -2038,7 +2034,7 @@ mod tests {
         };
 
         process_scene_delta(&mut enc, delta.clone());
-        let attacker = enc.entities.get(&attacker_uid).expect("attacker entity created");
+        let attacker = enc.entities.get(&EntityKey::player(attacker_uid)).expect("attacker entity created");
         assert_eq!(
             attacker.active_dmg_time.active_ms,
             crate::engine::combat_stats::ACTIVE_TIME_GAP_GRACE_MS,
@@ -2049,7 +2045,7 @@ mod tests {
         // （実時間ベースの配線確認なので、他のテストのように ts を直接注入できない）。
         std::thread::sleep(std::time::Duration::from_millis(5));
         process_scene_delta(&mut enc, delta);
-        let attacker = enc.entities.get(&attacker_uid).unwrap();
+        let attacker = enc.entities.get(&EntityKey::player(attacker_uid)).unwrap();
         assert!(
             attacker.active_dmg_time.active_ms > crate::engine::combat_stats::ACTIVE_TIME_GAP_GRACE_MS,
             "2バッチ目の処理でさらに実働時間が積算されるはず"
@@ -2066,12 +2062,12 @@ mod tests {
             measure_mode: MeasureMode::Active3Min { armed_at_ms: 0, duration_ms: 90_000 },
             ..Default::default()
         };
-        enc.entities.insert(1, player());
+        enc.entities.insert(EntityKey::player(1), player());
 
         let mut ts: u128 = 0;
         while ts <= 5000 {
             enc.dmg_stats.total += 1000;
-            enc.entities.get_mut(&1).unwrap().dmg_stats.total += 1000;
+            enc.entities.get_mut(&EntityKey::player(1)).unwrap().dmg_stats.total += 1000;
             enc.time_last_combat_packet_ms = ts;
             take_time_series_sample(&mut enc, ts, false);
             ts += 1000;
@@ -2148,12 +2144,12 @@ mod tests {
     #[test]
     fn summon_attributes_imagine_to_owner() {
         let mut enc = Encounter::default();
-        enc.entities.insert(1, player());
+        enc.entities.insert(EntityKey::player(1), player());
 
         // 1007740 = 奥义!毒爆 → ヴェノミーンの巣（分身/召喚スキル）
         process_scene_delta(&mut enc, summon_spawn_delta(1, 1_007_740));
         assert_eq!(
-            enc.entities[&1].imagine_display_names(),
+            enc.entities[&EntityKey::player(1)].imagine_display_names(),
             vec!["ヴェノミーンの巣".to_string()]
         );
     }
@@ -2162,30 +2158,30 @@ mod tests {
     #[test]
     fn no_damage_imagine_detected_via_summon() {
         let mut enc = Encounter::default();
-        enc.entities.insert(1, player());
+        enc.entities.insert(EntityKey::player(1), player());
 
         // 2900240 = 奥义！生命祈愿 → アルーナ（蘇生・ダメージを出さない）
         process_scene_delta(&mut enc, summon_spawn_delta(1, 2_900_240));
-        assert_eq!(enc.entities[&1].imagine_display_names(), vec!["アルーナ".to_string()]);
+        assert_eq!(enc.entities[&EntityKey::player(1)].imagine_display_names(), vec!["アルーナ".to_string()]);
     }
 
     // 複数の召喚は発見順に累積し、同一名は重複させない。
     #[test]
     fn summon_accumulates_and_dedups() {
         let mut enc = Encounter::default();
-        enc.entities.insert(1, player());
+        enc.entities.insert(EntityKey::player(1), player());
 
         process_scene_delta(&mut enc, summon_spawn_delta(1, 1_007_740)); // ヴェノミーンの巣
         process_scene_delta(&mut enc, summon_spawn_delta(1, 2_900_240)); // アルーナ
         assert_eq!(
-            enc.entities[&1].imagine_display_names(),
+            enc.entities[&EntityKey::player(1)].imagine_display_names(),
             vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()]
         );
 
         // 同じイマジン(別ID 1007741=虚拟体 も同名解決)を再度 → 重複しない
         process_scene_delta(&mut enc, summon_spawn_delta(1, 1_007_741));
         assert_eq!(
-            enc.entities[&1].imagine_display_names(),
+            enc.entities[&EntityKey::player(1)].imagine_display_names(),
             vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()]
         );
     }
@@ -2194,18 +2190,18 @@ mod tests {
     #[test]
     fn non_imagine_summon_ignored() {
         let mut enc = Encounter::default();
-        enc.entities.insert(1, player());
+        enc.entities.insert(EntityKey::player(1), player());
 
         // 55404 は ImagineSkillNames.json に無い（実機で観測した非イマジン召喚）
         process_scene_delta(&mut enc, summon_spawn_delta(1, 55_404));
-        assert!(enc.entities[&1].imagine_display_names().is_empty());
+        assert!(enc.entities[&EntityKey::player(1)].imagine_display_names().is_empty());
     }
 
     // オーナー(AttrTopSummonerId)が欠けた召喚 attr は帰属できず無視される。
     #[test]
     fn summon_without_owner_ignored() {
         let mut enc = Encounter::default();
-        enc.entities.insert(1, player());
+        enc.entities.insert(EntityKey::player(1), player());
 
         let delta = pb::SceneDelta {
             uuid: (1_007_740i64 << 16) | 0x0100,
@@ -2220,17 +2216,17 @@ mod tests {
             skill_effects: None,
         };
         process_scene_delta(&mut enc, delta);
-        assert!(enc.entities[&1].imagine_display_names().is_empty());
+        assert!(enc.entities[&EntityKey::player(1)].imagine_display_names().is_empty());
     }
 
     // ロローラは実ゲーム版の召喚ID(2900840=奥義！神霊依凭)で解決できる（版ズレで名前グルーピング不能な分の手動追記）。
     #[test]
     fn rorora_detected_via_game_summon_id() {
         let mut enc = Encounter::default();
-        enc.entities.insert(1, player());
+        enc.entities.insert(EntityKey::player(1), player());
 
         process_scene_delta(&mut enc, summon_spawn_delta(1, 2_900_840));
-        assert_eq!(enc.entities[&1].imagine_display_names(), vec!["ロローラ".to_string()]);
+        assert_eq!(enc.entities[&EntityKey::player(1)].imagine_display_names(), vec!["ロローラ".to_string()]);
     }
 
     // 装備枠は2つ。pending 方式では 3体目(新規)を検知しても confirmed を即座には書き換えない
@@ -2240,7 +2236,7 @@ mod tests {
     #[test]
     fn imagine_names_capped_to_two_keeping_latest() {
         let mut enc = Encounter::default();
-        enc.entities.insert(1, player());
+        enc.entities.insert(EntityKey::player(1), player());
 
         process_scene_delta(&mut enc, summon_spawn_delta(1, 1_007_740)); // A: ヴェノミーンの巣
         process_scene_delta(&mut enc, summon_spawn_delta(1, 2_900_240)); // B: アルーナ
@@ -2248,12 +2244,12 @@ mod tests {
 
         // confirmed は [A,B] のまま（[B,C] へは即座に丸められない）。
         assert_eq!(
-            enc.entities[&1].imagine_display_names(),
+            enc.entities[&EntityKey::player(1)].imagine_display_names(),
             vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()]
         );
         // C はまだ確証が無いので pending へ留め置かれるだけ。
         assert_eq!(
-            enc.entities[&1].pending_imagine.as_ref().map(|s| s.name.as_str()),
+            enc.entities[&EntityKey::player(1)].pending_imagine.as_ref().map(|s| s.name.as_str()),
             Some("ロローラ")
         );
     }
@@ -2265,34 +2261,34 @@ mod tests {
     #[test]
     fn single_slot_swap_pending_then_confirmed_on_recheck() {
         let mut enc = Encounter::default();
-        enc.entities.insert(2, player());
+        enc.entities.insert(EntityKey::player(2), player());
 
         process_scene_delta(&mut enc, summon_spawn_delta(2, 1_007_740)); // A: ヴェノミーンの巣
         process_scene_delta(&mut enc, summon_spawn_delta(2, 2_900_240)); // B: アルーナ
         assert_eq!(
-            enc.entities[&2].imagine_display_names(),
+            enc.entities[&EntityKey::player(2)].imagine_display_names(),
             vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()]
         );
 
         // C（新規）を検知 → 定員一杯・pending 空 → rule4: pending へ留め置くだけ
         process_scene_delta(&mut enc, summon_spawn_delta(2, 2_900_840)); // C: ロローラ
         assert_eq!(
-            enc.entities[&2].imagine_display_names(),
+            enc.entities[&EntityKey::player(2)].imagine_display_names(),
             vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()],
             "pending 設定だけでは confirmed が変化してはいけない"
         );
         assert_eq!(
-            enc.entities[&2].pending_imagine.as_ref().map(|s| s.name.as_str()),
+            enc.entities[&EntityKey::player(2)].pending_imagine.as_ref().map(|s| s.name.as_str()),
             Some("ロローラ")
         );
 
         // A（現役）を再検知 → rule1: pending(C) が確定へ昇格し、放置された B を置き換える
         process_scene_delta(&mut enc, summon_spawn_delta(2, 1_007_740));
         assert_eq!(
-            enc.entities[&2].imagine_display_names(),
+            enc.entities[&EntityKey::player(2)].imagine_display_names(),
             vec!["ヴェノミーンの巣".to_string(), "ロローラ".to_string()]
         );
-        assert!(enc.entities[&2].pending_imagine.is_none());
+        assert!(enc.entities[&EntityKey::player(2)].pending_imagine.is_none());
     }
 
     // ② 両枠同時交換で「新旧混在ペア」が一度も画面に出ないことの直接的な証明（pending 方式の本質）。
@@ -2303,19 +2299,19 @@ mod tests {
     #[test]
     fn dual_slot_swap_confirmed_only_after_second_new_name() {
         let mut enc = Encounter::default();
-        enc.entities.insert(3, player());
+        enc.entities.insert(EntityKey::player(3), player());
 
         process_scene_delta(&mut enc, summon_spawn_delta(3, 1_007_740)); // A: ヴェノミーンの巣
         process_scene_delta(&mut enc, summon_spawn_delta(3, 2_900_240)); // B: アルーナ
         assert_eq!(
-            enc.entities[&3].imagine_display_names(),
+            enc.entities[&EntityKey::player(3)].imagine_display_names(),
             vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()]
         );
 
         // C（新規）を検知 → rule4: pending へ留め置くだけ。confirmed は旧ペア [A,B] のまま不変。
         process_scene_delta(&mut enc, summon_spawn_delta(3, 2_900_840)); // C: ロローラ
         assert_eq!(
-            enc.entities[&3].imagine_display_names(),
+            enc.entities[&EntityKey::player(3)].imagine_display_names(),
             vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()],
             "混在ペア([A,C]等)を一瞬でも見せてはいけない"
         );
@@ -2323,10 +2319,10 @@ mod tests {
         // D（pending とは別の新規）を検知 → rule5: 両枠同時交換の確定。[C,D] へ一気に切り替わる。
         process_scene_delta(&mut enc, summon_spawn_delta(3, 1_002_830)); // D: フロストオーガ
         assert_eq!(
-            enc.entities[&3].imagine_display_names(),
+            enc.entities[&EntityKey::player(3)].imagine_display_names(),
             vec!["ロローラ".to_string(), "フロストオーガ".to_string()]
         );
-        assert!(enc.entities[&3].pending_imagine.is_none());
+        assert!(enc.entities[&EntityKey::player(3)].pending_imagine.is_none());
     }
 
     // ③ cap 不変条件: A,B,C,D,E を検知しても confirmed は常に len()<=2 に収まる
@@ -2334,14 +2330,14 @@ mod tests {
     #[test]
     fn imagine_count_never_exceeds_cap() {
         let mut enc = Encounter::default();
-        enc.entities.insert(4, player());
+        enc.entities.insert(EntityKey::player(4), player());
 
         let skills = [1_007_740, 2_900_240, 2_900_840, 1_002_830, 1_007_741_i32];
         for &sk in &skills {
             // 1007741 は 1007740 と同名（ヴェノミーンの巣）解決だが cap 確認の分母には影響しない。
             process_scene_delta(&mut enc, summon_spawn_delta(4, sk));
             assert!(
-                enc.entities[&4].imagine_display_names().len() <= MAX_IMAGINE_NAMES,
+                enc.entities[&EntityKey::player(4)].imagine_display_names().len() <= MAX_IMAGINE_NAMES,
                 "imagine count exceeded cap after skill {sk}"
             );
         }
@@ -2352,12 +2348,12 @@ mod tests {
     #[test]
     fn display_order_stable_across_rechecks() {
         let mut enc = Encounter::default();
-        enc.entities.insert(5, player());
+        enc.entities.insert(EntityKey::player(5), player());
 
         process_scene_delta(&mut enc, summon_spawn_delta(5, 1_007_740)); // A
         process_scene_delta(&mut enc, summon_spawn_delta(5, 2_900_240)); // B
         assert_eq!(
-            enc.entities[&5].imagine_display_names(),
+            enc.entities[&EntityKey::player(5)].imagine_display_names(),
             vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()]
         );
 
@@ -2368,11 +2364,11 @@ mod tests {
         process_scene_delta(&mut enc, summon_spawn_delta(5, 2_900_240));
 
         assert_eq!(
-            enc.entities[&5].imagine_display_names(),
+            enc.entities[&EntityKey::player(5)].imagine_display_names(),
             vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()],
             "display order must not reverse to [B, A]"
         );
-        assert!(enc.entities[&5].pending_imagine.is_none());
+        assert!(enc.entities[&EntityKey::player(5)].pending_imagine.is_none());
     }
 
     // ⑤ pending 自身の再検知だけでは確定に至らない回帰防止テスト。A,B(confirmed)→C(新規・pending
@@ -2382,7 +2378,7 @@ mod tests {
     #[test]
     fn pending_redetection_does_not_promote_alone() {
         let mut enc = Encounter::default();
-        enc.entities.insert(6, player());
+        enc.entities.insert(EntityKey::player(6), player());
 
         process_scene_delta(&mut enc, summon_spawn_delta(6, 1_007_740)); // A
         process_scene_delta(&mut enc, summon_spawn_delta(6, 2_900_240)); // B
@@ -2391,12 +2387,12 @@ mod tests {
         process_scene_delta(&mut enc, summon_spawn_delta(6, 2_900_840)); // C を再検知（rule2）
 
         assert_eq!(
-            enc.entities[&6].imagine_display_names(),
+            enc.entities[&EntityKey::player(6)].imagine_display_names(),
             vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()],
             "pending 自身の再検知だけでは confirmed を書き換えてはいけない"
         );
         assert_eq!(
-            enc.entities[&6].pending_imagine.as_ref().map(|s| s.name.as_str()),
+            enc.entities[&EntityKey::player(6)].pending_imagine.as_ref().map(|s| s.name.as_str()),
             Some("ロローラ"),
             "pending の再検知は pending のまま(昇格しない)"
         );
@@ -2409,7 +2405,7 @@ mod tests {
     #[test]
     fn pending_self_heals_after_threshold_hits_when_partner_stays_dormant() {
         let mut enc = Encounter::default();
-        enc.entities.insert(7, player());
+        enc.entities.insert(EntityKey::player(7), player());
 
         process_scene_delta(&mut enc, summon_spawn_delta(7, 1_007_740)); // A: ヴェノミーンの巣
         process_scene_delta(&mut enc, summon_spawn_delta(7, 2_900_240)); // B: アルーナ
@@ -2418,7 +2414,7 @@ mod tests {
         // hits=2（PENDING_PROMOTE_HITS=3 未満）→ まだ昇格しない
         process_scene_delta(&mut enc, summon_spawn_delta(7, 2_900_840));
         assert_eq!(
-            enc.entities[&7].imagine_display_names(),
+            enc.entities[&EntityKey::player(7)].imagine_display_names(),
             vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()],
             "閾値未満の再検知では自己修復してはいけない"
         );
@@ -2426,17 +2422,17 @@ mod tests {
         // hits=3（閾値到達）→ 自己修復: 旧確定ペア[A,B]を両方破棄し、C だけを単独確定にする
         process_scene_delta(&mut enc, summon_spawn_delta(7, 2_900_840));
         assert_eq!(
-            enc.entities[&7].imagine_display_names(),
+            enc.entities[&EntityKey::player(7)].imagine_display_names(),
             vec!["ロローラ".to_string()],
             "休眠相方のため C だけの単独確定へ自己修復するべき"
         );
-        assert!(enc.entities[&7].pending_imagine.is_none());
+        assert!(enc.entities[&EntityKey::player(7)].pending_imagine.is_none());
 
         // 自己修復後に別の新規名 D を検知 → rule3（定員未満）で 2 枠目へ直接追加され、
         // 混在ペアを経由せず [C, D] へ回復する。
         process_scene_delta(&mut enc, summon_spawn_delta(7, 1_002_830)); // D: フロストオーガ
         assert_eq!(
-            enc.entities[&7].imagine_display_names(),
+            enc.entities[&EntityKey::player(7)].imagine_display_names(),
             vec!["ロローラ".to_string(), "フロストオーガ".to_string()]
         );
     }
@@ -2495,25 +2491,25 @@ mod tests {
     fn imagine_tier_shown_in_labels_and_updates_on_redetection() {
         let mut enc = Encounter::default();
         let uid = 990_003; // name_cache はプロセス共有のため専用 uid を使う
-        enc.entities.insert(uid, player());
+        enc.entities.insert(EntityKey::player(uid), player());
 
         // 凸数付き検知 → ラベルに (5)。凸数無し検知 → 名前のみ。
         process_scene_delta(&mut enc, summon_spawn_delta_with_tier(uid, 1_007_740, 5));
         process_scene_delta(&mut enc, summon_spawn_delta(uid, 2_900_240));
         assert_eq!(
-            enc.entities[&uid].imagine_display_labels(),
+            enc.entities[&EntityKey::player(uid)].imagine_display_labels(),
             vec!["ヴェノミーンの巣(5)".to_string(), "アルーナ".to_string()]
         );
         // 一致判定・永続化用の名前一覧は凸数を含まない（名前のみ）。
         assert_eq!(
-            enc.entities[&uid].imagine_display_names(),
+            enc.entities[&EntityKey::player(uid)].imagine_display_names(),
             vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()]
         );
 
         // 再検知で凸数が判明したら追従する（0→3）。
         process_scene_delta(&mut enc, summon_spawn_delta_with_tier(uid, 2_900_240, 3));
         assert_eq!(
-            enc.entities[&uid].imagine_display_labels(),
+            enc.entities[&EntityKey::player(uid)].imagine_display_labels(),
             vec!["ヴェノミーンの巣(5)".to_string(), "アルーナ(3)".to_string()]
         );
 
@@ -2563,21 +2559,21 @@ mod tests {
     fn full_skill_list_sets_imagines_authoritatively() {
         let mut enc = Encounter::default();
         let uid = 990_004; // name_cache はプロセス共有のため専用 uid を使う
-        enc.entities.insert(uid, player());
+        enc.entities.insert(EntityKey::player(uid), player());
 
         // 事前状態: 古い確定ペア[A,B]+pending(C) を召喚検知で作っておく。
         process_scene_delta(&mut enc, summon_spawn_delta(uid, 1_007_740)); // A
         process_scene_delta(&mut enc, summon_spawn_delta(uid, 2_900_240)); // B
         process_scene_delta(&mut enc, summon_spawn_delta(uid, 2_900_840)); // C → pending
-        assert!(enc.entities[&uid].pending_imagine.is_some());
+        assert!(enc.entities[&EntityKey::player(uid)].pending_imagine.is_some());
 
         // フルリスト（クラススキル10+イマジン2: 3902=サンダーオーガ凸0, 3906=フロストオーガ凸2）
         process_scene_delta(&mut enc, skill_list_delta(uid, &[(3902, 0), (3906, 2)]));
         assert_eq!(
-            enc.entities[&uid].imagine_display_labels(),
+            enc.entities[&EntityKey::player(uid)].imagine_display_labels(),
             vec!["サンダーオーガ".to_string(), "フロストオーガ(2)".to_string()]
         );
-        assert!(enc.entities[&uid].pending_imagine.is_none());
+        assert!(enc.entities[&EntityKey::player(uid)].pending_imagine.is_none());
 
         // name_cache にも名前+凸数が永続化される。
         let cached = name_cache::lookup(uid).expect("cache entry should exist");
@@ -2602,16 +2598,16 @@ mod tests {
         }
         process_scene_delta(&mut enc, partial);
         assert_eq!(
-            enc.entities[&uid].imagine_display_names(),
+            enc.entities[&EntityKey::player(uid)].imagine_display_names(),
             vec!["サンダーオーガ".to_string(), "フロストオーガ".to_string()],
             "閾値未満の部分リストで確定表示を壊してはいけない"
         );
 
         // その後の装備替えは従来の召喚検知が追従する（新規名ロローラ→pending 止まり）。
         process_scene_delta(&mut enc, summon_spawn_delta(uid, 2_900_840));
-        assert!(enc.entities[&uid].pending_imagine.is_some());
+        assert!(enc.entities[&EntityKey::player(uid)].pending_imagine.is_some());
         assert_eq!(
-            enc.entities[&uid].imagine_display_names(),
+            enc.entities[&EntityKey::player(uid)].imagine_display_names(),
             vec!["サンダーオーガ".to_string(), "フロストオーガ".to_string()]
         );
     }
@@ -2623,17 +2619,17 @@ mod tests {
     fn full_skill_list_sets_role_skill_imagine_without_polluting_real_slots() {
         let mut enc = Encounter::default();
         let uid = 990_005; // name_cache はプロセス共有のため専用 uid を使う
-        enc.entities.insert(uid, player());
+        enc.entities.insert(EntityKey::player(uid), player());
 
         process_scene_delta(&mut enc, skill_list_delta(uid, &[(3906, 1), (3910, 0), (3021, 4)]));
 
         assert_eq!(
-            enc.entities[&uid].imagine_display_labels(),
+            enc.entities[&EntityKey::player(uid)].imagine_display_labels(),
             vec!["フロストオーガ(1)".to_string(), "虚蝕オーガ".to_string()],
             "role skill id must not appear in the real 2-slot imagines array"
         );
         assert_eq!(
-            enc.entities[&uid].role_skill_imagine_labels(),
+            enc.entities[&EntityKey::player(uid)].role_skill_imagine_labels(),
             vec!["サンダーオーガ(4)".to_string()]
         );
 
@@ -2651,7 +2647,7 @@ mod tests {
     fn full_skill_list_and_summon_echoes_handle_four_simultaneous_role_skills() {
         let mut enc = Encounter::default();
         let uid = 990_012; // name_cache 専用 uid
-        enc.entities.insert(uid, player());
+        enc.entities.insert(EntityKey::player(uid), player());
 
         // フルリスト: 実イマジン2枠(3906/3910) + ロールスキル4枠(3021/3022/3023/3024)。
         process_scene_delta(
@@ -2669,12 +2665,12 @@ mod tests {
             "鉄牙(3)".to_string(),
         ];
         assert_eq!(
-            enc.entities[&uid].role_skill_imagine_labels(),
+            enc.entities[&EntityKey::player(uid)].role_skill_imagine_labels(),
             expected_labels,
             "all 4 simultaneous role skill slots must resolve without dropping any"
         );
         assert_eq!(
-            enc.entities[&uid].imagine_display_labels(),
+            enc.entities[&EntityKey::player(uid)].imagine_display_labels(),
             vec!["フロストオーガ(1)".to_string(), "虚蝕オーガ".to_string()],
             "role skill ids must never pollute the real 2-slot imagines array"
         );
@@ -2685,13 +2681,13 @@ mod tests {
         }
 
         assert_eq!(
-            enc.entities[&uid].imagine_display_labels(),
+            enc.entities[&EntityKey::player(uid)].imagine_display_labels(),
             vec!["フロストオーガ(1)".to_string(), "虚蝕オーガ".to_string()],
             "summon echoes of all 4 role skills must not disturb the confirmed real imagine pair"
         );
-        assert!(enc.entities[&uid].pending_imagine.is_none());
+        assert!(enc.entities[&EntityKey::player(uid)].pending_imagine.is_none());
         assert_eq!(
-            enc.entities[&uid].role_skill_imagine_labels(),
+            enc.entities[&EntityKey::player(uid)].role_skill_imagine_labels(),
             expected_labels,
             "role skill labels must remain intact after echo absorption for all 4 slots"
         );
@@ -2719,13 +2715,13 @@ mod tests {
     fn full_skill_list_evicts_stale_imagine_misattributed_before_role_skill_known() {
         let mut enc = Encounter::default();
         let uid = 990_010; // name_cache 専用 uid
-        enc.entities.insert(uid, player());
+        enc.entities.insert(EntityKey::player(uid), player());
 
         // role_skill_imagine 未確定のため、召喚エコー(canonical id=3902→サンダーオーガ)が
         // rule3(定員未満)で誤って実イマジンとして確定してしまう。
         process_scene_delta(&mut enc, summon_spawn_delta(uid, 3902));
         assert_eq!(
-            enc.entities[&uid].imagine_display_names(),
+            enc.entities[&EntityKey::player(uid)].imagine_display_names(),
             vec!["サンダーオーガ".to_string()],
             "precondition: summon echo must be misattributed to imagines before role_skill_imagine is known"
         );
@@ -2734,11 +2730,11 @@ mod tests {
         process_scene_delta(&mut enc, skill_list_delta(uid, &[(3021, 4)]));
 
         assert!(
-            enc.entities[&uid].imagine_display_names().is_empty(),
+            enc.entities[&EntityKey::player(uid)].imagine_display_names().is_empty(),
             "stale misattributed imagines entry must be evicted once the full snapshot proves it's not a real slot"
         );
         assert_eq!(
-            enc.entities[&uid].role_skill_imagine_labels(),
+            enc.entities[&EntityKey::player(uid)].role_skill_imagine_labels(),
             vec!["サンダーオーガ(4)".to_string()]
         );
 
@@ -2754,15 +2750,15 @@ mod tests {
     fn full_skill_list_clears_role_skill_imagine_when_absent() {
         let mut enc = Encounter::default();
         let uid = 990_006; // name_cache 専用 uid
-        enc.entities.insert(uid, player());
+        enc.entities.insert(EntityKey::player(uid), player());
 
         process_scene_delta(&mut enc, skill_list_delta(uid, &[(3906, 1), (3910, 0), (3021, 4)]));
-        assert!(!enc.entities[&uid].role_skill_imagines.is_empty());
+        assert!(!enc.entities[&EntityKey::player(uid)].role_skill_imagines.is_empty());
 
         // 同じ実イマジン2枠のみでロールスキル対象IDを含まないフルリストが届く。
         process_scene_delta(&mut enc, skill_list_delta(uid, &[(3906, 1), (3910, 0)]));
         assert!(
-            enc.entities[&uid].role_skill_imagines.is_empty(),
+            enc.entities[&EntityKey::player(uid)].role_skill_imagines.is_empty(),
             "role skill imagine must be cleared when absent from a full snapshot"
         );
 
@@ -2777,17 +2773,17 @@ mod tests {
     fn role_skill_echo_does_not_disturb_confirmed_imagines_or_pending() {
         let mut enc = Encounter::default();
         let uid = 990_007; // name_cache 専用 uid
-        enc.entities.insert(uid, player());
+        enc.entities.insert(EntityKey::player(uid), player());
 
         process_scene_delta(&mut enc, summon_spawn_delta(uid, 1_007_740)); // ヴェノミーンの巣
         process_scene_delta(&mut enc, summon_spawn_delta(uid, 2_900_240)); // アルーナ
         assert_eq!(
-            enc.entities[&uid].imagine_display_names(),
+            enc.entities[&EntityKey::player(uid)].imagine_display_names(),
             vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()]
         );
 
         // ロールスキル枠を「ロローラ」として既に確定済みにしておく（apply_skill_list_imagines相当）。
-        enc.entities.get_mut(&uid).unwrap().role_skill_imagines = vec![ImagineSlot {
+        enc.entities.get_mut(&EntityKey::player(uid)).unwrap().role_skill_imagines = vec![ImagineSlot {
             name: "ロローラ".to_string(),
             last_seen: 0,
             tier: 0,
@@ -2798,16 +2794,16 @@ mod tests {
         process_scene_delta(&mut enc, summon_spawn_delta(uid, 2_900_840));
 
         assert_eq!(
-            enc.entities[&uid].imagine_display_names(),
+            enc.entities[&EntityKey::player(uid)].imagine_display_names(),
             vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()],
             "role skill echo must not disturb the confirmed real imagine pair"
         );
         assert!(
-            enc.entities[&uid].pending_imagine.is_none(),
+            enc.entities[&EntityKey::player(uid)].pending_imagine.is_none(),
             "role skill echo must not create a pending candidate"
         );
         assert_eq!(
-            enc.entities[&uid].role_skill_imagine_names(),
+            enc.entities[&EntityKey::player(uid)].role_skill_imagine_names(),
             vec!["ロローラ".to_string()]
         );
     }
@@ -2819,10 +2815,10 @@ mod tests {
     fn shared_name_between_confirmed_imagine_and_role_skill_still_follows_rule1_single_slot_swap() {
         let mut enc = Encounter::default();
         let uid = 990_011; // name_cache 専用 uid
-        enc.entities.insert(uid, player());
+        enc.entities.insert(EntityKey::player(uid), player());
 
         {
-            let owner = enc.entities.get_mut(&uid).unwrap();
+            let owner = enc.entities.get_mut(&EntityKey::player(uid)).unwrap();
             owner.imagines = vec![
                 ImagineSlot {
                     name: "ヴェノミーンの巣".to_string(), // A
@@ -2856,13 +2852,13 @@ mod tests {
         process_scene_delta(&mut enc, summon_spawn_delta(uid, 1_007_740));
 
         assert_eq!(
-            enc.entities[&uid].imagine_display_names(),
+            enc.entities[&EntityKey::player(uid)].imagine_display_names(),
             vec!["ヴェノミーンの巣".to_string(), "ロローラ".to_string()],
             "rule1 must still perform its normal single-slot swap even when role_skill_imagines shares A's name"
         );
-        assert!(enc.entities[&uid].pending_imagine.is_none());
+        assert!(enc.entities[&EntityKey::player(uid)].pending_imagine.is_none());
         assert_eq!(
-            enc.entities[&uid].role_skill_imagine_names(),
+            enc.entities[&EntityKey::player(uid)].role_skill_imagine_names(),
             vec!["ヴェノミーンの巣".to_string()],
             "role_skill_imagines must be untouched by rule1"
         );
@@ -2875,7 +2871,7 @@ mod tests {
         let mut enc = Encounter::default();
         let uid = 990_002; // name_cache はプロセス共有のため専用 uid を使う
 
-        enc.entities.insert(uid, player());
+        enc.entities.insert(EntityKey::player(uid), player());
         process_scene_delta(&mut enc, summon_spawn_delta(uid, 1_007_740)); // A
         process_scene_delta(&mut enc, summon_spawn_delta(uid, 2_900_240)); // B
 
@@ -2907,29 +2903,29 @@ mod tests {
         let mut enc = Encounter::default();
         let uid = 990_001; // name_cache はプロセス共有のため他テストと衝突しない専用 uid を使う
 
-        enc.entities.insert(uid, player());
+        enc.entities.insert(EntityKey::player(uid), player());
         process_scene_delta(&mut enc, summon_spawn_delta(uid, 1_007_740)); // A: ヴェノミーンの巣
         process_scene_delta(&mut enc, summon_spawn_delta(uid, 2_900_240)); // B: アルーナ
         assert_eq!(
-            enc.entities[&uid].imagine_display_names(),
+            enc.entities[&EntityKey::player(uid)].imagine_display_names(),
             vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()]
         );
 
         enc.clear_combat_stats(); // Player entity は破棄される（name_cache には残る）
-        assert!(!enc.entities.contains_key(&uid));
+        assert!(!enc.entities.contains_key(&EntityKey::player(uid)));
 
         // 次パケットで A を再検知 → name_cache から [A,B] を復元した上で A の鮮度を更新するのみ
         // （pending が無いので confirmed は不変）。
         process_scene_delta(&mut enc, summon_spawn_delta(uid, 1_007_740));
         assert_eq!(
-            enc.entities[&uid].imagine_display_names(),
+            enc.entities[&EntityKey::player(uid)].imagine_display_names(),
             vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()]
         );
 
         // 続けて C（ロローラ）を新規検知 → 定員一杯・pending 空 → rule4: pending へ留め置くだけ
         process_scene_delta(&mut enc, summon_spawn_delta(uid, 2_900_840));
         assert_eq!(
-            enc.entities[&uid].imagine_display_names(),
+            enc.entities[&EntityKey::player(uid)].imagine_display_names(),
             vec!["ヴェノミーンの巣".to_string(), "アルーナ".to_string()],
             "pending 設定だけでは confirmed を書き換えない"
         );
@@ -2937,10 +2933,10 @@ mod tests {
         // もう一度 A を再検知 → rule1: pending(C) が確定へ昇格し、放置された B を置き換える
         process_scene_delta(&mut enc, summon_spawn_delta(uid, 1_007_740));
         assert_eq!(
-            enc.entities[&uid].imagine_display_names(),
+            enc.entities[&EntityKey::player(uid)].imagine_display_names(),
             vec!["ヴェノミーンの巣".to_string(), "ロローラ".to_string()]
         );
-        assert!(enc.entities[&uid].pending_imagine.is_none());
+        assert!(enc.entities[&EntityKey::player(uid)].pending_imagine.is_none());
     }
 
     fn conn(port: u16) -> Server {
@@ -3144,7 +3140,7 @@ mod tests {
             !e.participant_player_uids.contains(&other_uid),
             "他キャラが参加者として計上されていない"
         );
-        assert!(!e.entities.contains_key(&other_uid), "他キャラのエンティティが作られていない");
+        assert!(!e.entities.contains_key(&EntityKey::player(other_uid)), "他キャラのエンティティが作られていない");
         drop(e);
 
         selected_uid::set(None);
@@ -3262,7 +3258,7 @@ mod tests {
 
         let e = enc.lock().unwrap();
         assert_eq!(e.dmg_stats.total, 100, "他クライアント分が混入していない");
-        assert!(!e.entities.contains_key(&other_uid));
+        assert!(!e.entities.contains_key(&EntityKey::player(other_uid)));
         drop(e);
 
         selected_uid::set(None);
@@ -3431,7 +3427,7 @@ mod tests {
 
         let e = enc.lock().unwrap();
         assert_eq!(e.dmg_stats.total, 200, "自分の2接続分のみ");
-        assert!(!e.entities.contains_key(&other_uid));
+        assert!(!e.entities.contains_key(&EntityKey::player(other_uid)));
         drop(e);
 
         selected_uid::set(None);
@@ -3610,13 +3606,155 @@ mod tests {
         );
 
         assert_eq!(
-            enc.entities[&attacker_uid].dmg_stats.total, 321,
+            enc.entities[&EntityKey::player(attacker_uid)].dmg_stats.total, 321,
             "attacker 行には従来どおり積まれるはず"
         );
         assert_eq!(
             enc.dmg_stats.total, 321,
             "行(321)と総ダメージが食い違うとシェア%が100%を超えうる"
         );
+    }
+
+    /// プレイヤーと同じエンティティ番号の召喚体が先に現れても、プレイヤー行が一覧から消えず、
+    /// 行の合計とシェアの分母（`encounter.dmg_stats`）が一致する（最重要の回帰防止）。
+    ///
+    /// UUID の上位ビットは種別ごとに独立した連番で、プレイヤー・モンスター・召喚体の間で
+    /// 同じ値が使い回される。旧実装は `uuid >> 16` を `entities` のキーにしていたため、
+    /// 番号が衝突すると非プレイヤーが先にその Entity を作って種別を Unknown に固定し、
+    /// プレイヤーの与ダメだけが `entity_type != Player` で行から落ちた。分母側は uuid から
+    /// 都度導出した種別で判定していたので総ダメージには残り、症状は
+    /// 「ダンジョンで PT メンバーが1人足りず、シェア合計が 100% 未満」として現れた。
+    #[test]
+    fn player_row_survives_entity_number_collision_with_summon() {
+        let mut enc = Encounter::default();
+        let shared_number = 2573_i64; // プレイヤーと召喚体が同じ上位ビットを持つ状況
+        let monster_uid = 900_i64;
+
+        // 先に召喚体（Unknown 種別）が同じ番号で登場する。
+        process_scene_delta(
+            &mut enc,
+            damage_delta(
+                monster_uuid_for(monster_uid),
+                unknown_summon_uuid_for(shared_number),
+                300,
+            ),
+        );
+        // その後、同じ番号のプレイヤーが殴る。
+        process_scene_delta(
+            &mut enc,
+            damage_delta(monster_uuid_for(monster_uid), player_uuid_for(shared_number), 700),
+        );
+
+        assert_eq!(
+            enc.entities[&EntityKey::player(shared_number)].dmg_stats.total,
+            700,
+            "プレイヤーの与ダメが同番号の召喚体の Entity に吸われている"
+        );
+        assert_eq!(enc.dmg_stats.total, 1_000, "総ダメージには召喚体の分も入る");
+
+        let mutex = EncounterMutex::new(enc);
+        let window = crate::compute::get_dps_players(&mutex);
+        let row = window
+            .player_rows
+            .iter()
+            .find(|r| r.uid as i64 == shared_number)
+            .expect("同番号の召喚体に乗っ取られてプレイヤー行が消えている");
+        assert_eq!(row.total_value, 700.0);
+    }
+
+    /// 被ダメの「誰にやられたか」内訳も、同じ番号のモンスターと召喚体を1つにまとめない。
+    /// キーを `uuid >> 16` に潰すと両者が同じ行へ合算され、内訳が読めなくなる。
+    #[test]
+    fn dmg_taken_breakdown_separates_same_number_attackers() {
+        let mut enc = Encounter::default();
+        let shared_number = 77_i64;
+        let victim_uid = 5001_i64;
+
+        process_scene_delta(
+            &mut enc,
+            damage_delta(
+                player_uuid_for(victim_uid),
+                monster_uuid_for(shared_number),
+                100,
+            ),
+        );
+        process_scene_delta(
+            &mut enc,
+            damage_delta(
+                player_uuid_for(victim_uid),
+                unknown_summon_uuid_for(shared_number),
+                40,
+            ),
+        );
+
+        let victim = &enc.entities[&EntityKey::player(victim_uid)];
+        assert_eq!(victim.dmg_taken_stats.total, 140);
+        assert_eq!(
+            victim.attacker_uid_to_dmg_taken_stats
+                [&EntityKey::from_uuid(monster_uuid_for(shared_number))]
+                .total,
+            100,
+            "同番号の召喚体の分が混ざっている"
+        );
+        assert_eq!(
+            victim.attacker_uid_to_dmg_taken_stats
+                [&EntityKey::from_uuid(unknown_summon_uuid_for(shared_number))]
+                .total,
+            40,
+            "同番号のモンスターの分が混ざっている"
+        );
+    }
+
+    /// 被ダメの攻撃元一覧が返す行 id を、UI と同じ経路（f64 → 整数文字列 → i64）で
+    /// `get_dmg_taken_skills` へ渡し直すと、その攻撃元の技別内訳が引ける。
+    /// 行 id は UID ではなく UUID なので、`uuid >> 16` で潰していた頃より桁が大きい。
+    /// f64 の可逆域（2^53）に収まっていることと、同番号の攻撃元が別行のまま辿れることを見る。
+    #[test]
+    fn dmg_taken_attacker_row_id_round_trips_into_skill_breakdown() {
+        let mut enc = Encounter::default();
+        let shared_number = 77_i64;
+        let victim_uid = 5001_i64;
+
+        process_scene_delta(
+            &mut enc,
+            damage_delta(
+                player_uuid_for(victim_uid),
+                monster_uuid_for(shared_number),
+                100,
+            ),
+        );
+        process_scene_delta(
+            &mut enc,
+            damage_delta(
+                player_uuid_for(victim_uid),
+                unknown_summon_uuid_for(shared_number),
+                40,
+            ),
+        );
+
+        let mutex = EncounterMutex::new(enc);
+        let attackers = crate::compute::get_dmg_taken_attackers(&mutex, victim_uid)
+            .expect("攻撃元一覧が引けない");
+        assert_eq!(
+            attackers.skill_rows.len(),
+            2,
+            "同番号のモンスターと召喚体が1行に潰れている"
+        );
+
+        for row in &attackers.skill_rows {
+            let round_tripped: i64 = format!("{}", row.uid as i64)
+                .parse()
+                .expect("行 id が整数文字列として往復できない");
+            assert_eq!(round_tripped as f64, row.uid, "f64 の可逆域を超えている");
+
+            let skills = crate::compute::get_dmg_taken_skills(&mutex, victim_uid, round_tripped)
+                .expect("技別内訳が引けない");
+            let total: f64 = skills.skill_rows.iter().map(|s| s.total_value).sum();
+            assert_eq!(
+                total, row.total_value,
+                "攻撃元行の合計と技別内訳の合計が食い違う（行 id の往復が壊れている）"
+            );
+        }
     }
 
     /// モンスターの自己回復/味方回復は heal_stats から除外される。dmg と同じ述語

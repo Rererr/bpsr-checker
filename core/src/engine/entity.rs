@@ -1,8 +1,68 @@
 use crate::models::TimeSeriesPoint;
 use crate::engine::class::{Class, ClassSpec};
 use crate::engine::combat_stats::{ActiveTime, CombatStats};
+use crate::protocol::constants::entity as entity_const;
 use crate::protocol::pb::EntityKind;
 use std::collections::{HashMap, VecDeque};
+
+/// `Encounter::entities` のキー。ゲームの UUID（`エンティティ番号 << 16 | 種別コード`）を
+/// **種別コードごと**保持する。
+///
+/// **`uuid >> 16`（＝ `get_player_uid`）をキーにしてはいけない**。上位ビットは種別ごとに独立した
+/// 連番で、プレイヤー・モンスター・召喚体の間で同じ値が普通に使い回される（2026-07-25 の probe
+/// 実測で 1003 個の UUID が 290 個の `uuid >> 16` に潰れ、同一値に Monster と複数の召喚体が
+/// 同居していた）。潰すと、ダンジョン中に PT メンバーの Entity が同番号の非プレイヤーに
+/// 乗っ取られて一覧から消え、ダメージは総計にだけ残る（シェア合計が 100% 未満になる）。
+///
+/// プレイヤーは種別コードが常に [`entity_const::PLAYER_TYPE_CODE`] なので、プレイヤー UID から
+/// [`EntityKey::player`] で一意に復元できる。`local_player_uid` / `selected_uid` /
+/// `participant_player_uids` / `consumables` / name_cache などプレイヤー限定の識別子は
+/// 引き続きプレイヤー UID を持ち、`entities` を引くときだけこの型へ変換する。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct EntityKey(i64);
+
+impl EntityKey {
+    /// パケットの UUID をそのままキーにする（種別コードを含む）。
+    #[inline]
+    pub const fn from_uuid(uuid: i64) -> Self {
+        EntityKey(uuid)
+    }
+
+    /// プレイヤー UID からキーを組み立てる。プレイヤーの種別コードは一定なので一意に定まる。
+    #[inline]
+    pub const fn player(player_uid: i64) -> Self {
+        EntityKey(player_uid << 16 | entity_const::PLAYER_TYPE_CODE)
+    }
+
+    /// モンスターのエンティティ番号からキーを組み立てる（主にテスト用）。
+    #[inline]
+    pub const fn monster(entity_id: i64) -> Self {
+        EntityKey(entity_id << 16 | entity_const::MONSTER_TYPE_CODE)
+    }
+
+    /// 元の UUID。
+    #[inline]
+    pub const fn uuid(self) -> i64 {
+        self.0
+    }
+
+    /// 上位ビットのエンティティ番号。プレイヤーならプレイヤー UID。
+    /// **種別をまたぐと一意でない**ので、比較・キーには使わず表示や名前解決にのみ使う。
+    #[inline]
+    pub const fn player_uid(self) -> i64 {
+        self.0 >> 16
+    }
+
+    #[inline]
+    pub fn kind(self) -> EntityKind {
+        EntityKind::from(self.0)
+    }
+
+    #[inline]
+    pub fn is_player(self) -> bool {
+        self.kind() == EntityKind::Player
+    }
+}
 
 /// バトルイマジンの装備枠数（SlotPositionId 7/8）。プレイヤーが同時に装備・表示できる
 /// バトルイマジンは最大この数。`imagines`（確定・表示用）の上限として processor/compute が共有する。
@@ -35,10 +95,12 @@ pub struct ImagineSlot {
     pub pending_hits: u32,
 }
 
+/// 1エンティティぶんの集計。**種別（プレイヤー/モンスター/召喚体）は持たない** —
+/// `Encounter::entities` のキー [`EntityKey`] が唯一の種別ソースであり、フィールドとして
+/// 二重に持つと「キー由来の種別」と「フィールドの種別」が食い違う（実際に食い違って
+/// PT メンバーが一覧から消えた）。種別が要る場所ではキーから [`EntityKey::kind`] で導く。
 #[derive(Debug, Default, Clone)]
 pub struct Entity {
-    pub entity_type: EntityKind,
-
     pub dmg_stats: CombatStats,
     pub skill_uid_to_dps_stats: HashMap<i32, CombatStats>,
     pub skill_meta: HashMap<i32, SkillMeta>,
@@ -54,8 +116,10 @@ pub struct Entity {
     pub skill_uid_to_heal_stats: HashMap<i32, CombatStats>,
 
     pub dmg_taken_stats: CombatStats,
-    pub attacker_uid_to_dmg_taken_stats: HashMap<i64, CombatStats>,
-    pub attacker_skill_to_dmg_taken_stats: HashMap<(i64, i32), CombatStats>,
+    /// 「誰にやられたか」の内訳。攻撃者もプレイヤー UID ではなく [`EntityKey`] で持つ
+    /// （番号が種別をまたいで重複するため、UID で束ねるとモンスターと召喚体の被ダメが混ざる）。
+    pub attacker_uid_to_dmg_taken_stats: HashMap<EntityKey, CombatStats>,
+    pub attacker_skill_to_dmg_taken_stats: HashMap<(EntityKey, i32), CombatStats>,
 
     // Players
     pub name: Option<String>,

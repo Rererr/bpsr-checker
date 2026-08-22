@@ -9,7 +9,7 @@
 //! expire_at_ms は壁時計(エポックms)基準なので、consumables.json へディスク永続化して
 //! アプリ再起動後も残時間を復元する（load 時に失効分を除去）。
 
-use crate::engine::buff_tracker::{BuffStateSnapshot, BuffTracker};
+use crate::engine::buff_tracker::{expire_at_local_ms, BuffStateSnapshot, BuffTracker};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -43,6 +43,12 @@ pub struct Timing {
     pub buff_uuid: i32,
     pub create_time: i64,
     pub layer: i32,
+    /// 観測時点の BuffStateSnapshot.server_clock_trusted の転写。tighten がサーバ時計
+    /// 基準式を使ってよいかの判定に使う。旧バージョンが保存した JSON にはこのフィールドが
+    /// 無いため #[serde(default)] で false にする＝tighten は常に受信基準フォールバック
+    /// （now_ms+duration_ms、既存以上なので min で縮まない）＝従来どおり触らない挙動になる。
+    #[serde(default)]
+    pub trusted: bool,
 }
 
 impl Timing {
@@ -73,13 +79,15 @@ pub fn refresh(store: &mut HashMap<i64, PlayerConsumables>, tracker: &BuffTracke
         let mut food_cand: Option<&BuffStateSnapshot> = None;
         let mut syrup_cand: Option<&BuffStateSnapshot> = None;
         for s in &snaps {
-            if s.duration_ms <= 0 {
-                continue; // 無期限はタイマー対象外
-            }
-            if food_ids.contains(&s.base_id) && later_expire(s, food_cand) {
+            // 無期限（None）はタイマー対象外。None＝無期限の判定は expire_at_local_ms
+            // 一箇所に統一する（duration_ms<=0 をここで再判定しない）。
+            let Some(expire) = s.expire_at_local_ms else {
+                continue;
+            };
+            if food_ids.contains(&s.base_id) && later_expire(expire, s.buff_uuid, food_cand) {
                 food_cand = Some(s);
             }
-            if syrup_ids.contains(&s.base_id) && later_expire(s, syrup_cand) {
+            if syrup_ids.contains(&s.base_id) && later_expire(expire, s.buff_uuid, syrup_cand) {
                 syrup_cand = Some(s);
             }
         }
@@ -93,7 +101,38 @@ pub fn refresh(store: &mut HashMap<i64, PlayerConsumables>, tracker: &BuffTracke
             e.syrup = syrup;
         }
     }
+    // オフセットが判明済みなら、起動直後にオフセット未知のまま受信基準で入った膨張値・
+    // 旧バージョンが保存した膨張値を、候補の有無にかかわらず全エントリで補正する
+    // （merge は同一 buff_uuid・据置 create_time を凍結するため、これが唯一の補正経路）。
+    if let Some(offset) = tracker.server_clock_offset_ms() {
+        tighten_all(store, offset, now_ms);
+    }
     purge_expired(store, now_ms);
+}
+
+/// 全 store エントリの expire_at_ms を、判明したサーバ時計オフセットで下方修正する。
+/// create_time が妥当なサーバ時刻でなければ何もしない（BuffTick 由来等 create_time=0 は対象外）。
+fn tighten_all(store: &mut HashMap<i64, PlayerConsumables>, offset: i64, now_ms: u128) {
+    for pc in store.values_mut() {
+        tighten(&mut pc.food, offset, now_ms);
+        tighten(&mut pc.syrup, offset, now_ms);
+    }
+}
+
+fn tighten(slot: &mut Option<Timing>, offset: i64, now_ms: u128) {
+    let Some(t) = slot else {
+        return;
+    };
+    // trusted は観測時点の BuffStateSnapshot.server_clock_trusted をそのまま転写した値
+    // （t.trusted、fresh() 参照）。local には now_ms（refresh 呼び出し時点のローカル
+    // 壁時計）を渡す。trusted=false／create_time が implausible／offset が使えない
+    // 場合は expire_at_local_ms が受信基準フォールバック（now_ms+duration_ms）を返す。
+    // この値は既存 expire_at_ms 以上になるため（duration は不変で、時間は進んでいる
+    // だけ）、以降の min による下方修正では無害（意図せず縮めない）。
+    let Some(corrected) = expire_at_local_ms(t.create_time, now_ms, t.duration_ms as i64, Some(offset), t.trusted) else {
+        return; // duration_ms<=0 はここに来ない想定だが念のため
+    };
+    t.expire_at_ms = t.expire_at_ms.min(corrected);
 }
 
 /// now が終了時刻を過ぎた food/syrup を None にし、両方空になった uid を除去する。
@@ -109,10 +148,18 @@ fn purge_expired(store: &mut HashMap<i64, PlayerConsumables>, now_ms: u128) {
     store.retain(|_, pc| pc.food.is_some() || pc.syrup.is_some());
 }
 
-/// `s` の終了時刻が現候補より遅ければ true（無期限は上で除外済み）。
-fn later_expire(s: &BuffStateSnapshot, cand: Option<&BuffStateSnapshot>) -> bool {
-    let s_expire = s.received_at_local_ms + s.duration_ms as u128;
-    cand.is_none_or(|c| s_expire > c.received_at_local_ms + c.duration_ms as u128)
+/// `expire`（対象候補の期限。呼び出し元の refresh ループで無期限=None は除外済み）が
+/// 現候補より遅ければ true。同値のときは `buff_uuid` が大きい方を決定的に採用する
+/// （HashMap 順に依存すると代表 uuid が refresh のたびに入れ替わり、無意味なディスク
+/// 書き込みが起きる。buff_uuid はシーン切替で振り直されるため「大きい＝新しい」では
+/// ないが、目的は決定性の確保）。
+fn later_expire(expire: u128, buff_uuid: i32, cand: Option<&BuffStateSnapshot>) -> bool {
+    match cand.and_then(|c| c.expire_at_local_ms.map(|e| (e, c.buff_uuid))) {
+        None => true,
+        Some((cand_expire, cand_uuid)) => {
+            expire > cand_expire || (expire == cand_expire && buff_uuid > cand_uuid)
+        }
+    }
 }
 
 /// 既存 Timing と観測候補から、更新後の Timing を決める。
@@ -126,13 +173,20 @@ fn merge(existing: Option<Timing>, cand: Option<&BuffStateSnapshot>, now_ms: u12
     let Some(s) = cand else {
         return existing;
     };
+    // 無期限（None）は refresh 側の候補ループで既に除外済み。None＝無期限の判定は
+    // expire_at_local_ms 一箇所に統一するため、ここでは防御的に既存を保持するのみ
+    // （実際には到達しない想定）。
+    let Some(s_expire) = s.expire_at_local_ms else {
+        return existing;
+    };
     let fresh = || Timing {
-        expire_at_ms: s.received_at_local_ms + s.duration_ms as u128,
+        expire_at_ms: s_expire,
         duration_ms: s.duration_ms as u128,
         base_id: s.base_id,
         buff_uuid: s.buff_uuid,
         create_time: s.create_time_server,
         layer: s.layer,
+        trusted: s.server_clock_trusted,
     };
     let Some(e) = existing else {
         return Some(fresh());
@@ -330,14 +384,16 @@ mod tests {
     }
 
     // 重ねがけ（layer 増）で expire を更新する。
+    // create_time はローカル時刻窓（±24h）の外に置く識別子（値に意味は無い。
+    // サーバ時計オフセット学習の対象外にして受信基準の期待値をそのまま検証するため）。
     #[test]
     fn stacking_layer_increase_refreshes() {
         let mut tracker = BuffTracker::new();
         let mut store = HashMap::new();
-        tracker.apply_buff_add(1, &food_info(600_000, 1000, 1), 0, UID);
+        tracker.apply_buff_add(1, &food_info(600_000, 100_000_000, 1), 0, UID);
         refresh(&mut store, &tracker, 0);
 
-        let change = pb::BuffChange { layer: 2, duration: 600_000, create_time: 2000 };
+        let change = pb::BuffChange { layer: 2, duration: 600_000, create_time: 200_000_000 };
         tracker.apply_buff_change(UID, 1, &change, 100_000);
         refresh(&mut store, &tracker, 100_000);
         // 100s + 600s = 700s 終了 → 残 600s、layer=2
@@ -347,17 +403,19 @@ mod tests {
 
     // 再食（別 buff_uuid の新規付与）は古い残時間に固まらず expire を延長する。
     // ＝ ボス戦リセット後に再食してもアイコンがグレーへ戻らない。
+    // create_time はローカル時刻窓（±24h）の外に置く識別子（値に意味は無い。
+    // サーバ時計オフセット学習の対象外にして受信基準の期待値をそのまま検証するため）。
     #[test]
     fn reeat_new_instance_extends() {
         let mut tracker = BuffTracker::new();
         let mut store = HashMap::new();
         // 最初の食事: buff_uuid=1, 残 600s
-        tracker.apply_buff_add(1, &food_info(600_000, 1000, 1), 0, UID);
+        tracker.apply_buff_add(1, &food_info(600_000, 100_000_000, 1), 0, UID);
         refresh(&mut store, &tracker, 0);
         assert_eq!(store[&UID].food.unwrap().remaining_ms(0), 600_000);
 
         // 300s 後に再食: 別インスタンス buff_uuid=2, 残 600s（古いインスタンスは残存）
-        tracker.apply_buff_add(2, &food_info(600_000, 2000, 1), 300_000, UID);
+        tracker.apply_buff_add(2, &food_info(600_000, 200_000_000, 1), 300_000, UID);
         refresh(&mut store, &tracker, 300_000);
         // 300s + 600s = 900s 終了 → 残 600s に延長され、新インスタンスが採用される
         assert_eq!(store[&UID].food.unwrap().remaining_ms(300_000), 600_000);
@@ -419,6 +477,7 @@ mod tests {
             buff_uuid: 7,
             create_time: 1234,
             layer: 1,
+            trusted: true,
         }
     }
 
@@ -471,5 +530,161 @@ mod tests {
         assert!(needs_write(None, "x"));
         assert!(!needs_write(Some("x"), "x"));
         assert!(needs_write(Some("x"), "y"));
+    }
+
+    // ─── サーバ時計オフセット反映（マップ移動での残時間膨張バグの修正・実データ再現） ───
+    // 2026-08-22 実測: create_time=1787368015470(12:06:55) duration_ms=2340005(39分)の
+    // バフが受信12:29:32（付与から22.6分後）に expire=13:08:32 として誤記録された実例を再現する。
+
+    const REAL_T0: i64 = 1_787_368_015_470; // 12:06:55 相当
+    const REAL_DURATION: i32 = 2_340_005; // 39分
+
+    // オフセット既知（即時受信）での付与は create_time+offset+duration で expire する。
+    #[test]
+    fn offset_known_grant_uses_server_time_expire() {
+        let mut tracker = BuffTracker::new();
+        let mut store = HashMap::new();
+        // now_ms == create_time の即時受信としてオフセット0を確定させる
+        tracker.apply_buff_add(3, &food_info(REAL_DURATION, REAL_T0, 1), REAL_T0 as u128, UID);
+        refresh(&mut store, &tracker, REAL_T0 as u128);
+
+        let expected_expire = REAL_T0 as u128 + REAL_DURATION as u128;
+        assert_eq!(store[&UID].food.unwrap().expire_at_ms, expected_expire);
+        assert_eq!(store[&UID].food.unwrap().remaining_ms(REAL_T0 as u128), REAL_DURATION as i64);
+    }
+
+    // マップ移動由来の再送（別 buff_uuid・同一 create_time・同一 duration）は
+    // 受信が22.6分後でも expire を膨張させない（13:08:32相当へ巻き戻らない）。
+    #[test]
+    fn map_move_resend_does_not_inflate_expire() {
+        let mut tracker = BuffTracker::new();
+        let mut store = HashMap::new();
+        tracker.apply_buff_add(3, &food_info(REAL_DURATION, REAL_T0, 1), REAL_T0 as u128, UID);
+        refresh(&mut store, &tracker, REAL_T0 as u128);
+
+        const ELAPSED_MS: i64 = 1_357_000; // 12:06:55 → 12:29:32 相当
+        let now = (REAL_T0 + ELAPSED_MS) as u128;
+        tracker.apply_buff_add(8, &food_info(REAL_DURATION, REAL_T0, 1), now, UID);
+        refresh(&mut store, &tracker, now);
+
+        // 旧実装(受信基準)なら now+DURATION(=13:08:32相当)へ膨張する。修正後は T0+DURATIONのまま。
+        // uuid 3/8 は期限が同値で later_expire はどちらも候補になりうる（HashMap 順）ため、
+        // buff_uuid は断定しない。不変条件は期限のみ。
+        let expected_expire = REAL_T0 as u128 + REAL_DURATION as u128;
+        assert_eq!(store[&UID].food.unwrap().expire_at_ms, expected_expire);
+    }
+
+    // 戦闘終了で tracker がクリアされた後のマップ移動再送（新 uuid が必ず候補になり
+    // merge の「別インスタンス＝fresh()」経路を通る）でも expire は膨張しない。
+    #[test]
+    fn map_move_resend_after_tracker_clear_does_not_inflate_expire() {
+        let mut tracker = BuffTracker::new();
+        let mut store = HashMap::new();
+        tracker.apply_buff_add(3, &food_info(REAL_DURATION, REAL_T0, 1), REAL_T0 as u128, UID);
+        refresh(&mut store, &tracker, REAL_T0 as u128);
+        tracker.clear(); // 戦闘終了（オフセットは保持される）
+
+        const ELAPSED_MS: i64 = 1_357_000;
+        let now = (REAL_T0 + ELAPSED_MS) as u128;
+        tracker.apply_buff_add(8, &food_info(REAL_DURATION, REAL_T0, 1), now, UID);
+        refresh(&mut store, &tracker, now);
+
+        let food = store[&UID].food.unwrap();
+        assert_eq!(food.buff_uuid, 8); // 新インスタンスとして採用される
+        assert_eq!(food.expire_at_ms, REAL_T0 as u128 + REAL_DURATION as u128);
+    }
+
+    // 起動直後シナリオ: tracker のオフセットが未知のまま resend だけが来ると、
+    // 一旦は受信基準で膨張した expire が入る → その後に別バフの新規付与でオフセットが
+    // 確定すると、次の refresh で create_time+offset+duration へ引き締まる。
+    #[test]
+    fn offset_unknown_then_learned_tightens_existing_entry() {
+        let mut tracker = BuffTracker::new();
+        let mut store = HashMap::new();
+
+        // 起動直後: オフセット未知のまま、マップ移動由来の resend だけが来る
+        // （create_time=REAL_T0 は過去、受信は22.6分後）
+        const ELAPSED_MS: i64 = 1_357_000;
+        let now1 = (REAL_T0 + ELAPSED_MS) as u128;
+        tracker.apply_buff_add(8, &food_info(REAL_DURATION, REAL_T0, 1), now1, UID);
+        refresh(&mut store, &tracker, now1);
+        // オフセット未知のため受信基準フォールバック→ now1+DURATION に膨張
+        assert_eq!(store[&UID].food.unwrap().expire_at_ms, now1 + REAL_DURATION as u128);
+
+        // その後、無関係な別バフ（シロップ枠）の新規付与がほぼ即時受信され、オフセットが確定する
+        let now2 = now1 + 1000;
+        tracker.apply_buff_add(20, &buff_info(SYRUP_ID, 30_000, now2 as i64, 1), now2, UID);
+        assert_eq!(tracker.server_clock_offset_ms(), Some(0));
+
+        // 次の refresh で食事枠の expire が引き締まる
+        refresh(&mut store, &tracker, now2);
+        assert_eq!(store[&UID].food.unwrap().expire_at_ms, REAL_T0 as u128 + REAL_DURATION as u128);
+    }
+
+    // ディスク復元相当: store に膨張した Timing を直接入れ、tracker にオフセットだけ既知の
+    // 状態で refresh すると引き締まる（tracker に対応するバフが無くても効く＝候補の有無を問わない）。
+    #[test]
+    fn disk_restored_inflated_timing_tightens_once_offset_known() {
+        let mut tracker = BuffTracker::new();
+        let mut store = HashMap::new();
+
+        let inflated = Timing {
+            expire_at_ms: (REAL_T0 + 5_000_000) as u128, // 旧バージョンが保存した膨張値を模す
+            duration_ms: REAL_DURATION as u128,
+            base_id: FOOD_ID,
+            buff_uuid: 3,
+            create_time: REAL_T0,
+            layer: 1,
+            trusted: true, // ディスク復元時点で明示（食事/シロップは常にトラステッドな経路で観測される）
+        };
+        store.insert(UID, PlayerConsumables { food: Some(inflated), syrup: None });
+
+        // tracker には対応するバフが無い（戦闘終了で消えた等）が、オフセットだけ既知
+        tracker.observe_server_time(REAL_T0, REAL_T0 as u128); // offset=0 を直接確定
+        assert_eq!(tracker.server_clock_offset_ms(), Some(0));
+
+        refresh(&mut store, &tracker, REAL_T0 as u128);
+        assert_eq!(store[&UID].food.unwrap().expire_at_ms, REAL_T0 as u128 + REAL_DURATION as u128);
+    }
+
+    // 同一 buff_uuid のまま create_time が変化（タイマーリフレッシュ）した場合も従来どおり新値採用。
+    // create_time はローカル時刻窓（±24h）の外に置く識別子（値に意味は無い。
+    // サーバ時計オフセット学習の対象外にして受信基準の期待値をそのまま検証するため）。
+    #[test]
+    fn timer_refresh_same_uuid_new_create_time_extends() {
+        let mut tracker = BuffTracker::new();
+        let mut store = HashMap::new();
+        tracker.apply_buff_add(1, &food_info(600_000, 100_000_000, 1), 0, UID);
+        refresh(&mut store, &tracker, 0);
+        assert_eq!(store[&UID].food.unwrap().remaining_ms(0), 600_000);
+
+        // 同一 buff_uuid のまま create_time が変化（タイマーリフレッシュ）
+        let change = pb::BuffChange { layer: 1, duration: 600_000, create_time: 200_000_000 };
+        tracker.apply_buff_change(UID, 1, &change, 300_000);
+        refresh(&mut store, &tracker, 300_000);
+        assert_eq!(store[&UID].food.unwrap().remaining_ms(300_000), 600_000);
+        assert_eq!(store[&UID].food.unwrap().create_time, 200_000_000);
+    }
+
+    // later_expire の同値タイは buff_uuid が大きい方を決定的に採用する。
+    // HashMap の反復順に依存すると、期限が同値の複数インスタンスがある場合に代表
+    // uuid が refresh のたびに入れ替わり、無意味なディスク書き込みが起きる。
+    #[test]
+    fn later_expire_tie_picks_larger_buff_uuid_deterministically() {
+        let mut tracker = BuffTracker::new();
+        let mut store = HashMap::new();
+
+        // 同一 create_time・同一 duration の2インスタンス(uuid 3/8)を両方 tracker に保持させる
+        // （期限が同値のタイになる）。
+        tracker.apply_buff_add(3, &food_info(REAL_DURATION, REAL_T0, 1), REAL_T0 as u128, UID);
+        tracker.apply_buff_add(8, &food_info(REAL_DURATION, REAL_T0, 1), REAL_T0 as u128, UID);
+
+        refresh(&mut store, &tracker, REAL_T0 as u128);
+        let first = store[&UID].food.unwrap().buff_uuid;
+        refresh(&mut store, &tracker, REAL_T0 as u128);
+        let second = store[&UID].food.unwrap().buff_uuid;
+
+        assert_eq!(first, 8, "同値タイは buff_uuid が大きい方を採用するはず");
+        assert_eq!(second, 8, "2回目の refresh でも同じ代表 uuid になるはず（決定性）");
     }
 }

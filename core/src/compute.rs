@@ -1408,6 +1408,8 @@ mod tests {
             layer: 1,
             count: 1,
             create_time_server: 0,
+            expire_at_local_ms: None,
+            server_clock_trusted: true,
         }
     }
 

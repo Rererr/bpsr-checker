@@ -339,6 +339,13 @@ impl BuffTracker {
             .map(|s| s.source_config_id)
             .unwrap_or(0);
         let duration_ms = if info.duration <= 0 { 0 } else { info.duration as i64 };
+        if crate::engine::consumables::is_consumable(info.base_id) {
+            // 実機検証用: 再食/切替/マップ移動再送がどの形式で届くかを残す。
+            log::info!(
+                "consumable buff add: uid={target_uid} base={} uuid={buff_uuid} create_time={} duration={duration_ms} layer={} now={now_ms} offset={:?}",
+                info.base_id, info.create_time, info.layer, self.server_clock_offset.offset()
+            );
+        }
         let player_buffs = self.buffs.entry(target_uid).or_default();
         player_buffs.insert(
             buff_uuid,
@@ -419,6 +426,12 @@ impl BuffTracker {
         // ではなく、probe 実測で BuffTick の同一付与再通知が 0 件＝ガードが
         // 必要かどうかを検証する材料が無く、未検証のまま挙動を変えるリスクを
         // 避けるため。
+        if crate::engine::consumables::is_consumable(state.base_id) {
+            log::info!(
+                "consumable buff change: uid={target_uid} base={} uuid={buff_uuid} create_time={}->{} duration={}->{} layer={}->{} now={now_ms}",
+                state.base_id, state.create_time_server, change.create_time, state.duration_ms, change.duration, state.layer, change.layer
+            );
+        }
         let is_same_grant = change.create_time != 0 && change.create_time == state.create_time_server;
         let duration_increased = change.duration != 0 && {
             let normalized = if change.duration < 0 { 0 } else { change.duration };

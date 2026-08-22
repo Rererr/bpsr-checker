@@ -854,6 +854,7 @@ fn process_world_entity_batch(encounter: &mut Encounter, msg: pb::WorldEntityBat
         return;
     }
 
+    let ts = now_ms();
     for pkt_entity in msg.appear {
         let target_uuid = pkt_entity.uuid;
         if target_uuid == 0 {
@@ -890,7 +891,43 @@ fn process_world_entity_batch(encounter: &mut Encounter, msg: pb::WorldEntityBat
                 }
             }
         }
+        // target_entity の借用はここで終わる（以降未使用）。
+
+        // AOI 出現時点で既に付与されている既存バフ一覧（食事/シロップ等）を同期する。
+        // これが無いと、ダンジョンで先に食事していた他プレイヤーの食事/シロップを
+        // 知る経路が無く、appear 時点でバッジが出ない（field 7 の到来自体は
+        // 2026-08時点でグローバル版 probe 未確認。apply_appear_buff_sync のログで検証する）。
+        if target_entity_type == EntityKind::Player {
+            if let Some(bundle) = &pkt_entity.buff_infos {
+                apply_appear_buff_sync(encounter, target_uid, bundle, ts);
+            }
+        }
     }
+}
+
+/// appear（AOI 出現）/ EnterScene（自キャラ入場）が運ぶ既存バフ一覧
+/// （pb::EntityAppear.buff_infos、参照実装の BuffInfoSync 相当）を buff_tracker へ
+/// 投入する。scene-add 経路（SceneDelta.buff_list の AddBuff＝平時の主経路）とは
+/// 別の到達点だが、apply_buff_add は同一 buff_uuid を上書きするだけなので、
+/// 同じバフが両経路から届いても二重計上にはならない。
+fn apply_appear_buff_sync(encounter: &mut Encounter, target_uid: i64, bundle: &pb::BuffSnapshotBundle, ts: u128) {
+    if bundle.buff_infos.is_empty() {
+        return;
+    }
+    let mut consumables = 0;
+    for b in &bundle.buff_infos {
+        if crate::probe::enabled() {
+            crate::probe::log_buff_snapshot("appear-sync", &b.encode_to_vec(), b);
+        }
+        if crate::engine::consumables::is_consumable(b.base_id) {
+            consumables += 1;
+        }
+        encounter.buff_tracker.apply_buff_add(b.buff_uuid, b, ts, target_uid);
+    }
+    info!(
+        "appear buff sync: uid={target_uid} n={} consumables={consumables}",
+        bundle.buff_infos.len()
+    );
 }
 
 fn process_world_enter_snapshot(
@@ -1678,6 +1715,13 @@ fn process_enter_scene(encounter: &mut Encounter, msg: pb::EnterScene, conn: Opt
     }
     let target_entity = get_or_create_entity(encounter, EntityKey::player(player_uid));
     process_player_attrs(player_uid, target_entity, &attrs.attrs, "enter_scene");
+
+    // 自キャラの既存バフ一覧（食事/シロップ等）を同期。EntityAppear と同型の
+    // player_ent に載る（apply_appear_buff_sync 参照。field 7 の到来自体は
+    // 2026-08時点でグローバル版 probe 未確認。到来ログで確認する）。
+    if let Some(bundle) = &player_ent.buff_infos {
+        apply_appear_buff_sync(encounter, player_uid, bundle, now_ms());
+    }
 }
 
 fn process_player_attrs(
@@ -2087,6 +2131,65 @@ mod tests {
 
     fn player_uuid_for(uid: i64) -> i64 {
         (uid << 16) | 640
+    }
+
+    // AOI appear（他プレイヤーが視界に入った瞬間）が運ぶ既存バフ一覧（食事等）を
+    // buff_tracker へ同期する。ダンジョンで先に食事していた他プレイヤーが appear
+    // した時点でバッジが出るようにするための配線（apply_appear_buff_sync 参照）。
+    // trusted なオフセット既知の下で create_time+offset+duration-now を使うことを、
+    // 受信基準フォールバック(duration そのまま=30分)との差で判別する。
+    #[test]
+    fn appear_buff_sync_registers_existing_food_buff_using_server_time() {
+        let mut enc = Encounter::default();
+
+        const UID: i64 = 42;
+        const FOOD_ID: i32 = 700083; // ConsumableBuffIds.json food[0]
+        const DURATION_MS: i32 = 1_800_000; // 30分
+        const TWENTY_FIVE_MIN_MS: i64 = 25 * 60 * 1000;
+
+        // オフセットを既知(0)に固定する。以降 appear buff 自身の観測（create_time が
+        // 25分前＝候補が大きい）が来ても min により上書きされない。
+        let now_real = now_ms();
+        enc.buff_tracker.observe_server_time(now_real as i64, now_real);
+        assert_eq!(enc.buff_tracker.server_clock_offset_ms(), Some(0));
+
+        // 25分前に付与された食事(create_time 過去・duration は総時間)が appear で届く。
+        let create_time = now_real as i64 - TWENTY_FIVE_MIN_MS;
+        let batch = pb::WorldEntityBatch {
+            appear: vec![pb::EntityAppear {
+                uuid: player_uuid_for(UID),
+                buff_infos: Some(pb::BuffSnapshotBundle {
+                    uuid: player_uuid_for(UID),
+                    buff_infos: vec![pb::BuffSnapshot {
+                        buff_uuid: 1,
+                        base_id: FOOD_ID,
+                        level: 1,
+                        host_uuid: player_uuid_for(UID),
+                        table_uuid: 0,
+                        create_time,
+                        fire_uuid: 0,
+                        layer: 1,
+                        part_id: 0,
+                        count: 1,
+                        duration: DURATION_MS,
+                        fight_source_info: None,
+                    }],
+                }),
+                ..Default::default()
+            }],
+            disappear: vec![],
+        };
+
+        process_world_entity_batch(&mut enc, batch);
+
+        let snaps = enc.buff_tracker.snapshot_for(UID, now_real);
+        assert_eq!(snaps.len(), 1, "appear の buff_infos が tracker に入っていない");
+        assert_eq!(snaps[0].base_id, FOOD_ID);
+
+        // 期限は create_time+offset(0)+duration。経過25分ぶん減った残り5分になる
+        // （受信基準フォールバックなら30分のままになってしまう＝配線ミスの検出）。
+        const FIVE_MIN_MS: i64 = 5 * 60 * 1000;
+        assert_eq!(snaps[0].remaining_ms, FIVE_MIN_MS);
     }
 
     /// 値を bare varint(LEB128) で符号化する（attr raw_data の形式）。

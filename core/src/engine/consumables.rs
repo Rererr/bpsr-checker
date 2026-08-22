@@ -31,6 +31,12 @@ static IDS: LazyLock<(HashSet<i32>, HashSet<i32>)> = LazyLock::new(|| {
     )
 });
 
+/// base_id が食事/シロップのいずれかなら true（buff_tracker の観測ログ用）。
+pub fn is_consumable(base_id: i32) -> bool {
+    let (food_ids, syrup_ids) = &*IDS;
+    food_ids.contains(&base_id) || syrup_ids.contains(&base_id)
+}
+
 /// 1バフの終了時刻・総時間（残量比率算出用）と種類解決用の base_id。
 /// `buff_uuid`/`create_time`/`layer` は付与の同一性キー。受動再観測では expire を
 /// 凍結し、別インスタンスの再付与（buff_uuid 変化＝再食）・同一インスタンスの
@@ -119,6 +125,11 @@ fn tighten_all(store: &mut HashMap<i64, PlayerConsumables>, offset: i64, now_ms:
     }
 }
 
+/// tighten が更新に踏み切る最小の短縮幅。実機ログでオフセット推定値（min）が1msずつ
+/// 下がるたびに `consumables: saved` が数十回連発していた（表示は秒粒度なので1msの
+/// 改善は体感できず、JSON 書き込みとログだけが無駄に走る）。1秒未満の改善は据え置く。
+const TIGHTEN_MIN_DELTA_MS: u128 = 1_000;
+
 fn tighten(slot: &mut Option<Timing>, offset: i64, now_ms: u128) {
     let Some(t) = slot else {
         return;
@@ -132,7 +143,11 @@ fn tighten(slot: &mut Option<Timing>, offset: i64, now_ms: u128) {
     let Some(corrected) = expire_at_local_ms(t.create_time, now_ms, t.duration_ms as i64, Some(offset), t.trusted) else {
         return; // duration_ms<=0 はここに来ない想定だが念のため
     };
-    t.expire_at_ms = t.expire_at_ms.min(corrected);
+    // 改善幅が TIGHTEN_MIN_DELTA_MS 未満なら据え置く（corrected が既存以上のとき
+    // saturating_sub は 0 になり、同じ枝で自然にスキップされる）。
+    if t.expire_at_ms.saturating_sub(corrected) >= TIGHTEN_MIN_DELTA_MS {
+        t.expire_at_ms = corrected;
+    }
 }
 
 /// now が終了時刻を過ぎた food/syrup を None にし、両方空になった uid を除去する。
@@ -324,6 +339,8 @@ pub fn save_if_changed(store: &HashMap<i64, PlayerConsumables>) {
         warn!("consumables: 保存失敗 ({}): {e}", path.display());
         return;
     }
+    // 実機検証用: 状態が変わった時だけ全文を残す（付与/失効/延長/切替でしか変わらない）。
+    info!("consumables: saved {json}");
     if let Ok(mut g) = persist().write() {
         g.last_json = Some(json);
     }
@@ -659,6 +676,33 @@ mod tests {
 
         refresh(&mut store, &tracker, REAL_T0 as u128);
         assert_eq!(store[&UID].food.unwrap().expire_at_ms, REAL_T0 as u128 + REAL_DURATION as u128);
+    }
+
+    // 改善幅が TIGHTEN_MIN_DELTA_MS(1秒) 未満なら tighten は据え置く（実機ログで
+    // オフセット推定値が1msずつ動くたびに保存/ログが連発していた問題への対処）。
+    #[test]
+    fn tighten_ignores_sub_threshold_improvement() {
+        const CREATE_TIME: i64 = 1_700_000_000_000;
+        const DURATION_MS: u128 = 5_000;
+        // 正しい値(offset=0)は CREATE_TIME+0+DURATION_MS = 1_700_000_005_000。
+        // 既存はそれより 500ms(<1000ms) だけ大きい膨張値にしておく。
+        let mut slot = Some(Timing {
+            expire_at_ms: 1_700_000_005_500,
+            duration_ms: DURATION_MS,
+            base_id: FOOD_ID,
+            buff_uuid: 1,
+            create_time: CREATE_TIME,
+            layer: 1,
+            trusted: true,
+        });
+
+        tighten(&mut slot, 0, CREATE_TIME as u128 + 100);
+
+        assert_eq!(
+            slot.unwrap().expire_at_ms,
+            1_700_000_005_500,
+            "改善幅500ms(<1000ms)は据え置かれるはず"
+        );
     }
 
     // 同一 buff_uuid のまま create_time が変化（タイマーリフレッシュ）した場合も従来どおり新値採用。

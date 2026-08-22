@@ -177,6 +177,14 @@ pub struct EntityAppear {
     pub ent_type: i32,
     #[prost(message, optional, tag = "3")]
     pub attrs: ::core::option::Option<EntityAttrs>,
+    /// AOI 出現時点で既に付与されている既存バフ一覧（食事/シロップ等）。参照実装
+    /// (../resonance-logs-cn の blueprotobuf_package.rs) の BuffInfoSync
+    /// { int64 uuid = 1; repeated BuffInfo buff_infos = 2; } と同型。これが無いと
+    /// appear の時点でバフを知る経路が無く、ダンジョンで先に食事していた他プレイヤーの
+    /// 食事/シロップにバッジが出ない（グローバル版で実際に field 7 が来るかは
+    /// 2026-08時点で probe 未確認。配線して到来ログで検証する）。
+    #[prost(message, optional, tag = "7")]
+    pub buff_infos: ::core::option::Option<BuffSnapshotBundle>,
 }
 /// EnterScene (WorldNtf method 0x3): 自キャラ入場時に届くフル属性スナップショット。
 /// PlayerEnt(=自キャラ Entity) の attrs に、会心/ファスト/万能/知力/敏捷/魔攻/魔防 等の

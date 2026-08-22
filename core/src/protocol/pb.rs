@@ -296,6 +296,19 @@ pub struct WorldEnterSnapshot {
     #[prost(message, optional, tag = "1")]
     pub v_data: ::core::option::Option<PlayerSnapshot>,
 }
+/// WorldNtf method 0x2B。ゲームクライアント（＝当アプリと同一PC）とサーバの時刻同期。
+/// client_milliseconds - server_milliseconds が「ローカル壁時計 − サーバ時計」の正確値
+/// （buff_tracker の server_clock_offset_ms と同じ定義）。参照実装
+/// ../resonance-logs-cn の blueprotobuf_package.rs:5703-5708、BPSR-ZDPS WorldNtf.cs:47
+/// (SyncServerTime = 0x2B)。docs-private/protocol-map-transition-data.md では未マップ
+/// opcode 0x2b としてダンジョン1周62回の高頻度到来を記録済み。
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SyncServerTime {
+    #[prost(int64, tag = "1")]
+    pub client_milliseconds: i64,
+    #[prost(int64, tag = "2")]
+    pub server_milliseconds: i64,
+}
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DamageRecord {
     #[prost(bool, tag = "2")]

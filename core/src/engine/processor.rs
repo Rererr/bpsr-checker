@@ -736,6 +736,37 @@ pub fn process_opcode(enc: &EncounterMutex, env: PktEnvelope) -> AppResult<()> {
             }
         }
 
+        // WorldNtf method 0x2B: ゲームクライアント（＝当アプリと同一PC）とサーバの
+        // 正確な時刻同期。should_accept（他クライアント/未識別 conn のフィルタ）を
+        // 意図的に経由しない: この値はキャラクター選択と無関係にアプリ全体の
+        // buff_tracker オフセット推定へ効くべきで、conn が学習されるまで捨てられると
+        // 起動直後の精度が落ちる。is_paused でも止めない（一時停止中もバフタイマーの
+        // 精度は保ちたい）。imagine_only_mode の対象は process_world_entity_batch 側の
+        // エンティティ集計であり、ここには関係しない。
+        Pkt::WorldSyncServerTime => {
+            let Some(msg) = decode_packet::<pb::SyncServerTime>(data, "SyncServerTime") else {
+                return Ok(());
+            };
+            if crate::probe::enabled() {
+                log::info!(
+                    "PROBE sync-server-time client={} server={} delta={}",
+                    msg.client_milliseconds,
+                    msg.server_milliseconds,
+                    msg.client_milliseconds - msg.server_milliseconds
+                );
+            }
+            if msg.client_milliseconds > 0 && msg.server_milliseconds > 0 {
+                let mut encounter = enc
+                    .lock()
+                    .map_err(|e| AppError::LockPoisoned(e.to_string()))?;
+                encounter.buff_tracker.observe_server_time_sync(
+                    msg.client_milliseconds,
+                    msg.server_milliseconds,
+                    now_ms(),
+                );
+            }
+        }
+
         _ => {
             let state = enc;
             let mut encounter = state
@@ -2151,7 +2182,7 @@ mod tests {
         // 25分前＝候補が大きい）が来ても min により上書きされない。
         let now_real = now_ms();
         enc.buff_tracker.observe_server_time(now_real as i64, now_real);
-        assert_eq!(enc.buff_tracker.server_clock_offset_ms(), Some(0));
+        assert_eq!(enc.buff_tracker.server_clock_offset_ms(now_real), Some(0));
 
         // 25分前に付与された食事(create_time 過去・duration は総時間)が appear で届く。
         let create_time = now_real as i64 - TWENTY_FIVE_MIN_MS;
@@ -2190,6 +2221,29 @@ mod tests {
         // （受信基準フォールバックなら30分のままになってしまう＝配線ミスの検出）。
         const FIVE_MIN_MS: i64 = 5 * 60 * 1000;
         assert_eq!(snaps[0].remaining_ms, FIVE_MIN_MS);
+    }
+
+    // Pkt::WorldSyncServerTime（WorldNtf method 0x2B）をデコードし、
+    // buff_tracker.observe_server_time_sync 経由で server_clock_offset_ms が
+    // client-server になることをエンドツーエンドで確認する。conn: None（未識別コネクション）
+    // でも処理されること（should_accept を経由しない配線）も合わせて確認する。
+    #[test]
+    fn world_sync_server_time_updates_offset_via_process_opcode() {
+        let enc = EncounterMutex::default();
+
+        const CLIENT_MS: i64 = 1_700_000_010_100;
+        const SERVER_MS: i64 = 1_700_000_010_000;
+        let data = pb::SyncServerTime {
+            client_milliseconds: CLIENT_MS,
+            server_milliseconds: SERVER_MS,
+        }
+        .encode_to_vec();
+
+        process_opcode(&enc, PktEnvelope { op: Pkt::WorldSyncServerTime, data, conn: None }).unwrap();
+
+        let now = now_ms();
+        let offset = enc.lock().unwrap().buff_tracker.server_clock_offset_ms(now);
+        assert_eq!(offset, Some(CLIENT_MS - SERVER_MS));
     }
 
     /// 値を bare varint(LEB128) で符号化する（attr raw_data の形式）。

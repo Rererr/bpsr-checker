@@ -110,7 +110,7 @@ pub fn refresh(store: &mut HashMap<i64, PlayerConsumables>, tracker: &BuffTracke
     // オフセットが判明済みなら、起動直後にオフセット未知のまま受信基準で入った膨張値・
     // 旧バージョンが保存した膨張値を、候補の有無にかかわらず全エントリで補正する
     // （merge は同一 buff_uuid・据置 create_time を凍結するため、これが唯一の補正経路）。
-    if let Some(offset) = tracker.server_clock_offset_ms() {
+    if let Some(offset) = tracker.server_clock_offset_ms(now_ms) {
         tighten_all(store, offset, now_ms);
     }
     purge_expired(store, now_ms);
@@ -645,7 +645,7 @@ mod tests {
         // その後、無関係な別バフ（シロップ枠）の新規付与がほぼ即時受信され、オフセットが確定する
         let now2 = now1 + 1000;
         tracker.apply_buff_add(20, &buff_info(SYRUP_ID, 30_000, now2 as i64, 1), now2, UID);
-        assert_eq!(tracker.server_clock_offset_ms(), Some(0));
+        assert_eq!(tracker.server_clock_offset_ms(now2), Some(0));
 
         // 次の refresh で食事枠の expire が引き締まる
         refresh(&mut store, &tracker, now2);
@@ -672,7 +672,7 @@ mod tests {
 
         // tracker には対応するバフが無い（戦闘終了で消えた等）が、オフセットだけ既知
         tracker.observe_server_time(REAL_T0, REAL_T0 as u128); // offset=0 を直接確定
-        assert_eq!(tracker.server_clock_offset_ms(), Some(0));
+        assert_eq!(tracker.server_clock_offset_ms(REAL_T0 as u128), Some(0));
 
         refresh(&mut store, &tracker, REAL_T0 as u128);
         assert_eq!(store[&UID].food.unwrap().expire_at_ms, REAL_T0 as u128 + REAL_DURATION as u128);

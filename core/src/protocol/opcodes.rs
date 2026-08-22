@@ -8,6 +8,7 @@ pub enum Pkt {
     WorldEnterScene,
     WorldEntityBatch,
     WorldEnterSnapshot,
+    WorldSyncServerTime,
     LocalDeltaBatch,
     WorldDeltaBatch,
     BuffTick,
@@ -28,6 +29,7 @@ impl TryFrom<u32> for Pkt {
             0x00000003 => Pkt::WorldEnterScene, // EnterScene: 自キャラ入場時のフル属性(PlayerEnt.Attrs)
             0x00000006 => Pkt::WorldEntityBatch,
             0x00000015 => Pkt::WorldEnterSnapshot,
+            0x0000002b => Pkt::WorldSyncServerTime, // SyncServerTime: client/server 時刻同期
             0x0000002d => Pkt::WorldDeltaBatch,
             0x0000002e => Pkt::LocalDeltaBatch,
             0x00003003 => Pkt::BuffTick,
@@ -61,5 +63,16 @@ impl From<u16> for FragmentType {
             6 => FragmentType::FrameDown,
             _ => FragmentType::None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // WorldNtf method 0x2B (SyncServerTime) が Pkt::WorldSyncServerTime にマップされる。
+    #[test]
+    fn try_from_maps_sync_server_time_opcode() {
+        assert!(matches!(Pkt::try_from(0x0000002b).unwrap(), Pkt::WorldSyncServerTime));
     }
 }

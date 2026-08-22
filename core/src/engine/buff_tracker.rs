@@ -38,12 +38,24 @@ const SERVER_CLOCK_OFFSET_BUCKET_MS: u128 = 30 * 60 * 1000; // 30分
 /// 次のバケット境界を跨いだ時点で prev から自然に抜けるため、最長1バケット
 /// （SERVER_CLOCK_OFFSET_BUCKET_MS）で上方向に再学習できる。時計の後退（bucket が
 /// 現在より前に戻る）も同じ分岐で扱ってよい（挙動として害はなく単純）。
+/// exact（SyncServerTime 0x2B 由来の正確値）が有効とみなされる最大経過時間。
+/// 0x2B はダンジョン1周で62回・数秒〜十数秒間隔で届く高頻度パケット（実測
+/// docs-private/protocol-map-transition-data.md）のため、これだけ間隔が空くのは
+/// 同期そのものが止まっている（スリープ復帰・接続断等）と判断してよい保険。
+const EXACT_OFFSET_MAX_AGE_MS: u128 = 60 * 60 * 1000; // 60分
+
 #[derive(Clone, Debug, Default)]
 struct ServerClockOffsetEstimator {
     /// 現在バケットの開始時刻（バケット幅で切り捨てたエポックms）。未観測なら None。
     bucket_start_ms: Option<u128>,
     cur_min: Option<i64>,
     prev_min: Option<i64>,
+    /// SyncServerTime(0x2B) から得た正確値: (offset, 観測したローカル時刻)。既知なら
+    /// ヒューリスティック(cur_min/prev_min)より最優先で使う。新しい同期が来るたび
+    /// 無条件で上書きする（min は取らない＝最新が正）。時計ジャンプもこれで自然に
+    /// 解決するため exact に窓（バケット）は不要。ただし EXACT_OFFSET_MAX_AGE_MS 以上
+    /// 経過したら無視してヒューリスティックへ戻す。
+    exact: Option<(i64, u128)>,
 }
 
 impl ServerClockOffsetEstimator {
@@ -75,6 +87,12 @@ impl ServerClockOffsetEstimator {
         });
     }
 
+    /// SyncServerTime(0x2B) から得た正確なオフセットを記録する。無条件で上書きする
+    /// （min は取らない＝最新が正。時計ジャンプ後もこれで自然に回復する）。
+    fn observe_exact(&mut self, offset: i64, now_ms: u128) {
+        self.exact = Some((offset, now_ms));
+    }
+
     /// cur_min/prev_min のうち Some 側の最小値。両方 None（未観測）なら None。
     fn value(&self) -> Option<i64> {
         match (self.cur_min, self.prev_min) {
@@ -84,8 +102,14 @@ impl ServerClockOffsetEstimator {
         }
     }
 
-    /// 現在有効なオフセット推定値。
-    fn offset(&self) -> Option<i64> {
+    /// 現在有効なオフセット推定値。exact が既知かつ EXACT_OFFSET_MAX_AGE_MS 以内なら
+    /// 最優先で返す。古すぎる／未観測ならヒューリスティック(value())へ戻る。
+    fn offset(&self, now_ms: u128) -> Option<i64> {
+        if let Some((offset, observed_at)) = self.exact {
+            if now_ms.saturating_sub(observed_at) < EXACT_OFFSET_MAX_AGE_MS {
+                return Some(offset);
+            }
+        }
         self.value()
     }
 }
@@ -232,9 +256,9 @@ impl BuffTracker {
             return;
         }
         let candidate = now_ms as i64 - create_time;
-        let before = self.server_clock_offset.offset();
+        let before = self.server_clock_offset.offset(now_ms);
         self.server_clock_offset.observe(candidate, now_ms);
-        let after = self.server_clock_offset.offset();
+        let after = self.server_clock_offset.offset(now_ms);
         let changed_enough = match (before, after) {
             (Some(b), Some(a)) => (a - b).abs() >= 1000,
             (None, Some(_)) => true,
@@ -245,8 +269,31 @@ impl BuffTracker {
         }
     }
 
-    pub fn server_clock_offset_ms(&self) -> Option<i64> {
-        self.server_clock_offset.offset()
+    /// SyncServerTime(0x2B) から得た正確なオフセット（client_milliseconds -
+    /// server_milliseconds、ゲームクライアント＝当アプリと同一PCなのでそのまま
+    /// ローカル壁時計とサーバ時計の差になる）を記録する。ヒューリスティック
+    /// (observe_server_time) と異なり妥当性窓のチェックはしない（呼び出し元
+    /// processor.rs で client/server 双方が正の値であることを確認済み）。新しい
+    /// 同期が来るたび無条件で上書きする（min は取らない＝最新が正。時計ジャンプ後も
+    /// これで自然に回復するため exact に窓は不要）。有効値が初回 or 1秒以上変化した
+    /// ときだけ info ログを出す。
+    pub fn observe_server_time_sync(&mut self, client_ms: i64, server_ms: i64, now_ms: u128) {
+        let offset = client_ms - server_ms;
+        let before = self.server_clock_offset.offset(now_ms);
+        self.server_clock_offset.observe_exact(offset, now_ms);
+        let changed_enough = match before {
+            Some(b) => (offset - b).abs() >= 1000,
+            None => true,
+        };
+        if changed_enough {
+            log::info!(
+                "buff_tracker: server_clock_offset exact {before:?}ms -> {offset}ms (client={client_ms} server={server_ms})"
+            );
+        }
+    }
+
+    pub fn server_clock_offset_ms(&self, now_ms: u128) -> Option<i64> {
+        self.server_clock_offset.offset(now_ms)
     }
 
     /// host_uuid が Player エンティティのバフのみ保存。保存した場合は true を返す。
@@ -343,7 +390,7 @@ impl BuffTracker {
             // 実機検証用: 再食/切替/マップ移動再送がどの形式で届くかを残す。
             log::info!(
                 "consumable buff add: uid={target_uid} base={} uuid={buff_uuid} create_time={} duration={duration_ms} layer={} now={now_ms} offset={:?}",
-                info.base_id, info.create_time, info.layer, self.server_clock_offset.offset()
+                info.base_id, info.create_time, info.layer, self.server_clock_offset.offset(now_ms)
             );
         }
         let player_buffs = self.buffs.entry(target_uid).or_default();
@@ -504,7 +551,7 @@ impl BuffTracker {
     /// 期限切れバフを削除する。duration_ms <= 0 は無期限扱いで削除しない。
     /// バフが空になったプレイヤーエントリも除去する。
     pub fn gc(&mut self, now_ms: u128) {
-        let offset = self.server_clock_offset_ms();
+        let offset = self.server_clock_offset_ms(now_ms);
         for player_buffs in self.buffs.values_mut() {
             player_buffs.retain(|_, state| match expire_of(state, offset) {
                 None => true, // 無期限
@@ -519,14 +566,15 @@ impl BuffTracker {
         let Some(player_buffs) = self.buffs.get(&player_uid) else {
             return vec![];
         };
-        make_snapshots(player_buffs, now_ms, self.server_clock_offset_ms())
+        make_snapshots(player_buffs, now_ms, self.server_clock_offset_ms(now_ms))
     }
 
     /// 全プレイヤーのスナップショットを player_uid ごとに返す。
     pub fn snapshot_all(&self, now_ms: u128) -> HashMap<i64, Vec<BuffStateSnapshot>> {
+        let offset = self.server_clock_offset_ms(now_ms);
         self.buffs
             .iter()
-            .map(|(uid, player_buffs)| (*uid, make_snapshots(player_buffs, now_ms, self.server_clock_offset_ms())))
+            .map(|(uid, player_buffs)| (*uid, make_snapshots(player_buffs, now_ms, offset)))
             .collect()
     }
 
@@ -986,18 +1034,18 @@ mod tests {
 
         // 初回観測: create_time=BASE, now=BASE+5000 → offset=5000
         tracker.observe_server_time(BASE as i64, BASE + 5_000);
-        assert_eq!(tracker.server_clock_offset_ms(), Some(5_000));
+        assert_eq!(tracker.server_clock_offset_ms(BASE + 5_000), Some(5_000));
 
         // 古い付与の再送（マップ移動）: create_time は据え置きだが受信が遅い→候補が大きい→更新されない
         tracker.observe_server_time(BASE as i64, BASE + 100_000);
-        assert_eq!(tracker.server_clock_offset_ms(), Some(5_000));
+        assert_eq!(tracker.server_clock_offset_ms(BASE + 100_000), Some(5_000));
 
         // より小さい候補が来れば更新される（同バケット内）
         tracker.observe_server_time((BASE + 147_000) as i64, BASE + 150_000);
-        assert_eq!(tracker.server_clock_offset_ms(), Some(3_000));
+        assert_eq!(tracker.server_clock_offset_ms(BASE + 150_000), Some(3_000));
 
         tracker.clear();
-        assert_eq!(tracker.server_clock_offset_ms(), Some(3_000)); // clear() で消えない
+        assert_eq!(tracker.server_clock_offset_ms(BASE + 150_000), Some(3_000)); // clear() で消えない
     }
 
     // expire_at_local_ms 単体: オフセット未知・create_time implausible（BuffTick の0等）は
@@ -1052,7 +1100,7 @@ mod tests {
         let mut info = make_buff_info(3, player_uuid(1), DURATION);
         info.create_time = T0;
         tracker.apply_buff_add(3, &info, (T0 + TRUE_OFFSET) as u128, uid);
-        assert_eq!(tracker.server_clock_offset_ms(), Some(TRUE_OFFSET));
+        assert_eq!(tracker.server_clock_offset_ms((T0 + TRUE_OFFSET) as u128), Some(TRUE_OFFSET));
 
         // 22.6分後、マップ移動により同一付与が新 buff_uuid=8 で再送される
         // （create_time・duration は不変、受信時刻だけ22.6分後）
@@ -1095,7 +1143,7 @@ mod tests {
         };
         tracker.apply_effect(&effect, now, uid);
 
-        assert_eq!(tracker.server_clock_offset_ms(), None);
+        assert_eq!(tracker.server_clock_offset_ms(now), None);
     }
 
     // 2バケット以上の空白の直後に大きい候補（マップ移動 resend 相当）だけが届いても、
@@ -1107,14 +1155,14 @@ mod tests {
 
         let now1: u128 = 10 * SERVER_CLOCK_OFFSET_BUCKET_MS; // バケット境界に揃える
         tracker.observe_server_time(now1 as i64 - 300, now1); // candidate=300
-        assert_eq!(tracker.server_clock_offset_ms(), Some(300));
+        assert_eq!(tracker.server_clock_offset_ms(now1), Some(300));
 
         // 3バケット分の空白（2バケット以上）の後、resend 相当の大きい候補だけが届く
         let now2 = now1 + 3 * SERVER_CLOCK_OFFSET_BUCKET_MS;
         tracker.observe_server_time(now2 as i64 - 1_356_000, now2); // candidate=1,356,000
 
         // 旧推定(300)が prev へ繰り越されているため、まだ上書きされない
-        assert_eq!(tracker.server_clock_offset_ms(), Some(300));
+        assert_eq!(tracker.server_clock_offset_ms(now2), Some(300));
     }
 
     // その後さらに1バケット進んで、より大きい候補だけが観測され続ければ、繰り越した
@@ -1131,7 +1179,7 @@ mod tests {
 
         let now2 = now1 + 3 * SERVER_CLOCK_OFFSET_BUCKET_MS; // 2バケット以上の空白
         tracker.observe_server_time(now2 as i64 - 1_356_000, now2); // candidate=1,356,000
-        assert_eq!(tracker.server_clock_offset_ms(), Some(300)); // リセット直後はまだ旧値
+        assert_eq!(tracker.server_clock_offset_ms(now2), Some(300)); // リセット直後はまだ旧値
 
         // さらに1バケット進んで、より大きい候補だけが観測され続ける
         let now3 = now2 + SERVER_CLOCK_OFFSET_BUCKET_MS;
@@ -1139,7 +1187,7 @@ mod tests {
 
         // 旧推定(300)は繰り越し後さらに1バケット経過して prev から抜けたため、
         // 新しい値へ切り替わる。
-        assert_eq!(tracker.server_clock_offset_ms(), Some(5_000));
+        assert_eq!(tracker.server_clock_offset_ms(now3), Some(5_000));
     }
 
     // 「ちょうど+1バケット」のスライドでは prev_min に旧オフセットが残るため、
@@ -1159,13 +1207,60 @@ mod tests {
         // バケット k 内で候補 300 を観測
         let now1: u128 = 10 * SERVER_CLOCK_OFFSET_BUCKET_MS;
         tracker.observe_server_time(now1 as i64 - 300, now1);
-        assert_eq!(tracker.server_clock_offset_ms(), Some(300));
+        assert_eq!(tracker.server_clock_offset_ms(now1), Some(300));
 
         // ちょうど1バケット進んだ(k+1)時点で、resend 相当の大きい候補のみ観測
         let now2 = now1 + SERVER_CLOCK_OFFSET_BUCKET_MS;
         tracker.observe_server_time(now2 as i64 - OBSERVED_MAX_RESEND_GAP_MS, now2);
 
         // 1バケットのスライドでは prev_min に旧オフセット(300)が残るため守られる
-        assert_eq!(tracker.server_clock_offset_ms(), Some(300));
+        assert_eq!(tracker.server_clock_offset_ms(now2), Some(300));
+    }
+
+    // ─── SyncServerTime(0x2B) 由来の正確値 ─────────────────────────────────────
+
+    // exact（SyncServerTime 由来）が既知なら、ヒューリスティック(バケット min 推定)より
+    // 優先される。
+    #[test]
+    fn test_server_clock_offset_exact_overrides_heuristic() {
+        let mut tracker = BuffTracker::new();
+
+        // ヒューリスティックで 5000 を確定させる
+        tracker.observe_server_time(1_700_000_000_000, 1_700_000_005_000);
+        assert_eq!(tracker.server_clock_offset_ms(1_700_000_005_000), Some(5_000));
+
+        // 正確値(0x2B相当)が届く。ヒューリスティックの結果とは異なる値でも最優先される。
+        tracker.observe_server_time_sync(1_700_000_010_100, 1_700_000_010_000, 1_700_000_010_100);
+        assert_eq!(tracker.server_clock_offset_ms(1_700_000_010_100), Some(100));
+    }
+
+    // 観測から EXACT_OFFSET_MAX_AGE_MS(60分) 以上経った exact は無視してヒューリスティック
+    // （このテストでは未観測なので None）へ戻る（スリープ復帰等で同期が止まった場合の保険）。
+    #[test]
+    fn test_server_clock_offset_exact_expires_after_max_age() {
+        let mut tracker = BuffTracker::new();
+        tracker.observe_server_time_sync(1_700_000_000_100, 1_700_000_000_000, 1_700_000_000_100); // offset=100
+
+        // 60分未満: まだ有効
+        let just_before = 1_700_000_000_100 + 60 * 60 * 1000 - 1;
+        assert_eq!(tracker.server_clock_offset_ms(just_before), Some(100));
+
+        // 60分以上経過: 無視されヒューリスティック(未観測なので None)へ戻る
+        let after = 1_700_000_000_100 + 60 * 60 * 1000;
+        assert_eq!(tracker.server_clock_offset_ms(after), None);
+    }
+
+    // 新しい同期が来るたび無条件で上書きする（min は取らない＝最新が正）。これにより
+    // ローカル時計の前方ジャンプ等で真のオフセットが増えても即座に回復する
+    // （ヒューリスティックの min 推定とは異なり、より大きい新値もそのまま採用される）。
+    #[test]
+    fn test_server_clock_offset_exact_overwritten_by_newer_sync() {
+        let mut tracker = BuffTracker::new();
+        tracker.observe_server_time_sync(1_700_000_000_100, 1_700_000_000_000, 1_700_000_000_100); // offset=100
+        assert_eq!(tracker.server_clock_offset_ms(1_700_000_000_100), Some(100));
+
+        // 時計ジャンプ後の新しい同期（旧値100より大きい500でも、そのまま最新値が採用される）
+        tracker.observe_server_time_sync(1_700_010_000_500, 1_700_010_000_000, 1_700_010_000_500);
+        assert_eq!(tracker.server_clock_offset_ms(1_700_010_000_500), Some(500));
     }
 }

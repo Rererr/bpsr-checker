@@ -167,8 +167,12 @@ fn later_expire(expire: u128, buff_uuid: i32, cand: Option<&BuffStateSnapshot>) 
 /// - 既存なし: 観測値で初期化。
 /// - 既存失効済み: 観測値で再付与扱い。
 /// - 別インスタンスの再付与（buff_uuid 変化＝再食）/ 重ねがけ（layer 増）/
-///   同一インスタンスのリフレッシュ（create_time が両者非0で変化）: 観測値で更新。
-/// - それ以外（受動再観測・同一 buff_uuid・create_time 据置/0）: 既存 expire を凍結。
+///   同一インスタンスのリフレッシュ（create_time が両者非0で変化）/
+///   同一 buff_uuid・同一 create_time のまま総時間が延長（duration 増加＝再食を
+///   サーバが duration の書き換えとして送る実装。例: 料理を25分経過(残5分)時点で
+///   再食すると総時間が30分→35分へ延びる）: 観測値で更新。
+/// - それ以外（受動再観測・同一 buff_uuid・create_time 据置/0・duration 据置/減少）:
+///   既存 expire を凍結。
 fn merge(existing: Option<Timing>, cand: Option<&BuffStateSnapshot>, now_ms: u128) -> Option<Timing> {
     let Some(s) = cand else {
         return existing;
@@ -210,6 +214,15 @@ fn merge(existing: Option<Timing>, cand: Option<&BuffStateSnapshot>, now_ms: u12
     // ここに到達するのは buff_uuid が一致する場合のみ（再食は上で処理済み）。
     if s.create_time_server != 0 && e.create_time != 0 && s.create_time_server != e.create_time {
         return Some(fresh()); // 同一 buff_uuid のタイマーリフレッシュ（create_time 変化）
+    }
+    if s.duration_ms as u128 > e.duration_ms {
+        // 同一付与の総時間延長＝再食。create_time 据置でも採用する（サーバが再食を
+        // 新規 create_time ではなく同一 uuid・同一 create_time のまま duration の
+        // 書き換えとして送る実装があるため）。expire はサーバ時計基準で計算済み
+        // （trusted かつ offset 既知なら create_time+offset+新duration）なので、
+        // 受信時刻を使う旧凍結ロジックのようには膨張しない。フォールバック
+        // （trusted=false／offset 未知）で採用しても、offset 判明後は tighten が補正する。
+        return Some(fresh());
     }
     Some(e) // 受動再観測 → 凍結
 }
@@ -335,6 +348,7 @@ mod tests {
     use crate::protocol::pb;
 
     const FOOD_ID: i32 = 700083; // ConsumableBuffIds.json food[0]
+    const FOOD_ID_B: i32 = 700084; // ConsumableBuffIds.json food[1]（別種の料理への切替テスト用）
     const SYRUP_ID: i32 = 681836; // ConsumableBuffIds.json syrup[0]
     const UID: i64 = 5000;
 
@@ -686,5 +700,112 @@ mod tests {
 
         assert_eq!(first, 8, "同値タイは buff_uuid が大きい方を採用するはず");
         assert_eq!(second, 8, "2回目の refresh でも同じ代表 uuid になるはず（決定性）");
+    }
+
+    // ─── 再食の総時間延長（同一 uuid・同一 create_time のまま duration が増える場合） ───
+    // ゲーム仕様: 料理A(30分)を25分経過(残5分)時点で再食すると残り35分になる
+    // （A→A は総時間が延長される）。シロップも同様。
+
+    // 同一 uuid・同一 create_time のまま duration が増加（再食をサーバが duration の
+    // 書き換えとして送る実装）した場合、consumables 側も追従して期限を延ばす
+    // （凍結し続けない）。
+    #[test]
+    fn reeat_same_grant_extends_total_duration() {
+        let mut tracker = BuffTracker::new();
+        let mut store = HashMap::new();
+
+        const T0: i64 = 1_700_000_000_000;
+        const DURATION_A: i32 = 1_800_000; // 30分
+        const DURATION_EXTENDED: i64 = 3_600_000; // 再食後の総時間(60分)
+
+        // T0: 付与。即時受信としてオフセット0を確定させる（オフセット既知の状態を作る）。
+        tracker.apply_buff_add(1, &food_info(DURATION_A, T0, 1), T0 as u128, UID);
+        refresh(&mut store, &tracker, T0 as u128);
+        assert_eq!(store[&UID].food.unwrap().remaining_ms(T0 as u128), DURATION_A as i64);
+
+        // T0+25分: 再食が同一 uuid・同一 create_time のまま duration 延長として届く
+        const TWENTY_FIVE_MIN_MS: i64 = 25 * 60 * 1000;
+        let now = (T0 + TWENTY_FIVE_MIN_MS) as u128;
+        let change = pb::BuffChange { layer: 1, duration: DURATION_EXTENDED, create_time: T0 };
+        tracker.apply_buff_change(UID, 1, &change, now);
+        refresh(&mut store, &tracker, now);
+
+        // 残り時間は 35分（総時間60分 - 経過25分）
+        const THIRTY_FIVE_MIN_MS: i64 = 35 * 60 * 1000;
+        assert_eq!(store[&UID].food.unwrap().remaining_ms(now), THIRTY_FIVE_MIN_MS);
+    }
+
+    // シロップ版: 同一 uuid・同一 create_time のまま duration 増加で期限が延びる。
+    #[test]
+    fn reeat_syrup_same_grant_extends_total_duration() {
+        let mut tracker = BuffTracker::new();
+        let mut store = HashMap::new();
+
+        const T0: i64 = 1_700_000_000_000;
+        const DURATION_A: i32 = 600_000; // 10分
+        const DURATION_EXTENDED: i64 = 1_200_000; // 再食後の総時間(20分)
+
+        tracker.apply_buff_add(1, &buff_info(SYRUP_ID, DURATION_A, T0, 1), T0 as u128, UID);
+        refresh(&mut store, &tracker, T0 as u128);
+        assert_eq!(store[&UID].syrup.unwrap().remaining_ms(T0 as u128), DURATION_A as i64);
+
+        // T0+5分（半分経過）時点で再食
+        const FIVE_MIN_MS: i64 = 5 * 60 * 1000;
+        let now = (T0 + FIVE_MIN_MS) as u128;
+        let change = pb::BuffChange { layer: 1, duration: DURATION_EXTENDED, create_time: T0 };
+        tracker.apply_buff_change(UID, 1, &change, now);
+        refresh(&mut store, &tracker, now);
+
+        // 残り時間は 15分（総時間20分 - 経過5分）
+        const FIFTEEN_MIN_MS: i64 = 15 * 60 * 1000;
+        assert_eq!(store[&UID].syrup.unwrap().remaining_ms(now), FIFTEEN_MIN_MS);
+    }
+
+    // 別種の料理へ切り替え（別 base_id・別 buff_uuid）。旧インスタンスを明示的に
+    // remove した場合は新インスタンスが唯一の候補になり、そのまま採用される。
+    #[test]
+    fn switch_to_other_food_replaces_remaining() {
+        let mut tracker = BuffTracker::new();
+        let mut store = HashMap::new();
+
+        const T0: i64 = 1_700_000_000_000;
+        const DURATION_A: i32 = 1_800_000; // 30分
+
+        tracker.apply_buff_add(1, &food_info(DURATION_A, T0, 1), T0 as u128, UID);
+        refresh(&mut store, &tracker, T0 as u128);
+
+        const TWENTY_FIVE_MIN_MS: i64 = 25 * 60 * 1000;
+        let now = (T0 + TWENTY_FIVE_MIN_MS) as u128;
+        tracker.remove(UID, 1);
+        tracker.apply_buff_add(2, &buff_info(FOOD_ID_B, DURATION_A, T0 + TWENTY_FIVE_MIN_MS, 1), now, UID);
+        refresh(&mut store, &tracker, now);
+
+        let food = store[&UID].food.unwrap();
+        assert_eq!(food.base_id, FOOD_ID_B);
+        assert_eq!(food.remaining_ms(now), DURATION_A as i64);
+    }
+
+    // 別種の料理へ切り替えた際、旧インスタンス（A）を remove しなくても、期限が
+    // 遅い方（B、新たに30分の満タンで付与されたばかり）が代表として採用される。
+    #[test]
+    fn switch_to_other_food_without_remove_still_prefers_later_expire() {
+        let mut tracker = BuffTracker::new();
+        let mut store = HashMap::new();
+
+        const T0: i64 = 1_700_000_000_000;
+        const DURATION_A: i32 = 1_800_000; // 30分
+
+        tracker.apply_buff_add(1, &food_info(DURATION_A, T0, 1), T0 as u128, UID);
+        refresh(&mut store, &tracker, T0 as u128);
+
+        const TWENTY_FIVE_MIN_MS: i64 = 25 * 60 * 1000;
+        let now = (T0 + TWENTY_FIVE_MIN_MS) as u128;
+        // remove を呼ばない: A は tracker に残ったまま
+        tracker.apply_buff_add(2, &buff_info(FOOD_ID_B, DURATION_A, T0 + TWENTY_FIVE_MIN_MS, 1), now, UID);
+        refresh(&mut store, &tracker, now);
+
+        let food = store[&UID].food.unwrap();
+        assert_eq!(food.base_id, FOOD_ID_B, "期限が遅い方(B)が代表になるはず");
+        assert_eq!(food.remaining_ms(now), DURATION_A as i64);
     }
 }

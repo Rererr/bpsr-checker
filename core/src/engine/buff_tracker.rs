@@ -11,54 +11,72 @@ pub struct BuffTracker {
     server_clock_offset: ServerClockOffsetEstimator,
 }
 
-/// サーバ時計オフセット推定のバケット幅。
+/// サーバ時計オフセット推定のバケット幅。ヒューリスティック(min)・SyncServerTime
+/// 標本(max)の両方で共有する（BucketedExtremum 参照）。
 ///
 /// 根拠: 実測されたマップ移動 resend の間隔（2026-07-25 probe: 付与から観測まで最大
 /// 22.6分の空白）を「2バケット以上の空白＝汚染候補として弾かれる」対象にしてしまうと、
 /// この機能が直そうとしている不具合そのものが再発する（単発の古い resend の候補を
 /// 誤って新オフセットとして採用してしまう）。そのため単一バケット幅を実測最大空白より
 /// 十分大きい 30 分とし、22.6分程度の空白は常に「1バケット分のスライド」に収まる
-/// （＝ prev_min に旧オフセットが残り min で保護される）ようにする。2バケット(60分)の
+/// （＝ prev に旧オフセットが残り fold で保護される）ようにする。2バケット(60分)の
 /// 完全な空白が続いた場合のみ汚染候補・時計ジャンプからの再学習が働く。
 const SERVER_CLOCK_OFFSET_BUCKET_MS: u128 = 30 * 60 * 1000; // 30分
 
-/// サーバ時計オフセットを「SERVER_CLOCK_OFFSET_BUCKET_MS 幅のバケット×2の最小値」で推定する状態機械。
-///
-/// 単調な最小値追跡（セッション全体の min を取り続けるだけ）だと、ローカル時計の
-/// 前方ジャンプや、たまたま観測した極端な候補による誤学習が永続化し、以後すべての
-/// バフが即失効表示になりかねない（must-fix）。バケット制にすることで、汚染された
-/// 候補は最長 SERVER_CLOCK_OFFSET_BUCKET_MS*2 で自然に cur/prev から抜け、
-/// 新しい（より大きい）候補にも再学習できる＝上方向にも修正が効く。
-///
-/// 2バケット以上の空白（リセット分岐）では、値を単純に捨てるのではなく現在の
-/// `value()`（＝リセット直前の有効な推定値）を `prev_min` へ繰り越す。狙い:
-/// アイドル明け最初の観測がマップ移動の resend（経過時間ぶん大きい候補）でも、
-/// 旧推定が prev に残っているため min で守られる。戦闘が始まれば新規付与が cur を
-/// 正しい値で上書きする。ローカル時計が前へジャンプした後は、繰り越した旧推定が
-/// 次のバケット境界を跨いだ時点で prev から自然に抜けるため、最長1バケット
-/// （SERVER_CLOCK_OFFSET_BUCKET_MS）で上方向に再学習できる。時計の後退（bucket が
-/// 現在より前に戻る）も同じ分岐で扱ってよい（挙動として害はなく単純）。
-/// exact（SyncServerTime 0x2B 由来の正確値）が有効とみなされる最大経過時間。
+/// SyncServerTime(0x2B) 標本の max 推定が有効とみなされる最大経過時間。
 /// 0x2B はダンジョン1周で62回・数秒〜十数秒間隔で届く高頻度パケット（実測
 /// docs-private/protocol-map-transition-data.md）のため、これだけ間隔が空くのは
 /// 同期そのものが止まっている（スリープ復帰・接続断等）と判断してよい保険。
-const EXACT_OFFSET_MAX_AGE_MS: u128 = 60 * 60 * 1000; // 60分
+const SYNC_MAX_AGE_MS: u128 = 60 * 60 * 1000; // 60分
 
-#[derive(Clone, Debug, Default)]
-struct ServerClockOffsetEstimator {
+/// バケット制で「今バケット・前バケット」2本の極値（min または max、keep_max で選択）を
+/// 保持する状態機械。server_clock_offset のヒューリスティック推定(min)と
+/// SyncServerTime 標本推定(max)の両方で同じ状態遷移を共有するために一般化した
+/// （同じ状態遷移を2回書かない）。
+///
+/// 単調な極値追跡（セッション全体で1個だけ持ち続ける）だと、ローカル時計の前方
+/// ジャンプや、たまたま観測した極端な候補による誤学習が永続化し、以後すべての
+/// バフが即失効表示になりかねない（must-fix）。バケット制にすることで、汚染された
+/// 候補は最長 SERVER_CLOCK_OFFSET_BUCKET_MS*2 で自然に cur/prev から抜け、
+/// 逆方向の候補にも再学習できる。
+///
+/// 2バケット以上の空白（リセット分岐）では、値を単純に捨てるのではなく現在の
+/// `value()`（＝リセット直前の有効な推定値）を `prev` へ繰り越す。狙い: アイドル明け
+/// 最初の観測が外れ値（マップ移動 resend 等）でも、旧推定が prev に残っているため
+/// fold で守られる。戦闘が始まれば新規付与が cur を正しい値で上書きする。ローカル
+/// 時計が前へジャンプした後は、繰り越した旧推定が次のバケット境界を跨いだ時点で
+/// prev から自然に抜けるため、最長1バケット（SERVER_CLOCK_OFFSET_BUCKET_MS）で
+/// 逆方向に再学習できる。時計の後退（bucket が現在より前に戻る）も同じ分岐で
+/// 扱ってよい（挙動として害はなく単純）。
+#[derive(Clone, Debug)]
+struct BucketedExtremum {
+    /// true なら大きい方を残す(max)。false なら小さい方を残す(min)。
+    keep_max: bool,
     /// 現在バケットの開始時刻（バケット幅で切り捨てたエポックms）。未観測なら None。
     bucket_start_ms: Option<u128>,
-    cur_min: Option<i64>,
-    prev_min: Option<i64>,
-    /// SyncServerTime(0x2B) から得た正確値: (offset, 観測したローカル時刻)。既知なら
-    /// ヒューリスティック(cur_min/prev_min)より最優先で使う。新しい同期が来るたび
-    /// 無条件で上書きする（min は取らない＝最新が正）。時計ジャンプもこれで自然に
-    /// 解決するため exact に窓（バケット）は不要。ただし EXACT_OFFSET_MAX_AGE_MS 以上
-    /// 経過したら無視してヒューリスティックへ戻す。
-    exact: Option<(i64, u128)>,
+    cur: Option<i64>,
+    prev: Option<i64>,
+    /// 直近の observe() 呼び出し時刻（バケット境界に丸めない生の値）。
+    /// SyncServerTime の SYNC_MAX_AGE_MS のような経過時間ベースの失効判定に使う。
+    last_observed_at_ms: Option<u128>,
 }
 
-impl ServerClockOffsetEstimator {
+impl BucketedExtremum {
+    fn new(keep_max: bool) -> Self {
+        Self {
+            keep_max,
+            bucket_start_ms: None,
+            cur: None,
+            prev: None,
+            last_observed_at_ms: None,
+        }
+    }
+
+    /// keep_max に応じて a/b のうち残す方を選ぶ。
+    fn fold(&self, a: i64, b: i64) -> i64 {
+        if self.keep_max { a.max(b) } else { a.min(b) }
+    }
+
     /// 新しい候補を観測する。now_ms がバケット境界をちょうど1つ越えていれば
     /// cur→prev へスライドする。2バケット以上の空白（長時間放置後の再開・時計後退等）
     /// なら、リセット直前の value() を prev へ繰り越してから cur をリセットする。
@@ -70,47 +88,78 @@ impl ServerClockOffsetEstimator {
             Some(cur) if bucket == cur + SERVER_CLOCK_OFFSET_BUCKET_MS => {
                 // ちょうど1バケット進んだ: cur を prev へスライドする（2バケットを
                 // 超える古い情報はここで自然に失効させる＝バケット窓を固定2本に保つ）。
-                self.prev_min = self.cur_min.take();
+                self.prev = self.cur.take();
                 self.bucket_start_ms = Some(bucket);
             }
             Some(_) => {
                 // 2バケット以上の空白、またはローカル時計の後退。
                 // 旧推定(value())を prev へ繰り越してから cur をリセットする。
-                self.prev_min = self.value();
-                self.cur_min = None;
+                self.prev = self.value();
+                self.cur = None;
                 self.bucket_start_ms = Some(bucket);
             }
         }
-        self.cur_min = Some(match self.cur_min {
+        self.cur = Some(match self.cur {
             None => candidate,
-            Some(existing) => existing.min(candidate),
+            Some(existing) => self.fold(existing, candidate),
         });
+        self.last_observed_at_ms = Some(now_ms);
     }
 
-    /// SyncServerTime(0x2B) から得た正確なオフセットを記録する。無条件で上書きする
-    /// （min は取らない＝最新が正。時計ジャンプ後もこれで自然に回復する）。
-    fn observe_exact(&mut self, offset: i64, now_ms: u128) {
-        self.exact = Some((offset, now_ms));
-    }
-
-    /// cur_min/prev_min のうち Some 側の最小値。両方 None（未観測）なら None。
+    /// cur/prev のうち Some 側の fold 結果。両方 None（未観測）なら None。
     fn value(&self) -> Option<i64> {
-        match (self.cur_min, self.prev_min) {
-            (Some(a), Some(b)) => Some(a.min(b)),
+        match (self.cur, self.prev) {
+            (Some(a), Some(b)) => Some(self.fold(a, b)),
             (Some(a), None) | (None, Some(a)) => Some(a),
             (None, None) => None,
         }
     }
+}
 
-    /// 現在有効なオフセット推定値。exact が既知かつ EXACT_OFFSET_MAX_AGE_MS 以内なら
-    /// 最優先で返す。古すぎる／未観測ならヒューリスティック(value())へ戻る。
+/// ローカル壁時計とサーバ時計の差分を、2系統の観測から推定する。
+/// - heuristic_min: create_time ヒューリスティック。`now-create_time = 時計差+片道遅延`
+///   なので、遅延が大きいほど値が「大きく」なる→ min が時計差の最良近似。
+/// - sync_max: SyncServerTime(0x2B) 標本。`client-server = 時計差-片道遅延`
+///   （client=クライアント送信時刻、server=サーバ受信時刻）なので、遅延が大きいほど
+///   値が「小さく」なる→ max が時計差の最良近似。実測（2026-08-23 probe）で両者は
+///   真値を挟むことを確認済み（sync の max ≤ 真値 ≤ heuristic の min）。
+///   sync_max が既知（かつ新しい）なら最優先で使う。0x2B が来ない環境・デモ・
+///   起動直後は heuristic_min へフォールバックする。
+#[derive(Clone, Debug)]
+struct ServerClockOffsetEstimator {
+    heuristic_min: BucketedExtremum,
+    sync_max: BucketedExtremum,
+}
+
+impl Default for ServerClockOffsetEstimator {
+    fn default() -> Self {
+        Self {
+            heuristic_min: BucketedExtremum::new(false),
+            sync_max: BucketedExtremum::new(true),
+        }
+    }
+}
+
+impl ServerClockOffsetEstimator {
+    fn observe(&mut self, candidate: i64, now_ms: u128) {
+        self.heuristic_min.observe(candidate, now_ms);
+    }
+
+    /// SyncServerTime(0x2B) から得た標本（client_ms - server_ms）を記録する。
+    fn observe_sync(&mut self, candidate: i64, now_ms: u128) {
+        self.sync_max.observe(candidate, now_ms);
+    }
+
+    /// 現在有効なオフセット推定値。sync_max が既知かつ最終観測から SYNC_MAX_AGE_MS
+    /// 以内ならそれを最優先で返す（遅延は常に値を下げる方向に働くため、max が
+    /// 時計差の最良近似）。古すぎる／未観測ならヒューリスティック(heuristic_min)へ戻る。
     fn offset(&self, now_ms: u128) -> Option<i64> {
-        if let Some((offset, observed_at)) = self.exact {
-            if now_ms.saturating_sub(observed_at) < EXACT_OFFSET_MAX_AGE_MS {
-                return Some(offset);
+        if let (Some(v), Some(last)) = (self.sync_max.value(), self.sync_max.last_observed_at_ms) {
+            if now_ms.saturating_sub(last) < SYNC_MAX_AGE_MS {
+                return Some(v);
             }
         }
-        self.value()
+        self.heuristic_min.value()
     }
 }
 
@@ -269,25 +318,29 @@ impl BuffTracker {
         }
     }
 
-    /// SyncServerTime(0x2B) から得た正確なオフセット（client_milliseconds -
-    /// server_milliseconds、ゲームクライアント＝当アプリと同一PCなのでそのまま
-    /// ローカル壁時計とサーバ時計の差になる）を記録する。ヒューリスティック
+    /// SyncServerTime(0x2B) から得た標本（client_milliseconds - server_milliseconds、
+    /// ゲームクライアント＝当アプリと同一PC）を記録する。ヒューリスティック
     /// (observe_server_time) と異なり妥当性窓のチェックはしない（呼び出し元
-    /// processor.rs で client/server 双方が正の値であることを確認済み）。新しい
-    /// 同期が来るたび無条件で上書きする（min は取らない＝最新が正。時計ジャンプ後も
-    /// これで自然に回復するため exact に窓は不要）。有効値が初回 or 1秒以上変化した
+    /// processor.rs で client/server 双方が正の値であることを確認済み）。
+    /// client=クライアント送信時刻・server=サーバ受信時刻なので、この差は
+    /// 「時計差 − 片道遅延」＝遅延が大きいほど値が小さくなる。よってバケット内では
+    /// 最大値（sync_max, keep_max=true）が時計差の最良近似になる
+    /// （実測 2026-08-23 probe で確認: −78 ≤ 真値 ≤ −74 に対し標本は −1346〜−78 で
+    /// 分布し、最大値 −78 が最も真値に近かった）。有効値が初回 or 1秒以上変化した
     /// ときだけ info ログを出す。
     pub fn observe_server_time_sync(&mut self, client_ms: i64, server_ms: i64, now_ms: u128) {
-        let offset = client_ms - server_ms;
+        let candidate = client_ms - server_ms;
         let before = self.server_clock_offset.offset(now_ms);
-        self.server_clock_offset.observe_exact(offset, now_ms);
-        let changed_enough = match before {
-            Some(b) => (offset - b).abs() >= 1000,
-            None => true,
+        self.server_clock_offset.observe_sync(candidate, now_ms);
+        let after = self.server_clock_offset.offset(now_ms);
+        let changed_enough = match (before, after) {
+            (Some(b), Some(a)) => (a - b).abs() >= 1000,
+            (None, Some(_)) => true,
+            _ => false,
         };
         if changed_enough {
             log::info!(
-                "buff_tracker: server_clock_offset exact {before:?}ms -> {offset}ms (client={client_ms} server={server_ms})"
+                "buff_tracker: server_clock_offset exact {before:?}ms -> {after:?}ms (client={client_ms} server={server_ms})"
             );
         }
     }
@@ -1190,7 +1243,7 @@ mod tests {
         assert_eq!(tracker.server_clock_offset_ms(now3), Some(5_000));
     }
 
-    // 「ちょうど+1バケット」のスライドでは prev_min に旧オフセットが残るため、
+    // 「ちょうど+1バケット」のスライドでは prev に旧オフセットが残るため、
     // マップ移動 resend（実測最大22.6分後相当）の大きい候補では上書きされない。
     // これが SERVER_CLOCK_OFFSET_BUCKET_MS を30分にした根拠そのもの
     // （22.6分の空白は常に1バケット分のスライドに収まる必要がある）。
@@ -1213,54 +1266,133 @@ mod tests {
         let now2 = now1 + SERVER_CLOCK_OFFSET_BUCKET_MS;
         tracker.observe_server_time(now2 as i64 - OBSERVED_MAX_RESEND_GAP_MS, now2);
 
-        // 1バケットのスライドでは prev_min に旧オフセット(300)が残るため守られる
+        // 1バケットのスライドでは prev に旧オフセット(300)が残るため守られる
         assert_eq!(tracker.server_clock_offset_ms(now2), Some(300));
     }
 
-    // ─── SyncServerTime(0x2B) 由来の正確値 ─────────────────────────────────────
+    // ─── SyncServerTime(0x2B) 由来の sync_max（バケット制の max 推定） ──────────────
 
-    // exact（SyncServerTime 由来）が既知なら、ヒューリスティック(バケット min 推定)より
-    // 優先される。
+    // sync_max（SyncServerTime 由来）が既知かつ新しければ、ヒューリスティック
+    // (heuristic_min、バケット min 推定)より優先される。
     #[test]
-    fn test_server_clock_offset_exact_overrides_heuristic() {
+    fn test_server_clock_offset_sync_max_overrides_heuristic() {
         let mut tracker = BuffTracker::new();
 
         // ヒューリスティックで 5000 を確定させる
         tracker.observe_server_time(1_700_000_000_000, 1_700_000_005_000);
         assert_eq!(tracker.server_clock_offset_ms(1_700_000_005_000), Some(5_000));
 
-        // 正確値(0x2B相当)が届く。ヒューリスティックの結果とは異なる値でも最優先される。
+        // sync標本(0x2B相当)が届く。ヒューリスティックの結果とは異なる値でも最優先される。
         tracker.observe_server_time_sync(1_700_000_010_100, 1_700_000_010_000, 1_700_000_010_100);
         assert_eq!(tracker.server_clock_offset_ms(1_700_000_010_100), Some(100));
     }
 
-    // 観測から EXACT_OFFSET_MAX_AGE_MS(60分) 以上経った exact は無視してヒューリスティック
-    // （このテストでは未観測なので None）へ戻る（スリープ復帰等で同期が止まった場合の保険）。
+    // 観測から SYNC_MAX_AGE_MS(60分) 以上経った sync_max は無視してヒューリスティックへ
+    // フォールバックする（スリープ復帰等で同期が止まった場合の保険）。
     #[test]
-    fn test_server_clock_offset_exact_expires_after_max_age() {
+    fn test_server_clock_offset_sync_max_falls_back_to_heuristic_after_max_age() {
         let mut tracker = BuffTracker::new();
-        tracker.observe_server_time_sync(1_700_000_000_100, 1_700_000_000_000, 1_700_000_000_100); // offset=100
 
-        // 60分未満: まだ有効
-        let just_before = 1_700_000_000_100 + 60 * 60 * 1000 - 1;
-        assert_eq!(tracker.server_clock_offset_ms(just_before), Some(100));
+        // フォールバック先のヒューリスティックをあらかじめ確定させておく
+        tracker.observe_server_time(1_700_000_000_000, 1_700_000_005_000);
+        assert_eq!(tracker.server_clock_offset_ms(1_700_000_005_000), Some(5_000));
 
-        // 60分以上経過: 無視されヒューリスティック(未観測なので None)へ戻る
-        let after = 1_700_000_000_100 + 60 * 60 * 1000;
-        assert_eq!(tracker.server_clock_offset_ms(after), None);
+        // sync標本(-78相当)が届く
+        tracker.observe_server_time_sync(1_700_000_010_000, 1_700_000_010_078, 1_700_000_010_000); // candidate=-78
+        assert_eq!(tracker.server_clock_offset_ms(1_700_000_010_000), Some(-78));
+
+        // 60分未満: sync_max がまだ有効
+        let just_before = 1_700_000_010_000 + SYNC_MAX_AGE_MS - 1;
+        assert_eq!(tracker.server_clock_offset_ms(just_before), Some(-78));
+
+        // 60分以上経過: sync_max を無視し、ヒューリスティックへフォールバックする
+        let after = 1_700_000_010_000 + SYNC_MAX_AGE_MS;
+        assert_eq!(tracker.server_clock_offset_ms(after), Some(5_000));
     }
 
-    // 新しい同期が来るたび無条件で上書きする（min は取らない＝最新が正）。これにより
-    // ローカル時計の前方ジャンプ等で真のオフセットが増えても即座に回復する
-    // （ヒューリスティックの min 推定とは異なり、より大きい新値もそのまま採用される）。
+    // 実測(2026-08-23 probe): ロード中(ServerHandover直後)の同期は片道遅延が大きく
+    // 標本が外れ値(-1346)になった。client=クライアント送信時刻・server=サーバ受信時刻
+    // なので client-server は「時計差-片道遅延」＝遅延が大きいほど値が小さくなる。
+    // 旧仕様（無条件上書き）だと次の同期まで外れ値をそのまま採用してしまっていた。
+    // 新仕様（同一バケット内は max を保持）なら、より真値に近い標本(-78)が一度届けば、
+    // 後から外れ値が再度届いても退行しない。
     #[test]
-    fn test_server_clock_offset_exact_overwritten_by_newer_sync() {
+    fn test_server_clock_offset_sync_max_ignores_outlier_after_recovery() {
         let mut tracker = BuffTracker::new();
-        tracker.observe_server_time_sync(1_700_000_000_100, 1_700_000_000_000, 1_700_000_000_100); // offset=100
-        assert_eq!(tracker.server_clock_offset_ms(1_700_000_000_100), Some(100));
 
-        // 時計ジャンプ後の新しい同期（旧値100より大きい500でも、そのまま最新値が採用される）
-        tracker.observe_server_time_sync(1_700_010_000_500, 1_700_010_000_000, 1_700_010_000_500);
-        assert_eq!(tracker.server_clock_offset_ms(1_700_010_000_500), Some(500));
+        const T1_CLIENT: i64 = 1_787_461_204_697;
+        const T1_SERVER: i64 = 1_787_461_206_043; // candidate = -1346
+        let t1 = T1_CLIENT as u128;
+        tracker.observe_server_time_sync(T1_CLIENT, T1_SERVER, t1);
+        assert_eq!(tracker.server_clock_offset_ms(t1), Some(-1346));
+
+        // 約5秒後、片道遅延が小さい標本(-78)が届く。同一バケット内では
+        // max(-1346, -78) = -78 を採用する。
+        const T2_CLIENT: i64 = 1_787_461_209_709;
+        const T2_SERVER: i64 = 1_787_461_209_787; // candidate = -78
+        let t2 = T2_CLIENT as u128;
+        tracker.observe_server_time_sync(T2_CLIENT, T2_SERVER, t2);
+        assert_eq!(tracker.server_clock_offset_ms(t2), Some(-78));
+
+        // さらに外れ値(-1346)が届いても、max を保持するため -78 のまま
+        // （旧仕様の無条件上書きなら -1346 へ退行していた）。
+        let t3 = t2 + 5_000;
+        tracker.observe_server_time_sync(t3 as i64, t3 as i64 + 1346, t3); // candidate=-1346
+        assert_eq!(
+            tracker.server_clock_offset_ms(t3),
+            Some(-78),
+            "外れ値の再到来で退行してはいけない"
+        );
+    }
+
+    // 同一バケット内では sync_max（keep_max=true）が候補の最大値を保持する
+    // （heuristic_min とは逆方向。より小さい候補が来ても縮まず、より大きい候補が
+    // 来れば更新される）。
+    #[test]
+    fn test_server_clock_offset_sync_max_keeps_larger_value_within_bucket() {
+        let mut tracker = BuffTracker::new();
+        let t: u128 = 10 * SERVER_CLOCK_OFFSET_BUCKET_MS;
+
+        tracker.observe_server_time_sync(t as i64 - 50, t as i64, t); // candidate=-50
+        assert_eq!(tracker.server_clock_offset_ms(t), Some(-50));
+
+        // より小さい候補(-100)が同一バケット内で来ても、max により -50 のまま
+        let t2 = t + 1_000;
+        tracker.observe_server_time_sync(t2 as i64 - 100, t2 as i64, t2); // candidate=-100
+        assert_eq!(tracker.server_clock_offset_ms(t2), Some(-50));
+
+        // より大きい候補(-10)が来れば更新される（max なので採用）
+        let t3 = t2 + 1_000;
+        tracker.observe_server_time_sync(t3 as i64 - 10, t3 as i64, t3); // candidate=-10
+        assert_eq!(tracker.server_clock_offset_ms(t3), Some(-10));
+    }
+
+    // 2バケット以上の空白の後に新しい候補が届いても、リセット直前の推定値が prev へ
+    // 繰り越されるため即座には上書きされない。さらに1バケット進んで同じ新しい候補が
+    // 観測され続ければ、繰り越した旧推定が prev から自然に抜け、新しい値へ切り替わる
+    // （heuristic_min のバケット expiry テストと対称の仕組み。sync_max では「より
+    // 大きい古い値」から「より小さい持続的な新しい値」へ、1バケット遅れて再学習する
+    // 例で示す）。
+    #[test]
+    fn test_server_clock_offset_sync_max_relearns_one_bucket_after_gap() {
+        let mut tracker = BuffTracker::new();
+
+        let now1: u128 = 10 * SERVER_CLOCK_OFFSET_BUCKET_MS;
+        tracker.observe_server_time_sync(now1 as i64 - 50, now1 as i64, now1); // candidate=-50
+        assert_eq!(tracker.server_clock_offset_ms(now1), Some(-50));
+
+        // 3バケット分の空白（2バケット以上）の後、より小さい候補(-1346)が届く
+        let now2 = now1 + 3 * SERVER_CLOCK_OFFSET_BUCKET_MS;
+        tracker.observe_server_time_sync(now2 as i64 - 1346, now2 as i64, now2); // candidate=-1346
+        // リセット直後は旧推定(-50)が prev へ繰り越されているため、
+        // max(-1346, -50) = -50 のまま（即座には切り替わらない）。
+        assert_eq!(tracker.server_clock_offset_ms(now2), Some(-50));
+
+        // さらに1バケット進んで、同じ候補(-1346)が観測され続ける
+        let now3 = now2 + SERVER_CLOCK_OFFSET_BUCKET_MS;
+        tracker.observe_server_time_sync(now3 as i64 - 1346, now3 as i64, now3); // candidate=-1346
+        // 旧推定(-50)は繰り越し後さらに1バケット経過して prev から抜けたため、
+        // 新しい値へ切り替わる。
+        assert_eq!(tracker.server_clock_offset_ms(now3), Some(-1346));
     }
 }

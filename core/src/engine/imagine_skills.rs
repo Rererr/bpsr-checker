@@ -106,6 +106,38 @@ pub fn role_skill_imagine_name(skill_id: i32) -> Option<String> {
     imagine_name(canonical_id)
 }
 
+/// 「他のバトルイマジンの召喚体」を呼んで戦わせる奥義（親）と、その召喚体が報告しうる
+/// 子イマジンの canonical id。親自身は召喚報告IDを持たず（休眠イマジン）、召喚体は子イマジン側の
+/// 召喚スキル（例: 嵐の大斧ゴブリン=1008641 → 嵐のゴブリンウォーリアー）を `AttrSkillId` として
+/// 報告する。中間 entity は無くプレイヤー直下に湧くため、SummonerId/TopSummonerId では子イマジン
+/// 装備者の召喚と区別できない。JP/EN/CN の SkillTable 全走査（2026-08-24）で該当は 3946 のみ。
+/// 参照実装 resonance-logs-cn も護衛 4 種の monsterId（剑盾/弩箭/风哥布林王/风巨斧）を 3946 へ束ねている。
+const NESTED_SUMMON_PARENTS: &[(i32, &[i32])] = &[
+    // キングゴブリン（奥義！ゴブリングランドマーチ）。子は SkillTable 3946 の Desc 記載順:
+    // 「精鋭・ゴブリン衛士」か「精鋭・ゴブリン弓兵」を必ず1体 → 3914 / 3915、
+    // 一定確率で「精鋭・ゴブリンウォーリアー」（EN: Jungle Goblin Warrior、CN: 丛林哥布林战士）→ 3927、
+    // 一定確率で「精鋭・嵐の大斧ゴブリン」（召喚報告 1008641 → 嵐のゴブリンウォーリアー）→ 3940
+    // か「ボス・風のキングゴブリン」（EN: Storm Goblin King）→ 3926。
+    (3946, &[3914, 3915, 3927, 3940, 3926]),
+];
+
+/// 確定済みの `parent_name` の召喚体が `child_name` として報告されうるなら true。
+/// 照合は canonical id を解決名へ落として行う（テーブル側の id→名前解決は dev リネームに
+/// 追従する。既存の確定スロット名は検知時点のスナップショットなので、リネーム後は次の
+/// 再確定まで一致せず no-op になる＝rule1 と同じ性質）。
+pub fn is_nested_summon_child(parent_name: &str, child_name: &str) -> bool {
+    if parent_name == child_name {
+        return false;
+    }
+    let table = NAMES.read().unwrap_or_else(|e| e.into_inner());
+    NESTED_SUMMON_PARENTS.iter().any(|(parent, children)| {
+        resolve_id(&table, *parent).is_some_and(|n| n == parent_name)
+            && children
+                .iter()
+                .any(|c| resolve_id(&table, *c).is_some_and(|n| n == child_name))
+    })
+}
+
 /// スキルIDを解決名（＝canonical）でグループ化した1件。
 /// `main_skill_id` は 3900〜3999 の canonical 範囲内の最小id（無ければ全体の最小id）、
 /// `clone_skill_ids` はそれ以外を昇順で並べたもの（分身/召喚スキルID）。
@@ -265,6 +297,23 @@ mod tests {
         assert_eq!(imagine_name(1007741), Some("ヴェノミーンの巣".to_string()));
         assert_eq!(imagine_name(3909), Some("Void Foxen".to_string())); // ja未登録・enのみ
         assert_eq!(imagine_name(-1), None); // 完全未登録
+    }
+
+    // キングゴブリン(3946)の召喚体が報告する子イマジン名（1008641→嵐のゴブリンウォーリアー等）は
+    // 親の子として判定される。親自身・無関係な親・子でない名前は false。
+    #[test]
+    fn nested_summon_child_matches_only_goblin_king_escorts() {
+        let _guard = crate::engine::imagine_test_support::guard();
+        let king = imagine_name(3946).expect("3946 must resolve");
+        let storm_warrior = imagine_name(1008641).expect("1008641 must resolve");
+        assert_eq!(storm_warrior, imagine_name(3940).unwrap());
+        assert!(is_nested_summon_child(&king, &storm_warrior));
+        assert!(is_nested_summon_child(&king, &imagine_name(3926).unwrap())); // 嵐のキングゴブリン
+        assert!(is_nested_summon_child(&king, &imagine_name(3914).unwrap())); // ゴブリン衛士
+        assert!(!is_nested_summon_child(&king, &king));
+        assert!(!is_nested_summon_child(&king, "ヴェノミーンの巣"));
+        assert!(!is_nested_summon_child("ヴェノミーンの巣", &storm_warrior));
+        assert!(!is_nested_summon_child(&storm_warrior, &king)); // 逆方向は親でない
     }
 
     #[test]

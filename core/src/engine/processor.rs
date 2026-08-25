@@ -42,6 +42,15 @@ const PENDING_PROMOTE_HITS: u32 = 3;
 static UNRESOLVED_SUMMON_SKILLS: LazyLock<Mutex<HashSet<i32>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
 
+/// 当プロセスの生存中にフル装備スキルリスト（attr116）で実イマジンを権威的に確定したことの
+/// ある uid。`Entity::imagines_authoritative` の種。Encounter のリセット（`clear_combat_stats`）
+/// でプレイヤー entity は破棄→name_cache から復元されるため、Entity のフラグだけでは
+/// リセットごとに失われる。attr116 は他人なら AOI appear（ダンジョン読込/ボス部屋切替）でしか
+/// 再送されないので、「このセッションで attr116 を見た」という事実をここで持ち越す。
+/// 前セッションの name_cache（装備が変わっているかもしれない推定値）とはこれで区別できる。
+static SKILL_LIST_CONFIRMED_UIDS: LazyLock<Mutex<HashSet<i64>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
 /// 装備スキルリスト(ATTR_SKILL_LEVEL_ID_LIST=116)の調査用ログ（`BPSR_PROBE=1` の開発時のみ）。
 /// uid ごとに最後にログした skill_id 列を覚え、内容が変わった時だけ info! する
 /// （人が多い場所でも appear の度に同内容を繰り返さないための抑制）。表示への反映自体は
@@ -108,6 +117,11 @@ fn get_or_create_entity(encounter: &mut Encounter, key: EntityKey) -> &mut Entit
                 // 復元時にも最新 MAX 件へ丸める（cap_imagine_names はこのキャッシュ復元専用）。
                 cap_imagine_names(&mut entity.imagines, MAX_IMAGINE_NAMES);
                 // pending は復元しない（常に None スタート。保留状態はグループ境界を跨がない）。
+                // 当セッションで attr116 を見た uid のキャッシュは attr116 が書いた値なので権威的
+                // （リセット跨ぎの持ち越し）。前セッション由来なら推定値のまま。
+                entity.imagines_authoritative = SKILL_LIST_CONFIRMED_UIDS
+                    .lock()
+                    .is_ok_and(|set| set.contains(&key.player_uid()));
             }
             if !cached.role_skill_imagine_names.is_empty() {
                 // ロールスキル(簡易版バトルイマジン、最大4枠)も同様に直前セッションの検知結果を
@@ -153,6 +167,9 @@ fn get_or_create_entity(encounter: &mut Encounter, key: EntityKey) -> &mut Entit
 ///   rule5 の条件を満たせない場合の自己修復。旧確定ペアを両方破棄し、確証のある pending 名
 ///   だけを単独確定にする。2枠目は次に新規検知が来るまで「未知（空）」表示のまま）。
 /// 通常の再検知だけでは確定へは至らない（現役の証拠にはならない。単に鮮度だけ更新）。
+///
+/// なお、確定スロットにある親イマジン（キングゴブリン等、`imagine_skills::NESTED_SUMMON_PARENTS`）
+/// の召喚体が報告する子イマジン名は、そもそも pending に入れず「親の再検知」に読み替える（rule0）。
 fn try_attribute_summon_imagine(encounter: &mut Encounter, attrs: &[pb::RawAttr]) {
     let mut top_owner: Option<i64> = None;
     let mut direct_owner: Option<i64> = None;
@@ -213,9 +230,56 @@ fn try_attribute_summon_imagine(encounter: &mut Encounter, attrs: &[pb::RawAttr]
     let owner = get_or_create_entity(encounter, EntityKey::from_uuid(owner_uuid));
     let seq = next_imagine_seq();
 
+    // 「確定スロットに一致するか」の判定はここ1箇所（rule0 の前提条件と rule1 の入口を兼ねる）。
+    let mut matched_slot = owner.imagines.iter().position(|s| s.name == name);
+    // ロールスキル枠に確定済みの名前（＝簡易版の発動エコー）は rule0 で親へ読み替えず、
+    // 下のロールスキル吸収ブロックへ渡す（「role-skill 名は実イマジン枠へ混入させない」順序原則）。
+    let is_role_skill_echo = owner.role_skill_imagines.iter().any(|s| s.name == name);
+
+    // rule0: 入れ子召喚の吸収。キングゴブリン(3946)のように「他のバトルイマジンの召喚体」を呼ぶ
+    // 奥義は自身の召喚報告IDを持たず、召喚体は子イマジン側の召喚スキル（例: 嵐の大斧ゴブリン=
+    // 1008641 → 嵐のゴブリンウォーリアー）を AttrSkillId として報告する。中間 entity は無く
+    // SummonerId/TopSummonerId ともプレイヤーなので attr では子イマジン装備者の召喚と区別できない。
+    // 確定スロットに親がいて name がその子なら「親の再検知」に読み替える（pending/交換判定へ
+    // 流さない＝親が子に追い出される誤表示を防ぐ。休眠イマジンだった親に現役の証拠も付く）。
+    // 凸数は子召喚体の値なので親へは反映しない（0=未判明扱い）。name 自体が確定スロットに
+    // ある場合（親子を両方装備）は通常の rule1 を優先する。
+    // 「親は現役」を rule1 の交換証拠（pending の昇格）にまで使うのは、親スロットが当セッションの
+    // attr116 で権威的に確定している場合（`imagines_authoritative`）だけ。前セッションの
+    // name_cache だけで組まれた親（装備が変わっているかもしれない）では鮮度更新に留めて return
+    // する＝子召喚を pending にも交換証拠にも使わない。こうすると、真の装備が [子, C] に
+    // 変わっていた場合に C の pending が rule2 の自己修復で単独確定→親が外れ→以後の子召喚が
+    // rule3 で正しく追加される（誤った確定を name_cache へ永続させない）。代償として、
+    // attr116 未着のまま親装備者がダンジョン内で相方を付け替えた場合は次の attr116 まで
+    // 追従しないが、他人の attr116 は appear（entity 生成時）に同梱されるので窓は極めて短い。
+    let (name, tier) = if matched_slot.is_none() && !is_role_skill_echo {
+        match owner
+            .imagines
+            .iter()
+            .position(|s| crate::engine::imagine_skills::is_nested_summon_child(&s.name, &name))
+        {
+            Some(parent_idx) => {
+                let parent = owner.imagines[parent_idx].name.clone();
+                debug!(
+                    "battle imagine nested summon absorbed: uid={owner_uid} {name} (summon skill {sk}) -> counted as {parent}"
+                );
+                if !owner.imagines_authoritative {
+                    owner.imagines[parent_idx].last_seen = seq;
+                    return;
+                }
+                matched_slot = Some(parent_idx);
+                (parent, 0)
+            }
+            None => (name, tier),
+        }
+    } else {
+        (name, tier)
+    };
+
     // rule1: 既存の確定スロットと一致 → 再検知＝現役の証拠。並び順は変えず鮮度だけ更新する
     // （凸数はキャッシュ復元直後 0 の場合やレベル上げ後があるため、非0 が来たら追従する）。
-    if let Some(slot) = owner.imagines.iter_mut().find(|s| s.name == name) {
+    if let Some(idx) = matched_slot {
+        let slot = &mut owner.imagines[idx];
         slot.last_seen = seq;
         let tier_changed = tier > 0 && slot.tier != tier;
         if tier_changed {
@@ -255,7 +319,9 @@ fn try_attribute_summon_imagine(encounter: &mut Encounter, attrs: &[pb::RawAttr]
     // 一切触れさせず、ここで吸収する。これをしないと、短いクールタイムで連発されるロールスキルの
     // 発動ノイズが定員一杯の pending/確定スワップ判定（rule1〜5）へ繰り返し流れ込み、実イマジン
     // 2枠との間で確定表示がフラッピングする（本バグの直接原因）。
-    if owner.role_skill_imagines.iter().any(|s| s.name == name) {
+    // （rule0 で親へ読み替えた場合は親が確定スロットにあるため rule1 で return 済み＝ここへは
+    // 来ない。よって is_role_skill_echo は常に現在の name について評価した値になっている。）
+    if is_role_skill_echo {
         if let Some(slot) = owner.role_skill_imagines.iter_mut().find(|s| s.name == name) {
             slot.last_seen = seq;
             let tier_changed = tier > 0 && slot.tier != tier;
@@ -516,6 +582,9 @@ fn apply_skill_list_imagines(
     }
 
     if slots.is_empty() {
+        // 空＝実イマジン未装備とは限らない（ImagineSkillNames 未収載の新イマジンは解決不能で
+        // 空になる）ため、ここでは imagines_authoritative を立てず SKILL_LIST_CONFIRMED_UIDS
+        // にも入れない（非空の場合は下の分岐でこれらを権威的に確定させている）。
         // 今回のフルリストに実イマジンの canonical id が1件も無かった場合、確定済みの
         // role-skill 候補（複数件）と同名の陳腐化した imagines エントリがあれば全て除去する。
         // 実イマジン（SlotPositionId 7/8）が装備されていれば、このフルリスト（attr116）に必ず
@@ -547,6 +616,13 @@ fn apply_skill_list_imagines(
             }
         }
         return;
+    }
+    // フルリストに実イマジンが載っていた＝権威的な確定（内容が現状と同一でも、その事実は残す）。
+    if !player_entity.imagines_authoritative {
+        player_entity.imagines_authoritative = true;
+        if let Ok(mut set) = SKILL_LIST_CONFIRMED_UIDS.lock() {
+            set.insert(uid);
+        }
     }
     // 名前と凸数が現状と同一なら何もしない（鮮度・キャッシュの無駄な更新を避ける）。
     let same = player_entity.imagines.len() == slots.len()
@@ -635,6 +711,42 @@ pub(crate) fn now_ms() -> u128 {
         .unwrap_or(0)
 }
 
+/// `encounter.team` を更新し、メンバー構成 or team_id が変化したときだけ1行ログする
+/// （NoticeUpdateTeamMemberInfo はダンジョン1周60回来る実測があり、毎通知ログすると
+/// ログが連発するため）。
+fn log_team_change(encounter: &mut Encounter, f: impl FnOnce(&mut crate::engine::team::TeamState)) {
+    let before = encounter.team.clone();
+    f(&mut encounter.team);
+    if encounter.team.team_id != before.team_id || encounter.team.member_uids != before.member_uids
+    {
+        info!(
+            "team: team_id={} leader={} members={:?}",
+            encounter.team.team_id, encounter.team.leader_uid, encounter.team.member_uids
+        );
+    }
+}
+
+/// 0x2B(WorldSyncServerTime) / Team系5アームは should_accept を意図的に経由しないため
+/// （どちらもキャラ選択と無関係にアプリ全体で使う値。is_paused でも止めない）、他クライアント
+/// 由来のパケットを弾く判定をこの1箇所に集約する。
+/// conn が学習済み（`conn_to_uid` に載っている）で、その uid が追跡中キャラ
+/// （`encounter.local_player_uid`）と異なるときだけ true。
+/// 未学習 conn は常に false（通す）: 起動直後の精度と、Team 通知が別 TCP リンクで
+/// 届く可能性を殺さないため。local_player_uid が未確定(0)のときも常に false
+/// （まだ「追跡中キャラ」が無いので他クライアント判定のしようがない）。
+fn conn_is_other_client(encounter: &Encounter, conn: Option<Server>) -> bool {
+    if encounter.local_player_uid == 0 {
+        return false;
+    }
+    let Some(conn) = conn else {
+        return false;
+    };
+    match encounter.conn_to_uid.get(&conn) {
+        Some(&uid) => uid != encounter.local_player_uid,
+        None => false,
+    }
+}
+
 fn should_accept(encounter: &mut Encounter, conn: Option<Server>, op: &Pkt) -> bool {
     // ServerHandover / SocialEnvelope は接続状態そのものの通知。
     // 以下は conn ↔ char_id の学習経路なので、身元不明の conn でも必ず通す（ここで弾くと
@@ -671,7 +783,7 @@ fn should_accept(encounter: &mut Encounter, conn: Option<Server>, op: &Pkt) -> b
             None => {
                 // 先着 char_id に属する全コネクションを通す（1クライアント複数接続のため）
                 if encounter.local_player_uid == 0 {
-                    encounter.local_player_uid = uid_for_conn;
+                    encounter.set_local_player_uid(uid_for_conn);
                 }
                 if uid_for_conn == encounter.local_player_uid {
                     encounter.active_connection = Some(conn);
@@ -759,12 +871,103 @@ pub fn process_opcode(enc: &EncounterMutex, env: PktEnvelope) -> AppResult<()> {
                 let mut encounter = enc
                     .lock()
                     .map_err(|e| AppError::LockPoisoned(e.to_string()))?;
+                if conn_is_other_client(&encounter, conn) {
+                    return Ok(());
+                }
                 encounter.buff_tracker.observe_server_time_sync(
                     msg.client_milliseconds,
                     msg.server_milliseconds,
                     now_ms(),
                 );
             }
+        }
+
+        // TeamNtf(service 0x399fca69): パーティ(PT)構成通知。0x2B と同じ理由で should_accept
+        // を意図的に経由しない: PT構成はキャラ選択と無関係にアプリ全体で使う（compute.rs の
+        // 「PTメンバーのみ食事/シロップ行を表示」フィルタの入力になる）。is_paused でも止めない
+        // （一時停止中もPT構成の追従は止めたくない）。
+        Pkt::TeamUpdateInfo => {
+            let Some(msg) = decode_packet::<pb::NoticeUpdateTeamInfo>(data, "TeamUpdateInfo")
+            else {
+                return Ok(());
+            };
+            let Some(base) = msg.v_request.and_then(|r| r.base_info) else {
+                return Ok(());
+            };
+            let mut encounter = enc.lock().map_err(|e| AppError::LockPoisoned(e.to_string()))?;
+            if conn_is_other_client(&encounter, conn) {
+                return Ok(());
+            }
+            log_team_change(&mut encounter, |t| t.update_info(base.team_id, base.leader_id));
+        }
+
+        // ダンジョン1周60回来る実測があるため、ログは log_team_change 内で変化時のみに絞る。
+        Pkt::TeamUpdateMemberInfo => {
+            let Some(msg) =
+                decode_packet::<pb::NoticeUpdateTeamMemberInfo>(data, "TeamUpdateMemberInfo")
+            else {
+                return Ok(());
+            };
+            let Some(req) = msg.v_request else {
+                return Ok(());
+            };
+            let uids: Vec<i64> = req
+                .team_member_sync_datas
+                .iter()
+                .map(|d| d.char_id)
+                .chain(req.team_member_social_datas.iter().map(|d| d.char_id))
+                .collect();
+            let mut encounter = enc.lock().map_err(|e| AppError::LockPoisoned(e.to_string()))?;
+            if conn_is_other_client(&encounter, conn) {
+                return Ok(());
+            }
+            log_team_change(&mut encounter, |t| t.update_members(uids));
+        }
+
+        Pkt::TeamJoin => {
+            let Some(msg) = decode_packet::<pb::NotifyJoinTeam>(data, "TeamJoin") else {
+                return Ok(());
+            };
+            let Some(req) = msg.v_request else {
+                return Ok(());
+            };
+            let team_id = req.base_info.as_ref().map(|b| b.team_id).unwrap_or(0);
+            let leader_uid = req.base_info.as_ref().map(|b| b.leader_id).unwrap_or(0);
+            let uids: Vec<i64> = req
+                .member_data
+                .iter()
+                .map(|d| d.char_id)
+                .chain(req.member_sync_datas.keys().copied())
+                .collect();
+            let mut encounter = enc.lock().map_err(|e| AppError::LockPoisoned(e.to_string()))?;
+            if conn_is_other_client(&encounter, conn) {
+                return Ok(());
+            }
+            log_team_change(&mut encounter, |t| t.join(team_id, leader_uid, uids));
+        }
+
+        Pkt::TeamLeave => {
+            let Some(msg) = decode_packet::<pb::NotifyLeaveTeam>(data, "TeamLeave") else {
+                return Ok(());
+            };
+            let Some(req) = msg.v_request else {
+                return Ok(());
+            };
+            let mut encounter = enc.lock().map_err(|e| AppError::LockPoisoned(e.to_string()))?;
+            if conn_is_other_client(&encounter, conn) {
+                return Ok(());
+            }
+            let local_uid = encounter.local_player_uid;
+            log_team_change(&mut encounter, |t| t.leave(req.char_id, local_uid));
+        }
+
+        // 空メッセージ（NoticeTeamDissolveRequest）のため decode せず即クリアする。
+        Pkt::TeamDissolve => {
+            let mut encounter = enc.lock().map_err(|e| AppError::LockPoisoned(e.to_string()))?;
+            if conn_is_other_client(&encounter, conn) {
+                return Ok(());
+            }
+            log_team_change(&mut encounter, |t| t.dissolve());
         }
 
         _ => {
@@ -955,10 +1158,12 @@ fn apply_appear_buff_sync(encounter: &mut Encounter, target_uid: i64, bundle: &p
         }
         encounter.buff_tracker.apply_buff_add(b.buff_uuid, b, ts, target_uid);
     }
-    info!(
-        "appear buff sync: uid={target_uid} n={} consumables={consumables}",
-        bundle.buff_infos.len()
-    );
+    if crate::probe::enabled() {
+        info!(
+            "appear buff sync: uid={target_uid} n={} consumables={consumables}",
+            bundle.buff_infos.len()
+        );
+    }
 }
 
 fn process_world_enter_snapshot(
@@ -984,12 +1189,12 @@ fn process_world_enter_snapshot(
         None if encounter.active_connection.is_none() => {
             // 自動検出: 先着固定
             encounter.active_connection = Some(conn);
-            encounter.local_player_uid = player_uid;
+            encounter.set_local_player_uid(player_uid);
         }
         Some(sel_uid) if sel_uid == player_uid => {
             // UID 一致: この connection を active に
             encounter.active_connection = Some(conn);
-            encounter.local_player_uid = player_uid;
+            encounter.set_local_player_uid(player_uid);
         }
         _ => {
             // 他クライアント由来: エンティティ作成・name_cache 更新をスキップ
@@ -1155,7 +1360,7 @@ fn learn_connection(encounter: &mut Encounter, conn: Server, player_uid: i64) ->
     }
     encounter.active_connection = Some(conn);
     if encounter.local_player_uid == 0 {
-        encounter.local_player_uid = player_uid;
+        encounter.set_local_player_uid(player_uid);
     }
     true
 }
@@ -1742,7 +1947,7 @@ fn process_enter_scene(encounter: &mut Encounter, msg: pb::EnterScene, conn: Opt
             return;
         }
     } else if encounter.local_player_uid == 0 {
-        encounter.local_player_uid = player_uid;
+        encounter.set_local_player_uid(player_uid);
     }
     let target_entity = get_or_create_entity(encounter, EntityKey::player(player_uid));
     process_player_attrs(player_uid, target_entity, &attrs.attrs, "enter_scene");
@@ -2231,11 +2436,13 @@ mod tests {
     fn world_sync_server_time_updates_offset_via_process_opcode() {
         let enc = EncounterMutex::default();
 
-        const CLIENT_MS: i64 = 1_700_000_010_100;
-        const SERVER_MS: i64 = 1_700_000_010_000;
+        // server はローカル壁時計±24h の妥当性窓内でなければ捨てられる（observe_server_time_sync）
+        // ので、実時刻から組み立てる。
+        let server_ms = now_ms() as i64 - 1_000;
+        let client_ms = server_ms + 100;
         let data = pb::SyncServerTime {
-            client_milliseconds: CLIENT_MS,
-            server_milliseconds: SERVER_MS,
+            client_milliseconds: client_ms,
+            server_milliseconds: server_ms,
         }
         .encode_to_vec();
 
@@ -2243,7 +2450,34 @@ mod tests {
 
         let now = now_ms();
         let offset = enc.lock().unwrap().buff_tracker.server_clock_offset_ms(now);
-        assert_eq!(offset, Some(CLIENT_MS - SERVER_MS));
+        assert_eq!(offset, Some(client_ms - server_ms));
+    }
+
+    // NotifyJoinTeam(TeamNtf method 0x3) を process_opcode 経由で処理すると、
+    // encounter.team にPT構成（team_id/leader/メンバー）が反映される。
+    // should_accept を通らない（conn: None でも受理される）ことも合わせて確認する。
+    #[test]
+    fn notify_join_team_populates_encounter_team_via_process_opcode() {
+        let enc = EncounterMutex::default();
+
+        let data = pb::NotifyJoinTeam {
+            v_request: Some(pb::NotifyJoinTeamRequest {
+                base_info: Some(pb::TeamBaseInfo { team_id: 100, leader_id: 1 }),
+                member_data: vec![pb::TeamMemData { char_id: 2 }, pb::TeamMemData { char_id: 3 }],
+                member_sync_datas: Default::default(),
+            }),
+        }
+        .encode_to_vec();
+
+        process_opcode(&enc, PktEnvelope { op: Pkt::TeamJoin, data, conn: None }).unwrap();
+
+        let team = enc.lock().unwrap().team.clone();
+        assert_eq!(team.team_id, 100);
+        assert_eq!(team.leader_uid, 1);
+        assert!(team.is_member(1), "leader もメンバーに含まれる");
+        assert!(team.is_member(2));
+        assert!(team.is_member(3));
+        assert!(!team.is_member(99));
     }
 
     /// 値を bare varint(LEB128) で符号化する（attr raw_data の形式）。
@@ -2592,6 +2826,147 @@ mod tests {
             enc.entities[&EntityKey::player(7)].imagine_display_names(),
             vec!["ロローラ".to_string(), "フロストオーガ".to_string()]
         );
+    }
+
+    /// キングゴブリン(3946・召喚報告ID無し)＋A を確定済みにしたプレイヤー。3946 は召喚経路では
+    /// 検知できない（スキルリスト attr116 かキャッシュ復元でのみ確定する）ため直接構築する。
+    fn player_with_goblin_king(uid: i64) -> Encounter {
+        let mut enc = Encounter::default();
+        enc.entities.insert(EntityKey::player(uid), player());
+        let owner = enc.entities.get_mut(&EntityKey::player(uid)).unwrap();
+        owner.imagines = vec![
+            ImagineSlot { name: "キングゴブリン".to_string(), last_seen: 0, tier: 5, pending_hits: 0 },
+            ImagineSlot { name: "ヴェノミーンの巣".to_string(), last_seen: 1, tier: 0, pending_hits: 0 },
+        ];
+        owner.imagines_authoritative = true; // attr116 で確定済みの想定
+        enc
+    }
+
+    // ⑥d 親が前セッションの name_cache 由来（imagines_authoritative=false）のときは、子召喚を
+    // 親の鮮度更新に留め、pending の昇格証拠には使わない。真の装備が [嵐のゴブリンウォーリアー, C]
+    // へ変わっていた場合、C の pending が rule2 の自己修復で単独確定→親が外れ→以後の子召喚が
+    // rule3 で正しく追加される（誤った [キングゴブリン, C] を確定・永続させない）。
+    #[test]
+    fn nested_summon_child_only_refreshes_parent_when_not_authoritative() {
+        let mut enc = player_with_goblin_king(12);
+        enc.entities.get_mut(&EntityKey::player(12)).unwrap().imagines_authoritative = false;
+
+        process_scene_delta(&mut enc, summon_spawn_delta(12, 2_900_840)); // C: ロローラ → pending
+        process_scene_delta(&mut enc, summon_spawn_delta(12, 1_008_641)); // 子召喚: 鮮度更新のみ
+        let owner = &enc.entities[&EntityKey::player(12)];
+        assert_eq!(
+            owner.imagine_display_names(),
+            vec!["キングゴブリン".to_string(), "ヴェノミーンの巣".to_string()],
+            "推定だけの親では子召喚を交換証拠にしない"
+        );
+        assert_eq!(owner.pending_imagine.as_ref().map(|s| s.name.as_str()), Some("ロローラ"));
+
+        // C の再検知が PENDING_PROMOTE_HITS 回に達すると自己修復で [C] 単独確定
+        for _ in 1..PENDING_PROMOTE_HITS {
+            process_scene_delta(&mut enc, summon_spawn_delta(12, 2_900_840));
+        }
+        assert_eq!(
+            enc.entities[&EntityKey::player(12)].imagine_display_names(),
+            vec!["ロローラ".to_string()]
+        );
+        // 親が外れたので、子召喚は通常の rule3 で真の装備として追加される
+        process_scene_delta(&mut enc, summon_spawn_delta(12, 1_008_641));
+        assert_eq!(
+            enc.entities[&EntityKey::player(12)].imagine_display_names(),
+            vec!["ロローラ".to_string(), "嵐のゴブリンウォーリアー".to_string()]
+        );
+    }
+
+    // attr116 で確定した uid は、Encounter リセット後にキャッシュから復元された entity でも
+    // imagines_authoritative を引き継ぐ（SKILL_LIST_CONFIRMED_UIDS による持ち越し）。
+    #[test]
+    fn skill_list_confirmation_survives_entity_recreation_from_cache() {
+        let mut enc = Encounter::default();
+        let uid = 990_012; // name_cache はプロセス共有のため専用 uid
+        enc.entities.insert(EntityKey::player(uid), player());
+        assert!(!enc.entities[&EntityKey::player(uid)].imagines_authoritative);
+
+        process_scene_delta(&mut enc, skill_list_delta(uid, &[(3946, 5), (3942, 3)]));
+        assert!(enc.entities[&EntityKey::player(uid)].imagines_authoritative);
+
+        enc.clear_combat_stats(); // プレイヤー entity は破棄される
+        assert!(!enc.entities.contains_key(&EntityKey::player(uid)));
+        let restored = get_or_create_entity(&mut enc, EntityKey::player(uid));
+        assert!(restored.imagines_authoritative, "当セッションで attr116 を見た uid は権威的のまま");
+        assert_eq!(
+            restored.imagine_display_names(),
+            vec!["キングゴブリン".to_string(), "ヴェノミーンの巣".to_string()]
+        );
+    }
+
+    // ⑥ 入れ子召喚（rule0）: キングゴブリンの召喚体は子イマジン側の召喚スキル
+    // （1008641=嵐の大斧ゴブリン→嵐のゴブリンウォーリアー）を報告する。実機(2026-08-23)では
+    // これが rule4 で pending → 相方の再検知(rule1)で「キングゴブリン→嵐のゴブリンウォーリアー」の
+    // 単枠交換が確定し、装備していないイマジンが表示される誤りが繰り返し起きていた。
+    // 修正後は親(キングゴブリン)の再検知として吸収され、confirmed も pending も変化しない。
+    #[test]
+    fn nested_summon_child_is_absorbed_as_goblin_king_reactivation() {
+        let mut enc = player_with_goblin_king(8);
+        let seq_before = enc.entities[&EntityKey::player(8)].imagines[0].last_seen;
+
+        process_scene_delta(&mut enc, summon_spawn_delta_with_tier(8, 1_008_641, 3)); // 嵐の大斧ゴブリン
+        let owner = &enc.entities[&EntityKey::player(8)];
+        assert_eq!(
+            owner.imagine_display_names(),
+            vec!["キングゴブリン".to_string(), "ヴェノミーンの巣".to_string()]
+        );
+        assert!(owner.pending_imagine.is_none(), "子召喚は pending にしてはいけない");
+        assert!(owner.imagines[0].last_seen > seq_before, "親の鮮度が更新される(現役の証拠)");
+        assert_eq!(owner.imagines[0].tier, 5, "子召喚体の凸数で親の凸数を上書きしない");
+
+        // 相方(A)の再検知でも、pending が無いので交換は起きない（旧バグの再現経路）。
+        process_scene_delta(&mut enc, summon_spawn_delta(8, 1_007_740));
+        assert_eq!(
+            enc.entities[&EntityKey::player(8)].imagine_display_names(),
+            vec!["キングゴブリン".to_string(), "ヴェノミーンの巣".to_string()]
+        );
+    }
+
+    // ⑥b 親の再検知として扱われるので、pending がある状態で子召喚が来ると rule1 の単枠交換が
+    // 「キングゴブリン＝現役」を根拠に進む＝相方(A)が pending へ置き換わり、親は残る。
+    #[test]
+    fn nested_summon_child_acts_as_parent_recheck_for_single_slot_swap() {
+        let mut enc = player_with_goblin_king(9);
+        process_scene_delta(&mut enc, summon_spawn_delta(9, 2_900_840)); // C: ロローラ → pending
+        assert_eq!(
+            enc.entities[&EntityKey::player(9)].pending_imagine.as_ref().map(|s| s.name.as_str()),
+            Some("ロローラ")
+        );
+
+        process_scene_delta(&mut enc, summon_spawn_delta(9, 1_008_641)); // 子召喚 = 親の再検知
+        let owner = &enc.entities[&EntityKey::player(9)];
+        assert_eq!(
+            owner.imagine_display_names(),
+            vec!["キングゴブリン".to_string(), "ロローラ".to_string()]
+        );
+        assert!(owner.pending_imagine.is_none());
+    }
+
+    // ⑥c 親を装備していないプレイヤーでは従来どおり（嵐のゴブリンウォーリアー装備者の召喚を
+    // そのまま帰属する）。親子を両方装備している場合も子の rule1 再検知が優先される。
+    #[test]
+    fn nested_summon_child_attributes_normally_without_goblin_king() {
+        let mut enc = Encounter::default();
+        enc.entities.insert(EntityKey::player(10), player());
+        process_scene_delta(&mut enc, summon_spawn_delta(10, 1_008_641));
+        assert_eq!(
+            enc.entities[&EntityKey::player(10)].imagine_display_names(),
+            vec!["嵐のゴブリンウォーリアー".to_string()]
+        );
+
+        let mut enc = player_with_goblin_king(11);
+        enc.entities.get_mut(&EntityKey::player(11)).unwrap().imagines[1].name =
+            "嵐のゴブリンウォーリアー".to_string();
+        let parent_seq = enc.entities[&EntityKey::player(11)].imagines[0].last_seen;
+        process_scene_delta(&mut enc, summon_spawn_delta_with_tier(11, 1_008_641, 4));
+        let owner = &enc.entities[&EntityKey::player(11)];
+        assert_eq!(owner.imagines[0].last_seen, parent_seq, "親ではなく子スロットの再検知");
+        assert_eq!(owner.imagines[1].tier, 4, "子スロット自身の凸数は追従する");
     }
 
     // 装備スキルリスト/装備データ attr の decode 検証（タグ付き repeated 形式。

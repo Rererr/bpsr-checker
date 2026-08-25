@@ -175,6 +175,13 @@ pub struct Entity {
     /// 破棄される（保留状態はグループ境界を跨がない）。
     pub pending_imagine: Option<ImagineSlot>,
 
+    /// `imagines` が当セッションでフル装備スキルリスト（attr116、`apply_skill_list_imagines`）
+    /// により権威的に確定されたことがあるか。false＝name_cache 復元か召喚ヒューリスティック
+    /// だけで組まれた推定値。`try_attribute_summon_imagine` の rule0（入れ子召喚の吸収）は、
+    /// 親スロットが権威的なときだけ「親は現役」を rule1 の交換証拠として使い、推定だけの親では
+    /// 鮮度更新に留める（前セッションの装備が変わっていた場合に誤った確定を永続させないため）。
+    pub imagines_authoritative: bool,
+
     /// ロールスキル(簡易版バトルイマジン、S3で追加された職業ユーティリティ枠)の検知結果
     /// （最大 [`MAX_ROLE_SKILL_IMAGINES`] 件、SlotPositionId 21-24）。実イマジン2枠
     /// （`imagines`/`pending_imagine`）とは完全に独立した別枠であり、ロールスキルの対象は

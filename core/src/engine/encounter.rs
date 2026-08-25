@@ -101,6 +101,21 @@ impl Encounter {
         self.local_player_uid = uid;
     }
 
+    /// 自キャラのプレイヤー UID。`selected_uid`（手動指定）が優先で、無ければ自動検出値。
+    /// 未確定なら `None`。
+    ///
+    /// 取り込み側のゲート（processor）と表示側の射影（compute）が同じ「自分」を指すための
+    /// 単一定義。片方だけ導出規則が違うと、集計している人と表示している人がずれる。
+    pub fn self_player_uid(&self) -> Option<i64> {
+        let uid = crate::engine::selected_uid::get().unwrap_or(self.local_player_uid);
+        (uid != 0).then_some(uid)
+    }
+
+    /// [`Self::self_player_uid`] を `entities` のキーへ変換したもの。
+    pub fn self_player_key(&self) -> Option<EntityKey> {
+        self.self_player_uid().map(EntityKey::player)
+    }
+
     /// 現在の計測スコープ。通常モードは既定値（絞り込み無し）。
     /// `MeasureMode` を分解して scope を取り出す唯一の場所（同じ match を複数箇所に書かない）。
     pub fn measure_scope(&self) -> MeasureScope {

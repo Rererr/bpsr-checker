@@ -569,11 +569,16 @@ pub fn record_summon_damage(skill_uid: i32, actual_value: i64) {
 /// 「初撃対象ロックを入れていたら残ったか」別に計上する（`actual_value` の意味は上と同じ）。
 /// 呼び出し位置は dmg_stats への加算と同じ分岐に置くこと。
 ///
-/// 集計そのものには影響しない。ロックは記録の中だけで張り、実際の加算は従来どおり全対象ぶん
-/// 行う。したがってこの計測を入れた状態の表示は現行版と一致する。
+/// 呼び出し位置は初撃対象ロックのゲート（`admit_target`）より**前**。ゲートが何を落として
+/// いるかを測るのが目的なので、通ったものだけを数えると `distinct` が構造上1になり、この計測が
+/// 答えるべき問いに答えられなくなる。集計そのものには影響しない。
+///
+/// `LOCK_SIM_TARGET` のロックは記録の中だけのシミュレーションで、実装側の
+/// `Encounter::locked_target` とは独立に張る。設定が off のときに「入れていたらどうなったか」を
+/// 見るためのもので、on のときは実装側のロックと同じ対象へ収束する。
 ///
 /// `self_uid` は自キャラのプレイヤー UID。0 は未確定を表し、その間はロックを張らない
-/// （実装予定の条件と同じ。未確定の窓で無関係な対象へロックが確定するのを防ぐ）。
+/// （実装側と同じ条件。未確定の窓で無関係な対象へロックが確定するのを防ぐ）。
 pub fn record_damage_scope(
     target_uuid: i64,
     target_monster_id: Option<u32>,
@@ -584,16 +589,14 @@ pub fn record_damage_scope(
     if !enabled() {
         return;
     }
-    use crate::protocol::constants::entity as entity_const;
+    use crate::engine::entity::EntityKey;
 
-    let self_uuid = if self_uid == 0 {
-        0
-    } else {
-        self_uid << 16 | entity_const::PLAYER_TYPE_CODE
-    };
-    let from_self = self_uuid != 0 && attacker_uuid == self_uuid;
-    let target_code = target_uuid & entity_const::TYPE_MASK as i64;
-    let target_is_player = target_code == entity_const::PLAYER_TYPE_CODE;
+    // UUID の組み立て・種別判定は EntityKey が唯一の定義（種別コードが変わってもここが
+    // 独自に古い規則で計算し続けることがないよう、自前でビット演算しない）。
+    let target_key = EntityKey::from_uuid(target_uuid);
+    let from_self = self_uid != 0 && EntityKey::from_uuid(attacker_uuid) == EntityKey::player(self_uid);
+    let target_code = target_uuid & crate::protocol::constants::entity::TYPE_MASK as i64;
+    let target_is_player = target_key.is_player();
 
     // 初撃対象ロックのシミュレーション。実装予定の条件（自分の与ダメージ／対象はプレイヤー
     // 以外／エンカウンターにつき1回）をそのまま再現する。compare_exchange で「最初の1件」を

@@ -1536,25 +1536,38 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
     // M6計測用: このデルタが damages を含んでいたか（下の for ループが Vec を消費する前に控える）。
     let had_damages = !skill_effect.damages.is_empty();
 
-    // 自キャラの識別。selected_uid（手動指定）が優先で、無ければ自動検出値。0 は未確定。
-    // 以前はダメージレコードごとに selected_uid::get() を呼んでいたが、デルタ内で値は変わらない
-    // ためここで1回だけ読む（同じ値を2回引かない）。
+    // 自キャラの識別。導出規則は Encounter::self_player_uid が唯一の定義で、表示側の射影
+    // （compute::self_only_uid）と共有する。selected は「手動指定があるか」を区別する必要が
+    // あるため別に読む（デルタ内で値は変わらないので1回だけ）。
     let selected = selected_uid::get();
-    let self_uid = selected.unwrap_or(encounter.local_player_uid);
-    let self_key = (self_uid != 0).then(|| EntityKey::player(self_uid));
+    let self_key = encounter.self_player_key();
 
     // 計測スコープ（計測ボタンで始めた計測の絞り込み条件。通常モードは既定値＝絞り込み無し）。
     let scope = encounter.measure_scope();
 
-    // このデルタに自分の行動（与ダメージまたは回復）が含まれていたか。
-    // 3分計測の起点判定と M9計測の両方がこの1つの値から導かれる（同じ判定を2箇所に書かない）。
-    // 攻撃者の解決規則はダメージループと `damage_attacker_uuid` を共有する。
-    let delta_has_self_action = self_key.is_some_and(|key| {
-        skill_effect
-            .damages
-            .iter()
-            .any(|damage| EntityKey::from_uuid(damage_attacker_uuid(damage)) == key)
-    });
+    // このデルタが自分の戦闘か（自分が出したか、自分が受けたか）。
+    // 3分計測の起点判定と M9計測の両方がこの1つの値から導かれる。
+    //
+    // 「自分が受けた」を含めるのは、被ダメージを測るために計測ボタンを押す使い方があるため。
+    // 攻撃者側だけを見ると、一度も攻撃しないプレイヤーの計測が永久に始まらず、待っているあいだの
+    // 被弾も丸ごと落ちる。実測で問題になったのは他プレイヤーどうしの戦闘で窓が開く経路であって、
+    // 自分の被弾ではない（2026-08-26 の記録4件はいずれも自分が当事者でないデルタだった）。
+    //
+    // 待機中と戦闘時計の起点でしか使わない値なので、それ以外では走査を省く
+    // （ダメージレコードの全走査は戦闘中に毎秒数千回走る）。
+    let needs_self_action = encounter.time_fight_start_ms == 0
+        || matches!(
+            encounter.measure_mode,
+            crate::engine::encounter::MeasureMode::Pending3Min { .. }
+        );
+    let delta_has_self_action = needs_self_action
+        && self_key.is_some_and(|key| {
+            key == target_key
+                || skill_effect
+                    .damages
+                    .iter()
+                    .any(|damage| EntityKey::from_uuid(damage_attacker_uuid(damage)) == key)
+        });
 
     // 3分計測の待機中（Pending3Min）は、自分の行動が届くまで集計もタイムスタンプ更新も行わない。
     // 計測窓の起点を自分の初撃へ固定するため。以前は skill_effects を持つ任意のデルタで
@@ -1722,11 +1735,15 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
         // 「ロック対象と一致するか」で判定すると全ダメージが落ちて計測が丸ごと0になる。
         // 待機解除（processor.rs 冒頭）と表示側の射影（compute::self_only_uid）も同じ場面で
         // 絞らない側へ倒しており、3箇所で方針を揃える。
-        let lockable = !is_heal && !target_key.is_player();
-        let admit_target = if let (true, true, Some(key)) =
-            (scope.first_target_only, lockable, self_key)
+        // ロックを張る候補はプレイヤー以外に限る（自分や味方を掴まないため）。一方で
+        // 「ロック対象への与ダメージだけ通す」判定は非Healレコード全体に効かせる。対象が
+        // プレイヤーの非Healレコード（反射・PvP等）を素通しにすると、ロック対象と別の相手への
+        // ダメージが総計へ残る。被ダメ集計は admit_target を通らないので影響を受けない。
+        let lock_candidate = !is_heal && !target_key.is_player();
+        let admit_target = if let (true, false, Some(key)) =
+            (scope.first_target_only, is_heal, self_key)
         {
-            if attacker_key == key && encounter.locked_target.is_none() {
+            if lock_candidate && attacker_key == key && encounter.locked_target.is_none() {
                 encounter.locked_target = Some(target_key);
                 info!("first-target lock: target_uuid={target_uuid}");
             }
@@ -1738,6 +1755,19 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
             true
         };
 
+        // M8/M10/M11計測: ゲートより**前**の母集団を記録する。ゲートが何を落としているかを
+        // 測るのが目的なので、通した後を数えても答えにならない（distinct が構造上1になる）。
+        // 条件は encounter.dmg_stats の加算から admit_target だけを外したもの。
+        if !is_heal && !from_monster {
+            crate::probe::record_damage_scope(
+                target_uuid,
+                target_monster_id,
+                attacker_uuid,
+                self_key.map_or(0, |k| k.player_uid()),
+                actual_value(&damage),
+            );
+        }
+
         // Encounter-level totals first (avoids holding attacker_entity borrow across encounter.* mutations)
         if is_heal {
             if !from_monster {
@@ -1745,15 +1775,6 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
             }
         } else if !from_monster && admit_target {
             process_stats(&damage, &mut encounter.dmg_stats);
-            // M8計測: dmg_stats に積んだのと同じ条件・同じ値で対象別に記録する
-            // （分岐を分けると「総ダメージには入るが内訳には出ない」ズレが生まれるため）。
-            crate::probe::record_damage_scope(
-                target_uuid,
-                target_monster_id,
-                attacker_uuid,
-                self_uid,
-                actual_value(&damage),
-            );
             if is_boss {
                 process_stats(&damage, &mut encounter.dmg_stats_boss_only);
             }
@@ -1849,7 +1870,7 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
             probe_damages_n,
             target_uuid,
             encounter.entities.get(&target_key).and_then(|e| e.monster_id),
-            self_uid,
+            self_key.map_or(0, |k| k.player_uid()),
             matches!(
                 encounter.measure_mode,
                 crate::engine::encounter::MeasureMode::Pending3Min { .. }
@@ -4564,6 +4585,76 @@ mod tests {
 
         assert_eq!(enc.locked_target, None);
         assert_eq!(enc.dmg_stats.total, 1_000);
+    }
+
+    /// 自分が受けたダメージでも計測窓は開く。被ダメージを測るために計測ボタンを押す使い方が
+    /// あり、攻撃者側だけを見ると一度も攻撃しないプレイヤーの計測が永久に始まらないうえ、
+    /// 待っているあいだの被弾も丸ごと落ちる。
+    #[test]
+    fn pending_3min_is_armed_by_damage_taken_by_me() {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+        let my_uid = 555_i64;
+
+        let mut enc = Encounter::default();
+        enc.set_local_player_uid(my_uid);
+        enc.measure_mode = MeasureMode::Pending3Min { duration_ms: 180_000, scope: MeasureScope::default() };
+
+        // モンスター → 自分。攻撃者は自分ではないが、自分の戦闘である。
+        process_scene_delta(
+            &mut enc,
+            damage_delta(player_uuid_for(my_uid), monster_uuid_for(9001), 400),
+        );
+
+        assert!(
+            matches!(enc.measure_mode, MeasureMode::Active3Min { .. }),
+            "自分の被弾で計測が始まらない（被ダメ計測ができない）"
+        );
+        assert_eq!(enc.dmg_taken_stats.total, 400, "待機解除と同じデルタの被ダメが落ちている");
+    }
+
+    /// 他プレイヤーどうしの戦闘では窓は開かない（実測で問題になったのはこの経路）。
+    #[test]
+    fn pending_3min_is_not_armed_by_combat_between_others() {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+        let my_uid = 555_i64;
+
+        let mut enc = Encounter::default();
+        enc.set_local_player_uid(my_uid);
+        enc.measure_mode = MeasureMode::Pending3Min { duration_ms: 180_000, scope: MeasureScope::default() };
+
+        // 他プレイヤー → モンスター、モンスター → 他プレイヤー のどちらでも開かない。
+        process_scene_delta(&mut enc, damage_delta(monster_uuid_for(9001), player_uuid_for(666), 700));
+        process_scene_delta(&mut enc, damage_delta(player_uuid_for(666), monster_uuid_for(9001), 300));
+
+        assert!(matches!(enc.measure_mode, MeasureMode::Pending3Min { .. }));
+        assert_eq!(enc.dmg_stats.total, 0);
+    }
+
+    /// ロック中は、対象がプレイヤーの非Healレコード（反射・PvP等）も総計へ通さない。
+    /// 素通しにするとロック対象と別の相手へのダメージが残る。
+    #[test]
+    fn first_target_lock_also_excludes_non_heal_damage_aimed_at_players() {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+        let me = 555_i64;
+        let victim = 777_i64;
+
+        let mut enc = armed_with(MeasureScope { first_target_only: true, self_only: false });
+        enc.set_local_player_uid(me);
+
+        process_scene_delta(&mut enc, damage_delta(monster_uuid_for(9001), player_uuid_for(me), 100));
+        process_scene_delta(&mut enc, damage_delta(player_uuid_for(victim), player_uuid_for(me), 900));
+
+        assert_eq!(
+            enc.dmg_stats.total, 100,
+            "ロック対象以外（プレイヤー対象）の非Healダメージが総計へ入っている"
+        );
+        assert_eq!(
+            enc.dmg_taken_stats.total, 900,
+            "被ダメ集計までロックで落ちている（admit_target は被ダメを通らないはず）"
+        );
     }
 
     /// 自キャラが未確定のあいだは絞らない。ロックを張れないまま「ロック対象と一致するか」で

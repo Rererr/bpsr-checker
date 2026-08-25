@@ -13,6 +13,18 @@ pub struct CombatStats {
 }
 
 impl CombatStats {
+    /// 全項目0の定数。`&'static CombatStats` を返したい場面（集計対象がまだ存在しないときの
+    /// 母集団など）で使う。`Default::default()` は const 文脈で参照を取れないため。
+    pub const ZERO: CombatStats = CombatStats {
+        total: 0,
+        hit_count: 0,
+        crit_count: 0,
+        crit_value: 0,
+        lucky_count: 0,
+        lucky_value: 0,
+        normal_value: 0,
+    };
+
     pub fn record_hit(&mut self, value: i64, is_crit: bool, is_lucky: bool) {
         self.total += value;
         self.hit_count += 1;

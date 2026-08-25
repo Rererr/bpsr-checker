@@ -4864,7 +4864,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ));
         } else {
             let pw = fetch_players(&enc_poll, cur_tab);
-            main_ordered_uids = pw.player_rows.iter().map(|p| p.uid as i64).collect();
+            // 名簿は一覧の表示行ではなく core の非射影リストから採る。自分のみ計測中は一覧が
+            // 自分1行に絞られるが、timer_roster はこの列を所属の決定にも使うため、そのまま
+            // 渡すと PT メンバーのバフ/イマジンタイマーが黙って消える。
+            main_ordered_uids = compute::get_roster_uids(&enc_poll, tab_stat(cur_tab))
+                .into_iter()
+                .map(|uid| uid as i64)
+                .collect();
             main_local_uid = pw.local_player_uid as i64;
             let c = cfg_poll.borrow();
             m.set_show_graph_col(graph_col_active(&c, cur_tab));

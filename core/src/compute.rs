@@ -224,14 +224,22 @@ fn self_only_uid(encounter: &Encounter) -> Option<i64> {
     if !encounter.measure_scope().self_only {
         return None;
     }
-    let uid = selected_uid::get().unwrap_or(encounter.local_player_uid);
-    (uid != 0).then_some(uid)
+    // 「自分」の導出規則は Encounter::self_player_uid が唯一の定義。取り込み側のゲート
+    // （processor）と同じ人を指す必要があるため、ここで別に書かない。
+    encounter.self_player_uid()
+}
+
+/// `self_only_uid` の結果に対して、そのプレイヤーを表示してよいか。
+/// 行フィルタ・内訳ガード・結果モーダルの3箇所が同じ述語を共有する（極性を都度書き分けると、
+/// 一箇所の反転ミスに気付けない）。
+fn visible_under(only_uid: Option<i64>, player_uid: i64) -> bool {
+    only_uid.is_none_or(|uid| uid == player_uid)
 }
 
 /// 自分のみ計測中に、指定プレイヤーの内訳ビューを表示してよいか。
 /// 内訳を返す3本の関数と、開いたままのドリルを畳む UI 側が共有する唯一の判定。
 fn breakdown_visible_locked(encounter: &Encounter, player_uid: i64) -> bool {
-    self_only_uid(encounter).is_none_or(|uid| uid == player_uid)
+    visible_under(self_only_uid(encounter), player_uid)
 }
 
 /// [`breakdown_visible_locked`] のロック付き版。UI が false を見たらドリルを一覧へ戻す。
@@ -260,9 +268,14 @@ fn reject_other_player_while_self_only(encounter: &Encounter, player_uid: i64) -
 /// `get_header_info` と `build_players_window_unsorted` が同じ選択規則を共有するための単一定義。
 fn total_stats_for(encounter: &Encounter, stat: StatType) -> &CombatStats {
     if let Some(uid) = self_only_uid(encounter) {
-        if let Some(me) = encounter.entities.get(&EntityKey::player(uid)) {
-            return entity_stats_for(me, stat);
-        }
+        // 自分の Entity がまだ無いあいだは 0 を返す。全体の合計へフォールバックすると、
+        // 行は自分だけに絞られているのにヘッダだけ全員の合計、という食い違いが出る
+        // （行フィルタと母集団は同じ only_uid から導く、という約束が破れる）。
+        static EMPTY: CombatStats = CombatStats::ZERO;
+        return encounter
+            .entities
+            .get(&EntityKey::player(uid))
+            .map_or(&EMPTY, |me| entity_stats_for(me, stat));
     }
     match stat {
         StatType::Dmg => &encounter.dmg_stats,
@@ -303,6 +316,26 @@ pub fn get_header_info(enc: &EncounterMutex, stat: StatType) -> HeaderInfo {
 fn live_elapsed_secs(encounter: &Encounter) -> f64 {
     let now = crate::engine::processor::now_ms();
     combat_elapsed_ms(encounter, now) as f64 / 1000.0
+}
+
+/// バフ/イマジンタイマーのオーバーレイが使う名簿順（プレイヤー UID の降順）。
+///
+/// **自分のみ計測の射影を通さない**。オーバーレイの名簿は「誰の残時間を並べるか」であって
+/// DPS 一覧の表示対象とは別の関心事で、`timer_roster` はこの列を順序ではなく所属の決定にも
+/// 使う（main.rs 参照）。射影を通すと、自分のみ計測のあいだ PT メンバーのイマジンタイマーが
+/// 黙って消える。行を組まずキーと合計だけ見るので、一覧の再構築より安い。
+pub fn get_roster_uids(enc: &EncounterMutex, stat: StatType) -> Vec<f64> {
+    with_lock_or(enc, "get_roster_uids", Vec::new(), |encounter| {
+        let mut rows: Vec<(i64, i64)> = encounter
+            .entities
+            .iter()
+            .filter(|(key, _)| key.is_player())
+            .map(|(key, entity)| (key.player_uid(), entity_stats_for(entity, stat).total))
+            .filter(|(_, total)| *total > 0)
+            .collect();
+        rows.sort_by(|a, b| b.1.cmp(&a.1));
+        rows.into_iter().map(|(uid, _)| uid as f64).collect()
+    })
 }
 
 pub fn get_dps_players(enc: &EncounterMutex) -> PlayersWindow {
@@ -564,7 +597,7 @@ fn build_players_window_unsorted(
         // ここから先はプレイヤー確定なので、キーの上位ビットはプレイヤー UID として一意。
         let entity_uid = entity_key.player_uid();
 
-        if only_uid.is_some_and(|uid| uid != entity_uid) {
+        if !visible_under(only_uid, entity_uid) {
             continue;
         }
 
@@ -579,7 +612,11 @@ fn build_players_window_unsorted(
         let idle_consumable_visible = include_idle_consumable
             && has_consumable
             && (!party_only_idle_consumable || is_party_visible);
-        if entity_stats.total == 0 && !idle_consumable_visible {
+        // 自分のみ計測中は、与ダメージ0でも自分の行を残す。回復専業や被ダメージ計測では
+        // dmg_stats が0のまま確定しうるが、ここで落とすと player_rows が空になり、履歴 push も
+        // 自己ベスト判定も飛んだうえ結果モーダルだけが 0 DPS で開く。
+        let keep_self_row = only_uid == Some(entity_uid);
+        if entity_stats.total == 0 && !idle_consumable_visible && !keep_self_row {
             continue;
         }
 
@@ -1320,7 +1357,7 @@ pub fn capture_3min_result_skills(
                 .entities
                 .iter()
                 .filter(|(key, _)| key.is_player())
-                .filter(|(key, _)| only_uid.is_none_or(|uid| uid == key.player_uid()))
+                .filter(|(key, _)| visible_under(only_uid, key.player_uid()))
                 .filter_map(|(&key, player)| {
                     let rows = build_skill_rows_for_player(player, elapsed_secs, false, true);
                     if rows.is_empty() {
@@ -1460,17 +1497,6 @@ pub fn get_tracked_buffs(
         now_ms: now_ms as f64,
         local_player_uid: local_uid as f64,
     }
-}
-
-/// 現在の計測スコープ。`finalize_3min_measure_mode`（内部で measure_mode を Normal へ戻す）
-/// より前に採ること。結果の透かしと自己ベストのキーが、その計測に効いていた条件を持つために使う。
-pub fn get_measure_scope(enc: &EncounterMutex) -> crate::engine::encounter::MeasureScope {
-    with_lock_or(
-        enc,
-        "get_measure_scope",
-        crate::engine::encounter::MeasureScope::default(),
-        |e| e.measure_scope(),
-    )
 }
 
 pub fn get_measure_mode_status(enc: &EncounterMutex) -> MeasureModeStatus {
@@ -1650,6 +1676,10 @@ mod tests {
     // ロローラが確定へ昇格し、実ゲーム版の召喚ID(2900840)で解決されたロローラが表示される。
     #[test]
     fn dps_ranking_imagine_suffix_confirmed_only_after_recheck_shows_rorora() {
+        // selected_uid はプロセス共有のグローバル。この関数は間接的にその値を読むため、
+        // 他テストの set と直列化しないと空の一覧を観測して間欠的に落ちる。
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
         use crate::engine::entity::Entity;
         use crate::engine::processor::process_scene_delta;
 
@@ -1699,6 +1729,10 @@ mod tests {
     // 別フィールドにすることで、名前列テンプレートが位置・有無を独立に指定できる。
     #[test]
     fn dps_ranking_role_skill_suffix_is_separate_from_imagine_suffix() {
+        // selected_uid はプロセス共有のグローバル。この関数は間接的にその値を読むため、
+        // 他テストの set と直列化しないと空の一覧を観測して間欠的に落ちる。
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
         use crate::engine::entity::{Entity, ImagineSlot};
 
         const SELF_UID: i64 = 43;
@@ -1736,6 +1770,10 @@ mod tests {
     // （ユーザー指摘の「1件目以降が黙って消える」ケースの直接の回帰テスト）。
     #[test]
     fn dps_ranking_role_skill_suffix_shows_all_simultaneous_role_skill_labels() {
+        // selected_uid はプロセス共有のグローバル。この関数は間接的にその値を読むため、
+        // 他テストの set と直列化しないと空の一覧を観測して間欠的に落ちる。
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
         use crate::engine::entity::{Entity, ImagineSlot};
 
         const SELF_UID: i64 = 44;
@@ -1777,6 +1815,10 @@ mod tests {
     // 描いていた問題の回帰テスト）。
     #[test]
     fn player_row_time_series_matches_requested_stat_type() {
+        // selected_uid はプロセス共有のグローバル。この関数は間接的にその値を読むため、
+        // 他テストの set と直列化しないと空の一覧を観測して間欠的に落ちる。
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
         use crate::engine::entity::Entity;
 
         const UID: i64 = 77;
@@ -1835,6 +1877,10 @@ mod tests {
     // value_pct が 100% を割り込む（結果モーダルの行バーが縮む/伸びる不具合として現れる）。
     #[test]
     fn get_dps_players_value_pct_reflects_encounter_denominator() {
+        // selected_uid はプロセス共有のグローバル。この関数は間接的にその値を読むため、
+        // 他テストの set と直列化しないと空の一覧を観測して間欠的に落ちる。
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
         use crate::engine::processor::process_scene_delta;
         use crate::protocol::pb;
 
@@ -1878,6 +1924,10 @@ mod tests {
     // 切り替える。回復タブでも常に与ダメ基準になっていた既存バグの回帰テスト。
     #[test]
     fn get_skills_selects_stat_source_by_tab() {
+        // selected_uid はプロセス共有のグローバル。この関数は間接的にその値を読むため、
+        // 他テストの set と直列化しないと空の一覧を観測して間欠的に落ちる。
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
         use crate::engine::entity::Entity;
 
         const UID: i64 = 88;
@@ -2111,6 +2161,66 @@ mod tests {
         );
     }
 
+    /// 与ダメージ0でも自分の行は残る。回復専業や被ダメージ計測では dmg_stats が0のまま
+    /// 確定しうるが、落とすと player_rows が空になり履歴 push も自己ベスト判定も飛ぶ。
+    #[test]
+    fn self_only_keeps_my_row_even_with_zero_damage() {
+        use crate::engine::entity::Entity;
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
+        let me = 100_i64;
+
+        let mut enc = Encounter {
+            time_fight_start_ms: 1_000,
+            time_last_combat_packet_ms: 11_000,
+            local_player_uid: me,
+            measure_mode: crate::engine::encounter::MeasureMode::Active3Min {
+                armed_at_ms: 1_000,
+                duration_ms: 180_000,
+                scope: crate::engine::encounter::MeasureScope { first_target_only: false, self_only: true },
+            },
+            ..Default::default()
+        };
+        let mut mine = Entity::default();
+        mine.heal_stats.total = 5_000; // 回復だけ出した
+        enc.entities.insert(EntityKey::player(me), mine);
+
+        let window = build_players_window_unsorted(&enc, StatType::Dmg, false, 10.0);
+        assert_eq!(window.player_rows.len(), 1, "与ダメ0の自分の行が落ちている");
+
+        let snap = build_encounter_snapshot(&enc, 11_000);
+        assert!(!snap.player_rows.is_empty(), "スナップショットが空＝履歴も自己ベストも飛ぶ");
+    }
+
+    /// 自分の Entity がまだ無いあいだ、母集団は0を返す（行は0件なのにヘッダだけ全員の合計、
+    /// という食い違いを作らない）。
+    #[test]
+    fn self_only_total_is_zero_while_my_entity_is_missing() {
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
+        let mut enc = enc_with_two_players(true);
+        enc.entities.remove(&EntityKey::player(100));
+
+        assert_eq!(total_stats_for(&enc, StatType::Dmg).total, 0);
+        assert_eq!(
+            build_players_window_unsorted(&enc, StatType::Dmg, false, 10.0).player_rows.len(),
+            0
+        );
+    }
+
+    /// オーバーレイ名簿は自分のみ計測の射影を通さない（PT のイマジンタイマーが消えない）。
+    #[test]
+    fn roster_uids_ignore_the_self_only_projection() {
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
+        let enc: EncounterMutex = std::sync::Mutex::new(enc_with_two_players(true));
+
+        let roster = get_roster_uids(&enc, StatType::Dmg);
+
+        assert_eq!(roster.len(), 2, "自分のみ計測で名簿が自分だけに縮んでいる");
+        assert_eq!(roster[0] as i64, 200, "合計の降順になっていない");
+    }
+
     /// 通常モードは scope を持てないため、絞り込みは常に無効。
     #[test]
     fn normal_mode_never_has_a_measure_scope() {
@@ -2211,6 +2321,10 @@ mod tests {
     // 固定窓基準なら 1,800,000/180=10,000 dps になるはず。
     #[test]
     fn build_encounter_snapshot_3min_header_row_and_skill_share_same_denominator() {
+        // selected_uid はプロセス共有のグローバル。この関数は間接的にその値を読むため、
+        // 他テストの set と直列化しないと空の一覧を観測して間欠的に落ちる。
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
         use crate::engine::combat_stats::CombatStats;
         use crate::engine::entity::Entity;
 
@@ -2251,6 +2365,10 @@ mod tests {
     // (duration_ms>=1000、start_3min_measure_mode側の保証)のため0除算・パニックは起きない。
     #[test]
     fn build_encounter_snapshot_3min_zero_damage_no_panic_or_div_by_zero() {
+        // selected_uid はプロセス共有のグローバル。この関数は間接的にその値を読むため、
+        // 他テストの set と直列化しないと空の一覧を観測して間欠的に落ちる。
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
         let enc = Encounter {
             time_fight_start_ms: 1_000,
             time_last_combat_packet_ms: 1_000,
@@ -2269,6 +2387,10 @@ mod tests {
     // ため実測スパン基準になり、固定窓とズレていた）。
     #[test]
     fn capture_3min_result_skills_uses_same_denominator_as_finalized_snapshot() {
+        // selected_uid はプロセス共有のグローバル。この関数は間接的にその値を読むため、
+        // 他テストの set と直列化しないと空の一覧を観測して間欠的に落ちる。
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
         use crate::engine::combat_stats::CombatStats;
         use crate::engine::entity::Entity;
 
@@ -2302,6 +2424,10 @@ mod tests {
     // 残すとダメージ0のプレイヤーでも「スキル内訳あり」と誤判定されてしまう（回帰防止）。
     #[test]
     fn capture_3min_result_skills_drops_players_with_no_skills() {
+        // selected_uid はプロセス共有のグローバル。この関数は間接的にその値を読むため、
+        // 他テストの set と直列化しないと空の一覧を観測して間欠的に落ちる。
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
         use crate::engine::entity::Entity;
 
         const UID_NO_DMG: i64 = 503;
@@ -2331,6 +2457,10 @@ mod tests {
     // 一撃しか当てていないプレイヤーの有効DPSが常に0と表示されていた）。
     #[test]
     fn single_hit_player_active_dps_is_not_zero() {
+        // selected_uid はプロセス共有のグローバル。この関数は間接的にその値を読むため、
+        // 他テストの set と直列化しないと空の一覧を観測して間欠的に落ちる。
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
         use crate::engine::entity::Entity;
 
         const UID: i64 = 701;
@@ -2363,6 +2493,10 @@ mod tests {
     // 「有効DPSは通常DPS以上」という前提が崩れる回帰を防ぐ。
     #[test]
     fn active_dps_is_clamped_to_real_elapsed_span_and_never_below_normal_dps() {
+        // selected_uid はプロセス共有のグローバル。この関数は間接的にその値を読むため、
+        // 他テストの set と直列化しないと空の一覧を観測して間欠的に落ちる。
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
         use crate::engine::entity::Entity;
 
         const UID: i64 = 702;
@@ -2430,6 +2564,10 @@ mod tests {
     // 漏らさない(現状 UI からは読まれない値だが、意味の無い値を渡し続けない)。
     #[test]
     fn get_skills_heal_inspected_player_active_dps_is_zero() {
+        // selected_uid はプロセス共有のグローバル。この関数は間接的にその値を読むため、
+        // 他テストの set と直列化しないと空の一覧を観測して間欠的に落ちる。
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
         use crate::engine::entity::Entity;
 
         const UID: i64 = 704;
@@ -2452,6 +2590,10 @@ mod tests {
     // 殴っていた時間、という定義の無い値を渡さない)。
     #[test]
     fn get_dmg_taken_attackers_inspected_player_active_dps_is_zero() {
+        // selected_uid はプロセス共有のグローバル。この関数は間接的にその値を読むため、
+        // 他テストの set と直列化しないと空の一覧を観測して間欠的に落ちる。
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
         use crate::engine::entity::Entity;
 
         const UID: i64 = 705;
@@ -2477,6 +2619,10 @@ mod tests {
     // 戻すガードを使い、他テストとの並列実行での衝突を防ぐ。
     #[test]
     fn party_only_idle_consumable_filters_non_party_zero_damage_rows() {
+        // selected_uid はプロセス共有のグローバル。この関数は間接的にその値を読むため、
+        // 他テストの set と直列化しないと空の一覧を観測して間欠的に落ちる。
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
         use crate::engine::consumables::{PlayerConsumables, Timing};
         use crate::engine::entity::Entity;
         use crate::engine::runtime_settings;

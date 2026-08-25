@@ -233,6 +233,30 @@ fn self_only_uid(encounter: &Encounter) -> Option<i64> {
 /// 自分のみ計測が効いているあいだは自分の `Entity` の集計へ差し替える。集計そのものは全員ぶん
 /// 取り続けているので、計測を抜ければ元へ戻る（取り込み時に他人を捨てると復元できない）。
 /// `get_header_info` と `build_players_window_unsorted` が同じ選択規則を共有するための単一定義。
+/// 自分のみ計測中に、指定プレイヤーの内訳ビューを表示してよいか。
+/// 内訳を返す3本の関数と、開いたままのドリルを畳む UI 側が共有する唯一の判定。
+fn breakdown_visible_locked(encounter: &Encounter, player_uid: i64) -> bool {
+    self_only_uid(encounter).is_none_or(|uid| uid == player_uid)
+}
+
+/// [`breakdown_visible_locked`] のロック付き版。UI が false を見たらドリルを一覧へ戻す。
+/// 一覧から行が消えても、消える前に開いていたドリルは UI 側に残り、放っておくと他プレイヤーの
+/// 内訳がライブ更新され続ける（Err で握ると直前の行が画面に残る）。
+pub fn breakdown_visible(enc: &EncounterMutex, player_uid: i64) -> bool {
+    with_lock_or(enc, "breakdown_visible", true, |e| {
+        breakdown_visible_locked(e, player_uid)
+    })
+}
+
+fn reject_other_player_while_self_only(encounter: &Encounter, player_uid: i64) -> Result<(), String> {
+    if breakdown_visible_locked(encounter, player_uid) {
+        return Ok(());
+    }
+    Err(format!(
+        "self-only measurement in progress; breakdown for uid {player_uid} is hidden"
+    ))
+}
+
 fn total_stats_for(encounter: &Encounter, stat: StatType) -> &CombatStats {
     if let Some(uid) = self_only_uid(encounter) {
         if let Some(me) = encounter.entities.get(&EntityKey::player(uid)) {
@@ -322,6 +346,8 @@ pub fn get_dmg_taken_attackers(
 ) -> Result<SkillsWindow, String> {
     let encounter = enc.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
 
+    reject_other_player_while_self_only(&encounter, player_uid)?;
+
     let Some(player) = encounter.entities.get(&EntityKey::player(player_uid)) else {
         return Err(format!("Could not find player with uid {player_uid}"));
     };
@@ -329,7 +355,7 @@ pub fn get_dmg_taken_attackers(
     let elapsed_secs = live_elapsed_secs(&encounter);
 
     let player_stats = &player.dmg_taken_stats;
-    let encounter_stats = &encounter.dmg_taken_stats;
+    let encounter_stats = total_stats_for(&encounter, StatType::DmgTaken);
 
     let inspected_player = make_player_row(
         player_uid,
@@ -392,6 +418,8 @@ pub fn get_dmg_taken_skills(
     let attacker_key = EntityKey::from_uuid(attacker_uuid);
     let encounter = enc.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
 
+    reject_other_player_while_self_only(&encounter, player_uid)?;
+
     let Some(player) = encounter.entities.get(&EntityKey::player(player_uid)) else {
         return Err(format!("Could not find player with uid {player_uid}"));
     };
@@ -403,7 +431,7 @@ pub fn get_dmg_taken_skills(
         .get(&attacker_key)
         .map(|s| s.total as f64)
         .unwrap_or(0.0);
-    let encounter_stats = &encounter.dmg_taken_stats;
+    let encounter_stats = total_stats_for(&encounter, StatType::DmgTaken);
 
     let player_stats = &player.dmg_taken_stats;
 
@@ -742,6 +770,8 @@ pub fn get_skills(
 ) -> Result<SkillsWindow, String> {
     let encounter = enc.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
 
+    reject_other_player_while_self_only(&encounter, player_uid)?;
+
     let Some(player) = encounter.entities.get(&EntityKey::player(player_uid)) else {
         return Err(format!("Could not find player with uid {player_uid}"));
     };
@@ -750,7 +780,10 @@ pub fn get_skills(
 
     let is_heal = matches!(stat, StatType::Heal);
     let player_stats = if is_heal { &player.heal_stats } else { &player.dmg_stats };
-    let encounter_stats = if is_heal { &encounter.heal_stats } else { &encounter.dmg_stats };
+    // 分母は player_stats と同じ軸から採る（DmgTaken タブでも player 側は dmg_stats を見るため、
+    // stat をそのまま渡すと分子=与ダメ・分母=被ダメになってしまう）。
+    let encounter_stats =
+        total_stats_for(&encounter, if is_heal { StatType::Heal } else { StatType::Dmg });
     let player_time_series = if is_heal { &player.heal_time_series } else { &player.time_series };
     // heal タブは回復量÷与ダメ実働時間という定義の無い値になるため None（0扱い）。
     // それ以外(与ダメ基準へフォールバックする各種)は player.active_dmg_time が対応する。
@@ -1990,6 +2023,39 @@ mod tests {
             2,
             "計測を抜けても他プレイヤーが戻らない＝取り込み時に捨ててしまっている"
         );
+    }
+
+    /// 一覧から行が消えても、消える前に開いていた他プレイヤーの内訳ドリルは呼び出し側に残る。
+    /// 自分のみ計測中はそれを断る（Err を返して呼び出し側にドリルを畳ませる）。
+    #[test]
+    fn self_only_rejects_breakdowns_for_other_players() {
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
+        let enc: EncounterMutex = std::sync::Mutex::new(enc_with_two_players(true));
+
+        assert!(
+            get_skills(&enc, 200, StatType::Dmg).is_err(),
+            "自分のみ計測中に他プレイヤーのスキル内訳が返っている"
+        );
+        assert!(
+            get_dmg_taken_attackers(&enc, 200).is_err(),
+            "自分のみ計測中に他プレイヤーの被ダメ内訳が返っている"
+        );
+        assert!(
+            get_skills(&enc, 100, StatType::Dmg).is_ok(),
+            "自分の内訳まで断っている"
+        );
+    }
+
+    /// 自分のみ計測が off なら、他プレイヤーの内訳は従来どおり見られる。
+    #[test]
+    fn self_only_off_keeps_breakdowns_for_other_players() {
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
+        let enc: EncounterMutex = std::sync::Mutex::new(enc_with_two_players(false));
+
+        assert!(get_skills(&enc, 200, StatType::Dmg).is_ok());
+        assert!(get_dmg_taken_attackers(&enc, 200).is_ok());
     }
 
     /// 通常モードは scope を持てないため、絞り込みは常に無効。

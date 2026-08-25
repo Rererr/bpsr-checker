@@ -4896,6 +4896,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         *main_order_poll.borrow_mut() = (main_ordered_uids, main_local_uid);
 
         // ドリルダウン中はライブ更新
+        // 自分のみ計測が始まると他プレイヤーの内訳は core 側で断られる。開いたままにすると
+        // 直前の行が画面に残り続けるため、表示可否を core の判定（compute::breakdown_visible）
+        // に問い合わせて一覧へ戻す。
+        let drilled_uid = match drill_poll.get() {
+            Drill::Skills(uid) | Drill::TakenAttackers(uid) | Drill::TakenSkills(uid, _) => Some(uid),
+            Drill::None => None,
+        };
+        if let Some(uid) = drilled_uid {
+            if !compute::breakdown_visible(&enc_poll, uid) {
+                drill_poll.set(Drill::None);
+                m.set_view(0);
+            }
+        }
+
         match drill_poll.get() {
             Drill::Skills(uid) => {
                 // タブ切替でdrillはNoneへ戻るため(on_select_tab)、Skills中はcur_tabが

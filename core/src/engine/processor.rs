@@ -1717,13 +1717,18 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
         // ロックは計測が終わるまで解除しない（clear_combat_stats が唯一の出口）。DamageRecord の
         // is_dead で解除する案は実測で棄却した。同じ対象へ別スキル・別攻撃者から繰り返し立つ
         // ＝「この一撃で死んだ」ではなく「対象が死亡状態」を意味するため、乗り換えが暴発する。
+        //
+        // 自キャラが未確定（self_key が None）のあいだは絞らない。ロックを張れないまま
+        // 「ロック対象と一致するか」で判定すると全ダメージが落ちて計測が丸ごと0になる。
+        // 待機解除（processor.rs 冒頭）と表示側の射影（compute::self_only_uid）も同じ場面で
+        // 絞らない側へ倒しており、3箇所で方針を揃える。
         let lockable = !is_heal && !target_key.is_player();
-        let admit_target = if scope.first_target_only && lockable {
-            if let Some(key) = self_key {
-                if attacker_key == key && encounter.locked_target.is_none() {
-                    encounter.locked_target = Some(target_key);
-                    info!("first-target lock: target_uuid={target_uuid}");
-                }
+        let admit_target = if let (true, true, Some(key)) =
+            (scope.first_target_only, lockable, self_key)
+        {
+            if attacker_key == key && encounter.locked_target.is_none() {
+                encounter.locked_target = Some(target_key);
+                info!("first-target lock: target_uuid={target_uuid}");
             }
             // ロックが確定するまでは何も通さない。「最初に自分が攻撃した対象のみ」を素直に読めば、
             // 自分が殴る前に届いた他プレイヤーの与ダメージは計測に入らない。
@@ -4559,6 +4564,27 @@ mod tests {
 
         assert_eq!(enc.locked_target, None);
         assert_eq!(enc.dmg_stats.total, 1_000);
+    }
+
+    /// 自キャラが未確定のあいだは絞らない。ロックを張れないまま「ロック対象と一致するか」で
+    /// 判定すると全ダメージが落ち、計測が丸ごと0になる（待機解除・表示側の射影も同じ場面で
+    /// 絞らない側へ倒しており、3箇所で方針が揃っていること自体をここで固定する）。
+    #[test]
+    fn first_target_lock_does_not_drop_everything_while_self_uid_is_unknown() {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+
+        let mut enc = armed_with(MeasureScope { first_target_only: true, self_only: false });
+        assert_eq!(enc.local_player_uid, 0, "テスト前提: 自キャラ未確定");
+
+        process_scene_delta(&mut enc, damage_delta(monster_uuid_for(9001), player_uuid_for(666), 100));
+        process_scene_delta(&mut enc, damage_delta(monster_uuid_for(9002), player_uuid_for(666), 900));
+
+        assert_eq!(enc.locked_target, None, "自キャラ未確定でロックが張られている");
+        assert_eq!(
+            enc.dmg_stats.total, 1_000,
+            "自キャラ未確定のあいだに全ダメージが落ちている（計測が丸ごと0になる）"
+        );
     }
 
     /// 回復はロックの対象外（対象がプレイヤーなので構造上排他）。

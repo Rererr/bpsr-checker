@@ -2240,6 +2240,12 @@ component CombatSection inherits SectionCard {
     StepperRow { label: @tr("計測時間(秒)"); value-text: root.nums.three-min-dur; dec => { root.bump-num("three-min-dur", -1); } inc => { root.bump-num("three-min-dur", 1); } }
     ToggleRow { label: @tr("計測を自動で開く"); checked: root.cfg.three-min-auto-open; toggled => { root.set-bool("three-min-auto-open", !root.cfg.three-min-auto-open); } }
     ToggleRow { label: @tr("計測を自分の記録のみにする"); checked: root.cfg.measure-self-only; toggled => { root.set-bool("measure-self-only", !root.cfg.measure-self-only); } }
+    Text {
+        text: @tr("計測中だけ他のプレイヤーを一覧から隠します。データは取り続けているので、設定を戻せば元の表示に戻ります");
+        color: SettingsStyle.hint;
+        font-size: SettingsStyle.hint-size;
+        wrap: word-wrap;
+    }
     ToggleRow { label: @tr("計測を最初に攻撃した敵のみにする"); checked: root.cfg.measure-first-target-only; toggled => { root.set-bool("measure-first-target-only", !root.cfg.measure-first-target-only); } }
     Text {
         text: @tr("単体の敵を測るとき用です。複数の敵を同時に攻撃する計測では、最初の1体ぶんしか集計されません");

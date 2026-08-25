@@ -243,6 +243,9 @@ msgstr "Auto-open result"
 msgid "計測を自分の記録のみにする"
 msgstr "Measure my own records only"
 
+msgid "計測中だけ他のプレイヤーを一覧から隠します。データは取り続けているので、設定を戻せば元の表示に戻ります"
+msgstr "Hides other players from the list during a measurement. Their data is still collected, so turning this off restores the full view."
+
 msgid "計測を最初に攻撃した敵のみにする"
 msgstr "Measure the first enemy I attack only"
 

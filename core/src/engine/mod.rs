@@ -18,6 +18,7 @@ pub mod processor;
 pub mod runtime_settings;
 pub mod selected_uid;
 pub mod skill_names;
+pub mod team;
 
 /// テスト専用の補助。`imagine_skills::NAMES` / `imagine_overrides::STORE` はプロセス全体で
 /// 共有される static のため、それらを破壊的に触るテスト（`imagine_skills.rs` の

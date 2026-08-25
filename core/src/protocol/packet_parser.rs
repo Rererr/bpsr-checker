@@ -1,7 +1,7 @@
 use crate::capture::binary_reader::BinaryReader;
 use crate::capture::server::Server;
 use crate::protocol::constants::{
-    self, SERVICE_UUID, SOCIAL_NTF_NOTIFY_METHOD_ID, SOCIAL_NTF_SERVICE_ID,
+    self, SERVICE_UUID, SOCIAL_NTF_NOTIFY_METHOD_ID, SOCIAL_NTF_SERVICE_ID, TEAM_NTF_SERVICE_ID,
 };
 use crate::protocol::opcodes::{FragmentType, Pkt, PktEnvelope};
 use log::{debug, warn};
@@ -125,6 +125,21 @@ fn decode_notify(frame: &mut BinaryReader, compressed: bool) -> Option<FrameOutc
             op: Pkt::SocialEnvelope,
             payload: body,
         });
+    }
+    if service == TEAM_NTF_SERVICE_ID {
+        return match Pkt::from_team_method(method) {
+            Some(op) => {
+                if crate::probe::enabled() {
+                    crate::probe::log_method(service, method, Some(&format!("{op:?}")), body.len());
+                }
+                Some(FrameOutcome::Forward { op, payload: body })
+            }
+            None => {
+                crate::probe::log_method(service, method, None, body.len());
+                debug!("notify: unmapped team method 0x{method:08x} on service 0x{service:016x}");
+                Some(FrameOutcome::Skip)
+            }
+        };
     }
     if service != SERVICE_UUID {
         crate::probe::log_method(service, method, None, body.len());

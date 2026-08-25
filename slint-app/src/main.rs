@@ -1555,6 +1555,7 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         show_imagine_basilisk: c.show_imagine_basilisk,
         show_imagine_kartgriff: c.show_imagine_kartgriff,
         show_consumable: c.show_consumable,
+        party_only_consumables: c.party_only_consumables,
         show_in_taskbar: c.show_in_taskbar,
         overlay_text_color: c.overlay_text_color.clone().into(),
         main_font: c.main_font.clone().into(),
@@ -3023,6 +3024,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         compute::set_history_limit(c.history_limit);
         compute::set_time_series_config(c.time_series_samples, c.time_series_interval_ms);
         compute::set_imagine_only_mode(&enc, c.imagine_only_mode);
+        // 食事/シロップ0ダメージ特例行のPTフィルタ（runtime_settings atomic。IMAGINE_ONLY_MODE
+        // と同じ流儀。消費箇所は compute::build_players_window_unsorted 1箇所のみ）。
+        engine::runtime_settings::set_party_only_consumables(c.party_only_consumables);
     }
     // 戦闘履歴の永続化（%APPDATA%\bpsr-checker\history.json）。
     // set_history_limit 適用後に呼ぶことで、起動時 load が設定済みの上限件数で正しく
@@ -3775,6 +3779,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "imagine-col-kartgriff" => c.show_imagine_kartgriff = val,
                     "imagine-compact-rows" => c.imagine_compact_rows = val,
                     "show-consumable" => c.show_consumable = val,
+                    "party-only-consumables" => c.party_only_consumables = val,
                     "show-in-taskbar" => c.show_in_taskbar = val,
                     "main-font-bold" => c.main_font_bold = val,
                     "stats-overlay-font-bold" => c.stats_overlay_font_bold = val,
@@ -3871,6 +3876,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let _ = o.hide();
                     }
                 }
+            }
+            if key.as_str() == "party-only-consumables" {
+                engine::runtime_settings::set_party_only_consumables(c.party_only_consumables);
             }
             // sync-timer-with-main 側からの排他連動でも imagine_only_mode が変わるため、
             // どちらのキー経由でも compute 側の状態を実際の値へ整合させる。

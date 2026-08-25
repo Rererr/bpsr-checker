@@ -2,6 +2,21 @@ pub const SERVICE_UUID: u64 = 0x63335342;
 pub const SOCIAL_NTF_SERVICE_ID: u64 = 0x254C89A3;
 pub const SOCIAL_NTF_NOTIFY_METHOD_ID: u32 = 1;
 
+/// チーム(PT)通知は SERVICE_UUID とは別の service で届く（2026-08-24 に役割特定。
+/// docs-private/protocol-map-transition-data.md の「未特定 service」がこれに当たる）。
+pub const TEAM_NTF_SERVICE_ID: u64 = 0x399fca69;
+
+/// TEAM_NTF_SERVICE_ID の method id。メイン service（SERVICE_UUID）の method とは
+/// 別名前空間のため、`Pkt::try_from(u32)` とは別に `Pkt::from_team_method` で解決する
+/// （SocialEnvelope 特例と同じ流儀）。
+pub mod team_method {
+    pub const UPDATE_TEAM_INFO: u32 = 0x1; // NoticeUpdateTeamInfo
+    pub const UPDATE_TEAM_MEMBER_INFO: u32 = 0x2; // NoticeUpdateTeamMemberInfo
+    pub const JOIN_TEAM: u32 = 0x3; // NotifyJoinTeam
+    pub const LEAVE_TEAM: u32 = 0x4; // NotifyLeaveTeam
+    pub const TEAM_DISSOLVE: u32 = 0xd; // NoticeTeamDissolve
+}
+
 pub mod packet {
     pub const COMPRESSION_FLAG: u16 = 0x8000;
     pub const TYPE_MASK: u16 = 0x7FFF;

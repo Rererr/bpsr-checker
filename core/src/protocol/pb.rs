@@ -299,7 +299,7 @@ pub struct WorldEnterSnapshot {
 /// WorldNtf method 0x2B。ゲームクライアント（＝当アプリと同一PC）とサーバの時刻同期。
 /// client_milliseconds - server_milliseconds が「ローカル壁時計 − サーバ時計」の正確値
 /// （buff_tracker の server_clock_offset_ms と同じ定義）。参照実装
-/// ../resonance-logs-cn の blueprotobuf_package.rs:5703-5708、BPSR-ZDPS WorldNtf.cs:47
+/// ../resonance-logs-cn の blueprotobuf_package.rs:5703-5708
 /// (SyncServerTime = 0x2B)。docs-private/protocol-map-transition-data.md では未マップ
 /// opcode 0x2b としてダンジョン1周62回の高頻度到来を記録済み。
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
@@ -417,6 +417,84 @@ pub struct BuffTick {
     pub create_time: i64,
     #[prost(int32, tag = "6")]
     pub layer: i32,
+}
+/// TeamNtf method 0x1。
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct NoticeUpdateTeamInfo {
+    #[prost(message, optional, tag = "1")]
+    pub v_request: ::core::option::Option<NoticeUpdateTeamInfoRequest>,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct NoticeUpdateTeamInfoRequest {
+    #[prost(message, optional, tag = "1")]
+    pub base_info: ::core::option::Option<TeamBaseInfo>,
+}
+/// TeamNtf method 0x2。ダンジョン1周60回程度の高頻度到来が実測されている
+/// （processor.rs 側でメンバー構成/team_id 変化時のみログする）。
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct NoticeUpdateTeamMemberInfo {
+    #[prost(message, optional, tag = "1")]
+    pub v_request: ::core::option::Option<NoticeUpdateTeamMemberInfoRequest>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct NoticeUpdateTeamMemberInfoRequest {
+    #[prost(message, repeated, tag = "5")]
+    pub team_member_sync_datas: ::prost::alloc::vec::Vec<TeamMemberFastSyncData>,
+    #[prost(message, repeated, tag = "6")]
+    pub team_member_social_datas: ::prost::alloc::vec::Vec<TeamMemData>,
+}
+/// TeamNtf method 0x3。PT参加。
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct NotifyJoinTeam {
+    #[prost(message, optional, tag = "1")]
+    pub v_request: ::core::option::Option<NotifyJoinTeamRequest>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct NotifyJoinTeamRequest {
+    #[prost(message, optional, tag = "1")]
+    pub base_info: ::core::option::Option<TeamBaseInfo>,
+    #[prost(message, repeated, tag = "2")]
+    pub member_data: ::prost::alloc::vec::Vec<TeamMemData>,
+    #[prost(map = "int64, message", tag = "6")]
+    pub member_sync_datas: ::std::collections::HashMap<i64, TeamMemberFastSyncData>,
+}
+/// TeamNtf method 0x4。PT離脱（自分/他人とも同一メッセージ形。char_id で判別する）。
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct NotifyLeaveTeam {
+    #[prost(message, optional, tag = "1")]
+    pub v_request: ::core::option::Option<NotifyLeaveTeamRequest>,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct NotifyLeaveTeamRequest {
+    #[prost(int64, tag = "1")]
+    pub char_id: i64,
+    #[prost(int32, tag = "2")]
+    pub leave_type: i32,
+}
+/// TeamNtf method 0xd。PT解散。リクエストは空メッセージ。
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct NoticeTeamDissolve {
+    #[prost(message, optional, tag = "1")]
+    pub v_request: ::core::option::Option<NoticeTeamDissolveRequest>,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct NoticeTeamDissolveRequest {}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct TeamBaseInfo {
+    #[prost(int64, tag = "1")]
+    pub team_id: i64,
+    #[prost(int64, tag = "3")]
+    pub leader_id: i64,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct TeamMemData {
+    #[prost(int64, tag = "1")]
+    pub char_id: i64,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct TeamMemberFastSyncData {
+    #[prost(int64, tag = "1")]
+    pub char_id: i64,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

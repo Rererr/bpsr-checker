@@ -204,7 +204,7 @@ message WorldEnterSnapshot { PlayerSnapshot v_data = 1; }
 // WorldNtf method 0x2B。ゲームクライアント（＝当アプリと同一PC）とサーバの時刻同期。
 // client_milliseconds - server_milliseconds が「ローカル壁時計 − サーバ時計」の正確値
 // （buff_tracker の server_clock_offset_ms と同じ定義）。参照実装
-// ../resonance-logs-cn の blueprotobuf_package.rs:5703-5708、BPSR-ZDPS WorldNtf.cs:47
+// ../resonance-logs-cn の blueprotobuf_package.rs:5703-5708
 // (SyncServerTime = 0x2B)。docs-private/protocol-map-transition-data.md では未マップ
 // opcode 0x2b としてダンジョン1周62回の高頻度到来を記録済み。
 message SyncServerTime {
@@ -275,3 +275,47 @@ message BuffTick {
   int64 create_time = 5;
   int32 layer = 6;
 }
+
+// パーティ(PT)通知。SERVICE_UUID とは別 service (0x399fca69) で届く
+// (packet_parser.rs の team 分岐参照)。参照実装 ../resonance-logs-cn の
+// blueprotobuf_package.rs 準拠。メンバーは char_id(=uid) で識別する（uuid ではない）。
+
+// TeamNtf method 0x1。
+message NoticeUpdateTeamInfo { NoticeUpdateTeamInfoRequest v_request = 1; }
+message NoticeUpdateTeamInfoRequest { TeamBaseInfo base_info = 1; }
+
+// TeamNtf method 0x2。ダンジョン1周60回程度の高頻度到来が実測されている
+// （processor.rs 側でメンバー構成/team_id 変化時のみログする）。
+message NoticeUpdateTeamMemberInfo { NoticeUpdateTeamMemberInfoRequest v_request = 1; }
+message NoticeUpdateTeamMemberInfoRequest {
+  repeated TeamMemberFastSyncData team_member_sync_datas = 5;
+  repeated TeamMemData team_member_social_datas = 6;
+}
+
+// TeamNtf method 0x3。PT参加。
+message NotifyJoinTeam { NotifyJoinTeamRequest v_request = 1; }
+message NotifyJoinTeamRequest {
+  TeamBaseInfo base_info = 1;
+  repeated TeamMemData member_data = 2;
+  map<int64, TeamMemberFastSyncData> member_sync_datas = 6;
+}
+
+// TeamNtf method 0x4。PT離脱（自分/他人とも同一メッセージ形。char_id で判別する）。
+message NotifyLeaveTeam { NotifyLeaveTeamRequest v_request = 1; }
+message NotifyLeaveTeamRequest {
+  int64 char_id = 1;
+  int32 leave_type = 2;
+}
+
+// TeamNtf method 0xd。PT解散。リクエストは空メッセージ。
+message NoticeTeamDissolve { NoticeTeamDissolveRequest v_request = 1; }
+message NoticeTeamDissolveRequest {}
+
+message TeamBaseInfo {
+  int64 team_id = 1;
+  int64 leader_id = 3;
+}
+
+message TeamMemData { int64 char_id = 1; }
+
+message TeamMemberFastSyncData { int64 char_id = 1; }

@@ -448,12 +448,18 @@ fn attacker_display_name(encounter: &Encounter, attacker_key: EntityKey) -> Stri
 /// `elapsed_secs` は呼び出し元が算出した分母（秒）。内部で再計算しない＝ヘッダ等と
 /// 必ず同じ値を使わせる（build_encounter_snapshot の3分計測固定窓オーバーライドを
 /// ここでも反映させるため）。
+/// ダメージ0＋食事/シロップ持ちの特例行は、`runtime_settings::party_only_consumables()`
+/// が true のとき PT メンバー（＋自分）限定にする（IMAGINE_ONLY_MODE と同じ流儀で
+/// atomic を直接読む。消費箇所がここ1つのため呼び出し元へは通さない）。
+/// `include_idle_consumable=false` のときは特例行自体が出ないため参照されない。
+/// ダメージ>0の行は常に無条件表示（この設定と無関係）。
 fn build_players_window_unsorted(
     encounter: &Encounter,
     stat_type: StatType,
     include_idle_consumable: bool,
     elapsed_secs: f64,
 ) -> PlayersWindow {
+    let party_only_idle_consumable = runtime_settings::party_only_consumables();
     let selected = selected_uid::get();
     if selected.is_some() && !encounter.has_selected_participant {
         return PlayersWindow::default();
@@ -501,7 +507,15 @@ fn build_players_window_unsorted(
         let pc = encounter.consumables.get(&entity_uid);
         let has_consumable = pc.is_some_and(|c| c.food.is_some() || c.syrup.is_some());
         // ダメージ0の行は通常除外するが、食事/シロップ使用者はライブ表示で残す。
-        if entity_stats.total == 0 && !(include_idle_consumable && has_consumable) {
+        // party_only_idle_consumable が true のときは、この特例行を自分/PTメンバーに限る
+        // （AOI appear 同期で街中の無関係プレイヤー全員が並ぶのを防ぐ）。
+        // 表示可否の判定はここ1箇所（entity_stats.total>0 の行はこの条件と無関係に無条件表示）。
+        let is_party_visible =
+            entity_uid == encounter.local_player_uid || encounter.team.is_member(entity_uid);
+        let idle_consumable_visible = include_idle_consumable
+            && has_consumable
+            && (!party_only_idle_consumable || is_party_visible);
+        if entity_stats.total == 0 && !idle_consumable_visible {
             continue;
         }
 
@@ -1143,6 +1157,10 @@ pub fn set_selected_uid(enc: &EncounterMutex, uid: Option<f64>) {
         encounter.clear_combat_stats();
         encounter.active_connection = None;
         encounter.local_player_uid = uid_i64.unwrap_or(0);
+        // PT構成はキャラ単位。別キャラへの切替・再ログインで前キャラの PT を引き継がない
+        // （processor.rs 側の自動検出は Encounter::set_local_player_uid が条件付きでクリア
+        // するが、ここは明示的な手動切替のため無条件でクリアする）。
+        encounter.team = crate::engine::team::TeamState::default();
         encounter.measure_mode = crate::engine::encounter::MeasureMode::Normal;
     });
 }
@@ -2173,5 +2191,68 @@ mod tests {
         let enc: EncounterMutex = std::sync::Mutex::new(enc);
         let sw = get_dmg_taken_attackers(&enc, UID).expect("skills window");
         assert_eq!(sw.inspected_player.active_value_per_sec, 0.0);
+    }
+
+    // party_only_consumables (runtime_settings atomic): 0ダメージ＋食事/シロップ持ちの
+    // 特例行は、true のとき自分/PTメンバーに限られる（AOI appear 同期で街中の無関係
+    // プレイヤー全員が並ぶのを防ぐ設定）。false なら全員表示（従来どおり）。
+    // atomic はプロセス全体で共有されるため、テスト終了時（panic時含む）に既定値(true)へ
+    // 戻すガードを使い、他テストとの並列実行での衝突を防ぐ。
+    #[test]
+    fn party_only_idle_consumable_filters_non_party_zero_damage_rows() {
+        use crate::engine::consumables::{PlayerConsumables, Timing};
+        use crate::engine::entity::Entity;
+        use crate::engine::runtime_settings;
+
+        struct RestorePartyOnlyOnDrop;
+        impl Drop for RestorePartyOnlyOnDrop {
+            fn drop(&mut self) {
+                runtime_settings::set_party_only_consumables(true);
+            }
+        }
+        let _restore = RestorePartyOnlyOnDrop;
+
+        const SELF_UID: i64 = 1;
+        const PARTY_UID: i64 = 2;
+        const STRANGER_UID: i64 = 3;
+
+        fn idle_food() -> PlayerConsumables {
+            PlayerConsumables {
+                food: Some(Timing {
+                    expire_at_ms: 999_999_999_999,
+                    duration_ms: 60_000,
+                    base_id: 1,
+                    buff_uuid: 1,
+                    create_time: 0,
+                    layer: 1,
+                    trusted: true,
+                }),
+                syrup: None,
+            }
+        }
+
+        let mut enc = Encounter { local_player_uid: SELF_UID, ..Default::default() };
+        enc.team.join(100, SELF_UID, [PARTY_UID]);
+        for uid in [SELF_UID, PARTY_UID, STRANGER_UID] {
+            enc.entities.insert(EntityKey::player(uid), Entity::default());
+            enc.consumables.insert(uid, idle_food());
+        }
+        let enc: EncounterMutex = std::sync::Mutex::new(enc);
+
+        // (a) party_only=true・非メンバー(ストレンジャー) → 行なし
+        // (b) party_only=true・メンバー → 行あり
+        // (d) 自分は常に行あり
+        runtime_settings::set_party_only_consumables(true);
+        let window = get_dps_players(&enc);
+        let uids: Vec<i64> = window.player_rows.iter().map(|r| r.uid as i64).collect();
+        assert!(!uids.contains(&STRANGER_UID), "party外の0ダメージ食事行は表示されない");
+        assert!(uids.contains(&PARTY_UID), "PTメンバーの0ダメージ食事行は表示される");
+        assert!(uids.contains(&SELF_UID), "自分の0ダメージ食事行は常に表示される");
+
+        // (c) party_only=false → 全員表示（従来どおり）
+        runtime_settings::set_party_only_consumables(false);
+        let window_all = get_dps_players(&enc);
+        let uids_all: Vec<i64> = window_all.player_rows.iter().map(|r| r.uid as i64).collect();
+        assert!(uids_all.contains(&STRANGER_UID), "party_only=falseなら無関係プレイヤーも表示");
     }
 }

@@ -46,9 +46,28 @@ pub struct Encounter {
     /// （戦闘終了後もゲーム内効果は継続）、自然失効・履歴クリアでのみ消す。
     /// consumables.json にディスク永続化され、アプリ再起動後に復元される。
     pub consumables: std::collections::HashMap<i64, crate::engine::consumables::PlayerConsumables>,
+    /// パーティ(PT)構成。consumables と同様、PT構成はキャラ選択・戦闘状態と無関係に
+    /// アプリ全体で使うため clear_combat_stats・ServerHandover を跨いで保持する
+    /// （戦闘リセットのたびに PT情報が消えると「PTメンバーのみ食事行表示」フィルタが
+    /// リセット直後だけ全員非表示になってしまう）。
+    pub team: crate::engine::team::TeamState,
 }
 
 impl Encounter {
+    /// `local_player_uid` を更新する。processor.rs 側の自動検出経路（should_accept /
+    /// learn_connection / process_world_enter_snapshot / process_enter_scene）はすべて
+    /// このメソッドを経由すること（同じ判定を複数箇所に書かない）。
+    /// 旧値が非0で、かつ異なる非0の新値へ切り替わるときだけ team をクリアする
+    /// （PT構成はキャラ単位。別キャラへの切替・再ログインで前キャラの PT を引き継がない）。
+    /// 0→X（初回確定）・X→0 はここでいう「切替」ではないため対象外
+    /// （明示的な手動切替は compute::set_selected_uid が別途無条件でクリアする）。
+    pub fn set_local_player_uid(&mut self, uid: i64) {
+        if self.local_player_uid != 0 && uid != 0 && self.local_player_uid != uid {
+            self.team = crate::engine::team::TeamState::default();
+        }
+        self.local_player_uid = uid;
+    }
+
     /// 「戦闘中」判定の純粋版（`timeout_ms` を明示注入できる。テスト用途）。
     /// 最終着弾(`time_last_combat_packet_ms`)から `timeout_ms` 以内なら戦闘中とみなす
     /// （processor.rs の旧ロールオーバー判定 `diff > timeout_ms` と境界を一致させるため

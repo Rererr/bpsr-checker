@@ -135,6 +135,7 @@ struct SettingsUi {
     show-imagine-basilisk: bool,
     show-imagine-kartgriff: bool,
     show-consumable: bool,
+    party-only-consumables: bool, // 食事/シロップの0ダメージ特例行を自分/PTメンバー限定にするか
     show-in-taskbar: bool,
     overlay-text-color: string,  // オーバーレイ共通の基準テキスト色（プリセットキー or #rrggbb）
     main-font: string,           // メイン窓フォントファミリ
@@ -1724,6 +1725,13 @@ component DisplayColsSection inherits SectionCard {
     ToggleRow { label: @tr("戦力"); checked: root.cfg.show-score; toggled => { root.set-bool("show-score", !root.cfg.show-score); } }
     ToggleRow { label: @tr("有効DPS"); checked: root.cfg.show-eff-dps; toggled => { root.set-bool("show-eff-dps", !root.cfg.show-eff-dps); } }
     ToggleRow { label: @tr("食事/シロップ"); checked: root.cfg.show-consumable; toggled => { root.set-bool("show-consumable", !root.cfg.show-consumable); } }
+    ToggleRow { label: @tr("食事/シロップの表示をPTメンバーのみにする"); checked: root.cfg.party-only-consumables; toggled => { root.set-bool("party-only-consumables", !root.cfg.party-only-consumables); } }
+    Text {
+        text: @tr("PT外のプレイヤーはダメージを出したときだけ表示されます");
+        color: SettingsStyle.hint;
+        font-size: SettingsStyle.hint-size;
+        wrap: word-wrap;
+    }
 }
 
 // フォント外観グループ（サイズ＋ファミリ＋太字）。メイン窓・各オーバーレイ設定で共用。

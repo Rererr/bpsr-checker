@@ -155,6 +155,10 @@ pub struct Settings {
     pub show_imagine_kartgriff: bool,
     /// DPS一覧の名前列に食事/シロップバッジを表示するか。
     pub show_consumable: bool,
+    /// ダメージ0＋食事/シロップ持ちの特例行を自分/PTメンバー限定にするか（既定true）。
+    /// AOI appear 同期で街中の無関係プレイヤー全員が0ダメージ行として並ぶのを抑える設定。
+    /// ダメージを出した行は無条件表示のためこの設定と無関係（compute::build_players_window_unsorted 参照）。
+    pub party_only_consumables: bool,
     /// メインウィンドウをタスクバーに常駐させるか（true=タスクバー表示／最小化はOS最小化、
     /// false=従来のトレイ格納・skip_taskbar）。
     pub show_in_taskbar: bool,
@@ -280,6 +284,7 @@ impl Default for Settings {
             show_imagine_basilisk: true,
             show_imagine_kartgriff: true,
             show_consumable: true,
+            party_only_consumables: true,
             show_in_taskbar: false,
             overlay_opacity: 0.82,
             overlay_text_color: "white".to_string(),

@@ -219,6 +219,12 @@ msgstr "Compact rows"
 msgid "食事/シロップ"
 msgstr "Food / Syrup"
 
+msgid "食事/シロップの表示をPTメンバーのみにする"
+msgstr "Show food/syrup only for party members"
+
+msgid "PT外のプレイヤーはダメージを出したときだけ表示されます"
+msgstr "Players outside your party appear only when they deal damage."
+
 msgid "戦闘"
 msgstr "Combat"
 

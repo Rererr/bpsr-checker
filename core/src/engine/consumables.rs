@@ -107,9 +107,14 @@ pub fn refresh(store: &mut HashMap<i64, PlayerConsumables>, tracker: &BuffTracke
             e.syrup = syrup;
         }
     }
-    // オフセットが判明済みなら、起動直後にオフセット未知のまま受信基準で入った膨張値・
-    // 旧バージョンが保存した膨張値を、候補の有無にかかわらず全エントリで補正する
-    // （merge は同一 buff_uuid・据置 create_time を凍結するため、これが唯一の補正経路）。
+    // オフセットが判明済みなら、起動直後にオフセット未知のまま受信基準で入った膨張値を、
+    // 候補の有無にかかわらず全エントリで補正する（merge は同一 buff_uuid・据置 create_time を
+    // 凍結するため、これが唯一の補正経路）。旧バージョンが保存した JSON のエントリは
+    // trusted=false（serde default）のため対象外＝そのまま自然失効を待つ（Timing.trusted 参照。
+    // 旧版の create_time が信頼できる経路由来か判別できないので意図的に触らない）。
+    // なお tighten は短縮のみ。sync_max 由来のオフセットは片道遅延ぶん真値より小さい側に
+    // 寄るため、ロード直後の外れ値（実測 −1.3 s）が採用された瞬間に fresh/tighten された
+    // エントリは最大その幅だけ早く失効表示になる（以後伸ばさない。秒粒度の表示では実害僅少）。
     if let Some(offset) = tracker.server_clock_offset_ms(now_ms) {
         tighten_all(store, offset, now_ms);
     }
@@ -214,6 +219,14 @@ fn merge(existing: Option<Timing>, cand: Option<&BuffStateSnapshot>, now_ms: u12
         return Some(fresh()); // 既存は失効済み → 新規付与として採用
     }
     if s.buff_uuid != e.buff_uuid {
+        // 信頼できない新インスタンス（create_time 欠落＝ s.trusted=false）で trusted な
+        // 既存期限を上書きしない。appear 同期由来の再発行 buff_uuid が create_time 無しで
+        // 届くと、フォールバック期限（受信時刻+総時間）が実際のサーバ期限より長く計算され、
+        // 無条件採用すると残時間が再膨張する（今回直した膨張バグの再発経路）。既存が
+        // 失効すれば上の失効分岐で fresh が採用され自己回復するため、凍結による恒久エラーは無い。
+        if e.trusted && !s.server_clock_trusted {
+            return Some(e);
+        }
         // 別インスタンスの再付与（再食＝新規付与）。残時間の長短は比較せず、観測された
         // 現行インスタンスを信頼する。候補は refresh 側の later_expire が現スナップショット
         // 群から最遅 expire を選んでおり、より長い既存インスタンスが tracker に残っていれば
@@ -339,8 +352,11 @@ pub fn save_if_changed(store: &HashMap<i64, PlayerConsumables>) {
         warn!("consumables: 保存失敗 ({}): {e}", path.display());
         return;
     }
-    // 実機検証用: 状態が変わった時だけ全文を残す（付与/失効/延長/切替でしか変わらない）。
-    info!("consumables: saved {json}");
+    // 実機検証用（BPSR_PROBE 時のみ）: 状態が変わった時だけ全文を残す。全 uid を含むため
+    // 通常ログには出さない（人が多い場所では appear 同期のたびに数 KB 書く）。
+    if crate::probe::enabled() {
+        info!("consumables: saved {json}");
+    }
     if let Ok(mut g) = persist().write() {
         g.last_json = Some(json);
     }
@@ -464,6 +480,32 @@ mod tests {
         tracker.apply_buff_add(2, &food_info(600_000, 0, 1), 300_000, UID);
         refresh(&mut store, &tracker, 300_000);
         assert_eq!(store[&UID].food.unwrap().remaining_ms(300_000), 600_000);
+    }
+
+    // appear同期由来など create_time 欠落(untrusted)の再発行 buff_uuid は、trusted な既存の
+    // 有効期限内では上書きしない（フォールバック期限が実期限より長く計算され、無条件採用
+    // すると残時間が再膨張するため）。既存が失効すれば通常どおり fresh が採用され自己回復する。
+    #[test]
+    fn untrusted_new_instance_does_not_override_trusted_existing_until_expiry() {
+        let mut tracker = BuffTracker::new();
+        let mut store = HashMap::new();
+        // 既存: create_time!=0 (trusted)、残600s
+        tracker.apply_buff_add(1, &food_info(600_000, 1000, 1), 0, UID);
+        refresh(&mut store, &tracker, 0);
+        assert_eq!(store[&UID].food.unwrap().remaining_ms(0), 600_000);
+        assert!(store[&UID].food.unwrap().trusted);
+
+        // 300s後に別 buff_uuid・create_time=0(untrusted) が再発行される。フォールバック期限
+        // (300_000+600_000=900_000) は既存(600_000)より長いが、trusted な既存を untrusted な
+        // 新規で上書きしない。
+        tracker.apply_buff_add(2, &food_info(600_000, 0, 1), 300_000, UID);
+        refresh(&mut store, &tracker, 300_000);
+        assert_eq!(store[&UID].food.unwrap().buff_uuid, 1, "trustedな既存を維持する");
+        assert_eq!(store[&UID].food.unwrap().remaining_ms(300_000), 300_000);
+
+        // 既存の期限(600_000)を過ぎたら、untrustedな候補(uuid=2)がfreshとして採用される。
+        refresh(&mut store, &tracker, 700_000);
+        assert_eq!(store[&UID].food.unwrap().buff_uuid, 2, "既存失効後はfreshを採用し自己回復する");
     }
 
     // 片方（食事）のみ再食しても、もう片方（シロップ）の凍結残時間は影響を受けない。

@@ -29,6 +29,14 @@ const SERVER_CLOCK_OFFSET_BUCKET_MS: u128 = 30 * 60 * 1000; // 30分
 /// 同期そのものが止まっている（スリープ復帰・接続断等）と判断してよい保険。
 const SYNC_MAX_AGE_MS: u128 = 60 * 60 * 1000; // 60分
 
+/// SyncServerTime(0x2B) 標本の max 推定に使うバケット幅。0x2B は約 4〜5 秒間隔で届く
+/// （2026-08-24 実測 576 標本/36 分）ため、1 バケットに数十標本が入り max は十分安定する。
+/// ヒューリスティック(30分)と同じ幅にすると、ローカル時計が 1 バケット未満の幅で後方へ
+/// ステップした場合（w32time の補正等）に、ステップ前の「大きすぎる」標本が cur→prev と
+/// 残り続け最長 60 分間バフの残時間を膨張させる。5 分なら回復は最長 2 バケット＝10 分。
+/// 2 バケット(10分)以上の空白は 0x2B 自体が止まっている（接続断・スリープ）ときだけ。
+const SYNC_BUCKET_MS: u128 = 5 * 60 * 1000; // 5分
+
 /// バケット制で「今バケット・前バケット」2本の極値（min または max、keep_max で選択）を
 /// 保持する状態機械。server_clock_offset のヒューリスティック推定(min)と
 /// SyncServerTime 標本推定(max)の両方で同じ状態遷移を共有するために一般化した
@@ -52,6 +60,8 @@ const SYNC_MAX_AGE_MS: u128 = 60 * 60 * 1000; // 60分
 struct BucketedExtremum {
     /// true なら大きい方を残す(max)。false なら小さい方を残す(min)。
     keep_max: bool,
+    /// バケット幅（ms）。観測頻度に応じて推定器ごとに選ぶ（heuristic_min=30分、sync_max=5分）。
+    bucket_ms: u128,
     /// 現在バケットの開始時刻（バケット幅で切り捨てたエポックms）。未観測なら None。
     bucket_start_ms: Option<u128>,
     cur: Option<i64>,
@@ -62,9 +72,10 @@ struct BucketedExtremum {
 }
 
 impl BucketedExtremum {
-    fn new(keep_max: bool) -> Self {
+    fn new(keep_max: bool, bucket_ms: u128) -> Self {
         Self {
             keep_max,
+            bucket_ms,
             bucket_start_ms: None,
             cur: None,
             prev: None,
@@ -81,11 +92,11 @@ impl BucketedExtremum {
     /// cur→prev へスライドする。2バケット以上の空白（長時間放置後の再開・時計後退等）
     /// なら、リセット直前の value() を prev へ繰り越してから cur をリセットする。
     fn observe(&mut self, candidate: i64, now_ms: u128) {
-        let bucket = (now_ms / SERVER_CLOCK_OFFSET_BUCKET_MS) * SERVER_CLOCK_OFFSET_BUCKET_MS;
+        let bucket = (now_ms / self.bucket_ms) * self.bucket_ms;
         match self.bucket_start_ms {
             None => self.bucket_start_ms = Some(bucket),
             Some(cur) if cur == bucket => {}
-            Some(cur) if bucket == cur + SERVER_CLOCK_OFFSET_BUCKET_MS => {
+            Some(cur) if bucket == cur + self.bucket_ms => {
                 // ちょうど1バケット進んだ: cur を prev へスライドする（2バケットを
                 // 超える古い情報はここで自然に失効させる＝バケット窓を固定2本に保つ）。
                 self.prev = self.cur.take();
@@ -134,8 +145,8 @@ struct ServerClockOffsetEstimator {
 impl Default for ServerClockOffsetEstimator {
     fn default() -> Self {
         Self {
-            heuristic_min: BucketedExtremum::new(false),
-            sync_max: BucketedExtremum::new(true),
+            heuristic_min: BucketedExtremum::new(false, SERVER_CLOCK_OFFSET_BUCKET_MS),
+            sync_max: BucketedExtremum::new(true, SYNC_BUCKET_MS),
         }
     }
 }
@@ -163,6 +174,16 @@ impl ServerClockOffsetEstimator {
     }
 }
 
+/// オフセット推定値の変化を info ログに出す閾値判定（初回の確定、または 1 秒以上の変化）。
+/// observe_server_time / observe_server_time_sync で同じ基準を共有する。
+fn offset_changed_enough(before: Option<i64>, after: Option<i64>) -> bool {
+    match (before, after) {
+        (Some(b), Some(a)) => (a - b).abs() >= 1000,
+        (None, Some(_)) => true,
+        _ => false,
+    }
+}
+
 /// サーバ時刻の妥当性判定に使う許容ズレ幅（ローカル時刻との差の上限）。
 /// 24時間を閾値にした根拠: 食事/シロップ等バフの寿命は長くても数時間以内に収まるため
 /// 実用上は十分な幅。PC 時計がサーバと1日以上ズレている環境は稀で、そうした環境では
@@ -177,6 +198,18 @@ pub const MAX_SERVER_TIME_SKEW_MS: i128 = 86_400_000; // 24時間
 /// （同じ判定を2箇所に書かない）。
 pub fn is_plausible_server_time(t: i64, local_ms: u128) -> bool {
     t > 0 && (local_ms as i128 - t as i128).abs() < MAX_SERVER_TIME_SKEW_MS
+}
+
+/// 通知の create_time が非0（＝信頼できる付与時刻）のときだけ保持し trusted へ引き上げる。
+/// create_time=0 の tick で無条件に true にすると、apply_effect 由来のエントリと id が
+/// 衝突した場合に未検証の activated_at がサーバ時計基準式へ流れる。また 0 で上書きすると
+/// AddBuff/Snapshot で得た正規の付与時刻が消え、再食判別ができず残時間が凍結する。
+/// apply_change（BuffTick）と apply_buff_change（BuffChange）で同じ規約を共有する。
+fn promote_trusted_create_time(state: &mut BuffState, create_time: i64) {
+    if create_time != 0 {
+        state.create_time_server = create_time;
+        state.server_clock_trusted = true;
+    }
 }
 
 /// バフの期限（ローカル壁時計のエポックms）を計算する唯一の場所。
@@ -308,20 +341,16 @@ impl BuffTracker {
         let before = self.server_clock_offset.offset(now_ms);
         self.server_clock_offset.observe(candidate, now_ms);
         let after = self.server_clock_offset.offset(now_ms);
-        let changed_enough = match (before, after) {
-            (Some(b), Some(a)) => (a - b).abs() >= 1000,
-            (None, Some(_)) => true,
-            _ => false,
-        };
-        if changed_enough {
+        if offset_changed_enough(before, after) {
             log::info!("buff_tracker: server_clock_offset_ms {before:?}ms -> {after:?}ms");
         }
     }
 
     /// SyncServerTime(0x2B) から得た標本（client_milliseconds - server_milliseconds、
-    /// ゲームクライアント＝当アプリと同一PC）を記録する。ヒューリスティック
-    /// (observe_server_time) と異なり妥当性窓のチェックはしない（呼び出し元
-    /// processor.rs で client/server 双方が正の値であることを確認済み）。
+    /// ゲームクライアント＝当アプリと同一PC）を記録する。server がローカル±24h の妥当な
+    /// エポックmsでない、または差が ±24h を超える標本は捨てる（sync_max は 60 分間
+    /// ヒューリスティックより優先されるため、別単位・誤再組み立ての 1 標本が全バフの
+    /// 期限を ±数十年ずらし gc/purge が暴走するのを防ぐ。observe_server_time と同じ窓）。
     /// client=クライアント送信時刻・server=サーバ受信時刻なので、この差は
     /// 「時計差 − 片道遅延」＝遅延が大きいほど値が小さくなる。よってバケット内では
     /// 最大値（sync_max, keep_max=true）が時計差の最良近似になる
@@ -329,16 +358,17 @@ impl BuffTracker {
     /// 分布し、最大値 −78 が最も真値に近かった）。有効値が初回 or 1秒以上変化した
     /// ときだけ info ログを出す。
     pub fn observe_server_time_sync(&mut self, client_ms: i64, server_ms: i64, now_ms: u128) {
-        let candidate = client_ms - server_ms;
+        if !is_plausible_server_time(server_ms, now_ms) {
+            return;
+        }
+        let candidate = client_ms.saturating_sub(server_ms);
+        if (candidate as i128).abs() >= MAX_SERVER_TIME_SKEW_MS {
+            return;
+        }
         let before = self.server_clock_offset.offset(now_ms);
         self.server_clock_offset.observe_sync(candidate, now_ms);
         let after = self.server_clock_offset.offset(now_ms);
-        let changed_enough = match (before, after) {
-            (Some(b), Some(a)) => (a - b).abs() >= 1000,
-            (None, Some(_)) => true,
-            _ => false,
-        };
-        if changed_enough {
+        if offset_changed_enough(before, after) {
             log::info!(
                 "buff_tracker: server_clock_offset exact {before:?}ms -> {after:?}ms (client={client_ms} server={server_ms})"
             );
@@ -414,18 +444,9 @@ impl BuffTracker {
         entry.duration_ms = change.duration;
         entry.layer = change.layer;
         entry.base_id = change.base_id;
-        // create_time は付与の同一性キー。BuffTick は 0 で来ることがあり、0 で
-        // 上書きすると AddBuff/Snapshot で得た正規の付与時刻が消える。すると
-        // 食事/シロップの再付与（再食）を判別できず残時間が古いまま凍結し、
-        // 残時間があるのにアイコンがグレーへ戻る。非0 のときのみ更新して保持する
-        // （apply_buff_change と同規約）。
-        // 信頼できる create_time（非0）を得たときだけ trusted へ引き上げる。create_time=0 の
-        // tick で無条件に true にすると、apply_effect 由来のエントリと id が衝突した場合に
-        // 未検証の activated_at がサーバ時計基準式へ流れる。
-        if change.create_time != 0 {
-            entry.create_time_server = change.create_time;
-            entry.server_clock_trusted = true;
-        }
+        // create_time は付与の同一性キー。BuffTick は 0 で来ることがある（規約は
+        // promote_trusted_create_time のコメント参照）。
+        promote_trusted_create_time(entry, change.create_time);
     }
 
     /// buff_list (BuffEffect) の AddBuff (LogicEffect.EffectType == 18) を追跡。
@@ -439,8 +460,8 @@ impl BuffTracker {
             .map(|s| s.source_config_id)
             .unwrap_or(0);
         let duration_ms = if info.duration <= 0 { 0 } else { info.duration as i64 };
-        if crate::engine::consumables::is_consumable(info.base_id) {
-            // 実機検証用: 再食/切替/マップ移動再送がどの形式で届くかを残す。
+        if crate::probe::enabled() && crate::engine::consumables::is_consumable(info.base_id) {
+            // 実機検証用（BPSR_PROBE 時のみ）: 再食/切替/マップ移動再送がどの形式で届くかを残す。
             log::info!(
                 "consumable buff add: uid={target_uid} base={} uuid={buff_uuid} create_time={} duration={duration_ms} layer={} now={now_ms} offset={:?}",
                 info.base_id, info.create_time, info.layer, self.server_clock_offset.offset(now_ms)
@@ -460,7 +481,12 @@ impl BuffTracker {
                 layer: info.layer,
                 count: info.count,
                 source_config_id,
-                server_clock_trusted: true, // BuffSnapshot.create_time は意味が実測確定済み
+                // promote_trusted_create_time と同じ規約: create_time=0 の snapshot を
+                // trusted 扱いすると、フォールバック期限（受信時刻+総時間）が trusted として
+                // consumables へ流れてしまう（appear 同期由来の再発行 buff_uuid が create_time
+                // 無しで届くケースで残時間が再膨張する穴になる）。create_time が非0のときだけ
+                // 信頼できる付与時刻として扱う。
+                server_clock_trusted: info.create_time != 0,
             },
         );
     }
@@ -526,7 +552,7 @@ impl BuffTracker {
         // ではなく、probe 実測で BuffTick の同一付与再通知が 0 件＝ガードが
         // 必要かどうかを検証する材料が無く、未検証のまま挙動を変えるリスクを
         // 避けるため。
-        if crate::engine::consumables::is_consumable(state.base_id) {
+        if crate::probe::enabled() && crate::engine::consumables::is_consumable(state.base_id) {
             log::info!(
                 "consumable buff change: uid={target_uid} base={} uuid={buff_uuid} create_time={}->{} duration={}->{} layer={}->{} now={now_ms}",
                 state.base_id, state.create_time_server, change.create_time, state.duration_ms, change.duration, state.layer, change.layer
@@ -538,6 +564,11 @@ impl BuffTracker {
             normalized > state.duration_ms
         };
         let layer_increased = change.layer > state.layer;
+        // received_at の再ベースは受信基準フォールバック（trusted=false／offset 未知／
+        // create_time が窓外）のときだけ期限に効く。サーバ時計基準の枝では期限は
+        // create_time+duration のみで決まるため、サーバが重ねがけ時に create_time/duration を
+        // 更新せず layer だけ増やす実装だった場合は延長されない（probe 実測は scene-add 再送と
+        // duration 延長のみで、layer 単独更新の挙動は未確認）。
         if !is_same_grant || duration_increased || layer_increased {
             state.received_at_local_ms = now_ms;
         }
@@ -548,11 +579,7 @@ impl BuffTracker {
         if change.layer != 0 {
             state.layer = change.layer;
         }
-        // 信頼できる create_time（非0）を得たときだけ trusted へ引き上げる（apply_change と同規約）。
-        if change.create_time != 0 {
-            state.create_time_server = change.create_time;
-            state.server_clock_trusted = true;
-        }
+        promote_trusted_create_time(state, change.create_time);
     }
 
     /// LocalSceneDelta.effects から取得した TimedEffect を追跡（常に local player 宛）。
@@ -1351,7 +1378,7 @@ mod tests {
     #[test]
     fn test_server_clock_offset_sync_max_keeps_larger_value_within_bucket() {
         let mut tracker = BuffTracker::new();
-        let t: u128 = 10 * SERVER_CLOCK_OFFSET_BUCKET_MS;
+        let t: u128 = 10 * SYNC_BUCKET_MS;
 
         tracker.observe_server_time_sync(t as i64 - 50, t as i64, t); // candidate=-50
         assert_eq!(tracker.server_clock_offset_ms(t), Some(-50));
@@ -1377,22 +1404,60 @@ mod tests {
     fn test_server_clock_offset_sync_max_relearns_one_bucket_after_gap() {
         let mut tracker = BuffTracker::new();
 
-        let now1: u128 = 10 * SERVER_CLOCK_OFFSET_BUCKET_MS;
+        let now1: u128 = 10 * SYNC_BUCKET_MS;
         tracker.observe_server_time_sync(now1 as i64 - 50, now1 as i64, now1); // candidate=-50
         assert_eq!(tracker.server_clock_offset_ms(now1), Some(-50));
 
         // 3バケット分の空白（2バケット以上）の後、より小さい候補(-1346)が届く
-        let now2 = now1 + 3 * SERVER_CLOCK_OFFSET_BUCKET_MS;
+        let now2 = now1 + 3 * SYNC_BUCKET_MS;
         tracker.observe_server_time_sync(now2 as i64 - 1346, now2 as i64, now2); // candidate=-1346
         // リセット直後は旧推定(-50)が prev へ繰り越されているため、
         // max(-1346, -50) = -50 のまま（即座には切り替わらない）。
         assert_eq!(tracker.server_clock_offset_ms(now2), Some(-50));
 
         // さらに1バケット進んで、同じ候補(-1346)が観測され続ける
-        let now3 = now2 + SERVER_CLOCK_OFFSET_BUCKET_MS;
+        let now3 = now2 + SYNC_BUCKET_MS;
         tracker.observe_server_time_sync(now3 as i64 - 1346, now3 as i64, now3); // candidate=-1346
         // 旧推定(-50)は繰り越し後さらに1バケット経過して prev から抜けたため、
         // 新しい値へ切り替わる。
         assert_eq!(tracker.server_clock_offset_ms(now3), Some(-1346));
+    }
+
+    // sync 標本の妥当性ガード: server がローカル±24h の窓外（別単位・誤再組み立て）、または
+    // client-server が ±24h を超える標本は採用しない（sync_max は 60 分間ヒューリスティックより
+    // 優先されるため、1 標本の異常値が全バフの期限を数十年ずらすのを防ぐ）。
+    #[test]
+    fn test_server_clock_offset_sync_rejects_implausible_samples() {
+        let mut tracker = BuffTracker::new();
+        let now: u128 = 1_787_500_000_000; // 実エポックms（2026-08）。差の閾値(24h)より十分大きい
+
+        // server が µs 相当（ローカルの 1000 倍）→ 窓外で無視
+        tracker.observe_server_time_sync(now as i64, now as i64 * 1000, now);
+        assert_eq!(tracker.server_clock_offset_ms(now), None);
+        // client が 0 相当の巨大な差（processor のガードを抜けた想定）→ 無視
+        tracker.observe_server_time_sync(1, now as i64, now);
+        assert_eq!(tracker.server_clock_offset_ms(now), None);
+        // 妥当な標本は採用される
+        tracker.observe_server_time_sync(now as i64 - 78, now as i64, now);
+        assert_eq!(tracker.server_clock_offset_ms(now), Some(-78));
+    }
+
+    // ローカル時計が 1 バケット未満の幅で後方へステップした場合（w32time 補正等）、ステップ前の
+    // 「大きすぎる」標本は cur→prev と残るが、sync のバケット幅(5分)なら最長 2 バケットで抜ける。
+    #[test]
+    fn test_server_clock_offset_sync_max_recovers_from_backward_clock_step_within_two_buckets() {
+        let mut tracker = BuffTracker::new();
+        let t0: u128 = 10 * SYNC_BUCKET_MS;
+        tracker.observe_server_time_sync(t0 as i64 - 78, t0 as i64, t0); // 真値 -78
+        assert_eq!(tracker.server_clock_offset_ms(t0), Some(-78));
+
+        // 同一バケット内でローカル時計が 30 秒戻る → 以後の標本は -30078
+        let mut t = t0 + 10_000;
+        while t < t0 + 2 * SYNC_BUCKET_MS + 10_000 {
+            tracker.observe_server_time_sync(t as i64 - 30_078, t as i64, t);
+            t += 5_000;
+        }
+        // 2 バケット進んだ時点で旧値(-78)は prev からも抜け、新しい時計差へ再学習済み
+        assert_eq!(tracker.server_clock_offset_ms(t), Some(-30_078));
     }
 }

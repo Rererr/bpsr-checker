@@ -228,11 +228,6 @@ fn self_only_uid(encounter: &Encounter) -> Option<i64> {
     (uid != 0).then_some(uid)
 }
 
-/// 表示の母集団となる「全体の集計」。シェア率の分母とヘッダの合計値がここから出る。
-///
-/// 自分のみ計測が効いているあいだは自分の `Entity` の集計へ差し替える。集計そのものは全員ぶん
-/// 取り続けているので、計測を抜ければ元へ戻る（取り込み時に他人を捨てると復元できない）。
-/// `get_header_info` と `build_players_window_unsorted` が同じ選択規則を共有するための単一定義。
 /// 自分のみ計測中に、指定プレイヤーの内訳ビューを表示してよいか。
 /// 内訳を返す3本の関数と、開いたままのドリルを畳む UI 側が共有する唯一の判定。
 fn breakdown_visible_locked(encounter: &Encounter, player_uid: i64) -> bool {
@@ -248,6 +243,7 @@ pub fn breakdown_visible(enc: &EncounterMutex, player_uid: i64) -> bool {
     })
 }
 
+/// [`breakdown_visible_locked`] の Result 版。内訳を返す3本の関数が先頭で通す。
 fn reject_other_player_while_self_only(encounter: &Encounter, player_uid: i64) -> Result<(), String> {
     if breakdown_visible_locked(encounter, player_uid) {
         return Ok(());
@@ -257,6 +253,11 @@ fn reject_other_player_while_self_only(encounter: &Encounter, player_uid: i64) -
     ))
 }
 
+/// 表示の母集団となる「全体の集計」。シェア率の分母とヘッダの合計値がここから出る。
+///
+/// 自分のみ計測が効いているあいだは自分の `Entity` の集計へ差し替える。集計そのものは全員ぶん
+/// 取り続けているので、計測を抜ければ元へ戻る（取り込み時に他人を捨てると復元できない）。
+/// `get_header_info` と `build_players_window_unsorted` が同じ選択規則を共有するための単一定義。
 fn total_stats_for(encounter: &Encounter, stat: StatType) -> &CombatStats {
     if let Some(uid) = self_only_uid(encounter) {
         if let Some(me) = encounter.entities.get(&EntityKey::player(uid)) {

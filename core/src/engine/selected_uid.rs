@@ -45,6 +45,15 @@ pub fn init(path: PathBuf) {
     info!("selected_uid: 読み込み完了 uid={:?}", guard.uid);
 }
 
+/// selected_uid はプロセス共有のグローバル。cargo test は同一プロセス内でテストを並列実行するため、
+/// この値を読む／書くテストは必ずこのロックで直列化する（怠ると他テストの `set` が割り込み、
+/// 意図しないフィルタ状態で観測される）。テスト全体で共有する唯一の定義。
+#[cfg(test)]
+pub(crate) fn lock_for_test() -> std::sync::MutexGuard<'static, ()> {
+    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 pub fn get() -> Option<i64> {
     state().read().ok()?.uid
 }

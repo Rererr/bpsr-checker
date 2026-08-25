@@ -420,6 +420,14 @@ fn data_dir() -> std::path::PathBuf {
 use bpsr_core::compute::StatType;
 
 /// タブ番号(0=dps 1=heal 2=taken 3=history)→集計指標。history(3) は S5 実装まで dmg を暫定表示。
+/// 設定から計測スコープを組む。計測開始のたびにここを通し、`start_3min_measure_mode` へ渡した
+/// 値は `MeasureMode` が計測終了まで運ぶ（走行中に設定を変えても結果がぶれない）。
+fn measure_scope(c: &settings::Settings) -> bpsr_core::engine::encounter::MeasureScope {
+    bpsr_core::engine::encounter::MeasureScope {
+        self_only: c.measure_self_only,
+    }
+}
+
 fn tab_stat(tab: i32) -> StatType {
     match tab {
         1 => StatType::Heal,
@@ -1556,6 +1564,7 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         show_imagine_kartgriff: c.show_imagine_kartgriff,
         show_consumable: c.show_consumable,
         party_only_consumables: c.party_only_consumables,
+        measure_self_only: c.measure_self_only,
         show_in_taskbar: c.show_in_taskbar,
         overlay_text_color: c.overlay_text_color.clone().into(),
         main_font: c.main_font.clone().into(),
@@ -3046,7 +3055,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .and_then(|s| s.parse::<f64>().ok());
         if let Some(secs) = demo_3min {
             if secs > 0.0 {
-                compute::start_3min_measure_mode(&enc, secs);
+                compute::start_3min_measure_mode(&enc, secs, measure_scope(&cfg.borrow()));
             }
         }
     }
@@ -3780,6 +3789,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "imagine-compact-rows" => c.imagine_compact_rows = val,
                     "show-consumable" => c.show_consumable = val,
                     "party-only-consumables" => c.party_only_consumables = val,
+                    "measure-self-only" => c.measure_self_only = val,
                     "show-in-taskbar" => c.show_in_taskbar = val,
                     "main-font-bold" => c.main_font_bold = val,
                     "stats-overlay-font-bold" => c.stats_overlay_font_bold = val,
@@ -4275,7 +4285,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         main.on_toggle_measure(move || {
             let status = compute::get_measure_mode_status(&enc_m);
             if status.kind == "normal" {
-                compute::start_3min_measure_mode(&enc_m, cfg_m.borrow().three_min_duration_sec);
+                let scope = measure_scope(&cfg_m.borrow());
+                let secs = cfg_m.borrow().three_min_duration_sec;
+                compute::start_3min_measure_mode(&enc_m, secs, scope);
             } else {
                 compute::cancel_3min_measure_mode(&enc_m);
             }
@@ -4400,7 +4412,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(m) = w.upgrade() {
                 m.set_result_open(false);
             }
-            compute::start_3min_measure_mode(&enc_rm, cfg_rm.borrow().three_min_duration_sec);
+            let scope = measure_scope(&cfg_rm.borrow());
+            let secs = cfg_rm.borrow().three_min_duration_sec;
+            compute::start_3min_measure_mode(&enc_rm, secs, scope);
         });
     }
     // 結果画面の画像コピー（ウィンドウのスナップショット→モーダル矩形へクロップ→クリップボード）。

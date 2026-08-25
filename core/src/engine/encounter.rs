@@ -6,16 +6,33 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 pub type EncounterMutex = std::sync::Mutex<Encounter>;
 
+/// 計測ボタンで始めた計測の絞り込み条件。
+///
+/// 開始時の設定値をここへコピーして `MeasureMode` が運ぶ（`duration_ms` と同じ扱い）。
+/// 走行中に設定を変えても計測結果がぶれない。通常モード（[`MeasureMode::Normal`]）は
+/// バリアントとして条件を持たないため、既定値＝絞り込み無しであることが型で保証される。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MeasureScope {
+    /// 自分の記録だけを集計・表示する。
+    ///
+    /// 実装は取り込み時のフィルタではなく読み出し時の射影（compute.rs）。`Entity` は
+    /// 攻撃者ごとに分かれているため、取り込み時に他人を捨てても自分の数値は変わらず、
+    /// 消えるのは他人のデータだけになる（＝不可逆な情報破壊と引き換えに何も得られない）。
+    pub self_only: bool,
+}
+
 #[derive(Debug, Clone, Default)]
 pub enum MeasureMode {
     #[default]
     Normal,
     Pending3Min {
         duration_ms: u128,
+        scope: MeasureScope,
     },
     Active3Min {
         armed_at_ms: u128,
         duration_ms: u128,
+        scope: MeasureScope,
     },
 }
 
@@ -66,6 +83,15 @@ impl Encounter {
             self.team = crate::engine::team::TeamState::default();
         }
         self.local_player_uid = uid;
+    }
+
+    /// 現在の計測スコープ。通常モードは既定値（絞り込み無し）。
+    /// `MeasureMode` を分解して scope を取り出す唯一の場所（同じ match を複数箇所に書かない）。
+    pub fn measure_scope(&self) -> MeasureScope {
+        match self.measure_mode {
+            MeasureMode::Normal => MeasureScope::default(),
+            MeasureMode::Pending3Min { scope, .. } | MeasureMode::Active3Min { scope, .. } => scope,
+        }
     }
 
     /// 「戦闘中」判定の純粋版（`timeout_ms` を明示注入できる。テスト用途）。

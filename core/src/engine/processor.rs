@@ -1814,12 +1814,13 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
                 crate::engine::encounter::MeasureMode::Pending3Min { .. }
             ),
         );
-        if let crate::engine::encounter::MeasureMode::Pending3Min { duration_ms } =
+        if let crate::engine::encounter::MeasureMode::Pending3Min { duration_ms, scope } =
             encounter.measure_mode
         {
             encounter.measure_mode = crate::engine::encounter::MeasureMode::Active3Min {
                 armed_at_ms: ts,
                 duration_ms,
+                scope,
             };
             info!("3min measure mode: active (armed_at={ts}ms)");
         }
@@ -2251,7 +2252,7 @@ fn process_monster_attrs(monster_entity: &mut Entity, attrs: &[pb::RawAttr]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::encounter::MeasureMode;
+    use crate::engine::encounter::{MeasureMode, MeasureScope};
     use std::sync::atomic::Ordering;
 
     fn set_ts_config(samples: usize, interval_ms: u64) {
@@ -2273,7 +2274,7 @@ mod tests {
         let interval: u128 = 1000;
 
         let mut enc = Encounter {
-            measure_mode: MeasureMode::Active3Min { armed_at_ms: 0, duration_ms: window_ms },
+            measure_mode: MeasureMode::Active3Min { armed_at_ms: 0, duration_ms: window_ms, scope: MeasureScope::default() },
             ..Default::default()
         };
         enc.entities.insert(EntityKey::player(1), player());
@@ -2425,7 +2426,7 @@ mod tests {
         set_ts_config(200, 1000);
 
         let mut enc = Encounter {
-            measure_mode: MeasureMode::Active3Min { armed_at_ms: 0, duration_ms: 90_000 },
+            measure_mode: MeasureMode::Active3Min { armed_at_ms: 0, duration_ms: 90_000, scope: MeasureScope::default() },
             ..Default::default()
         };
         enc.entities.insert(EntityKey::player(1), player());
@@ -3561,15 +3562,8 @@ mod tests {
         Server::new([10, 0, 0, 1], port, [192, 168, 0, 2], 5000)
     }
 
-    /// selected_uid はプロセス共有のグローバル。cargo test は同一プロセス内で
-    /// テストを並列実行するため、これを触るテストは必ず直列化する
-    /// （怠ると他テストの set(None) が割り込み、フィルタが無効化された状態で観測される）。
-    static SELECTED_UID_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     fn lock_selected_uid() -> std::sync::MutexGuard<'static, ()> {
-        SELECTED_UID_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        selected_uid::lock_for_test()
     }
 
     /// 複数クライアント同時起動時の conn フィルタ。selected_uid はプロセス共有の
@@ -4441,7 +4435,7 @@ mod tests {
 
         let mut enc = Encounter::default();
         enc.set_local_player_uid(my_uid);
-        enc.measure_mode = MeasureMode::Pending3Min { duration_ms: 180_000 };
+        enc.measure_mode = MeasureMode::Pending3Min { duration_ms: 180_000, scope: MeasureScope::default() };
 
         process_scene_delta(
             &mut enc,
@@ -4468,13 +4462,13 @@ mod tests {
 
         let mut enc = Encounter::default();
         enc.set_local_player_uid(my_uid);
-        enc.measure_mode = MeasureMode::Pending3Min { duration_ms: 180_000 };
+        enc.measure_mode = MeasureMode::Pending3Min { duration_ms: 180_000, scope: MeasureScope::default() };
 
         process_scene_delta(&mut enc, damage_delta(boss_uuid, player_uuid_for(other_uid), 1_000));
         process_scene_delta(&mut enc, damage_delta(boss_uuid, player_uuid_for(my_uid), 500));
 
         match enc.measure_mode {
-            MeasureMode::Active3Min { armed_at_ms, duration_ms } => {
+            MeasureMode::Active3Min { armed_at_ms, duration_ms, .. } => {
                 assert_eq!(duration_ms, 180_000, "設定した計測長が失われている");
                 assert_ne!(armed_at_ms, 0);
                 assert_eq!(
@@ -4500,7 +4494,7 @@ mod tests {
 
         let mut enc = Encounter::default();
         enc.set_local_player_uid(my_uid);
-        enc.measure_mode = MeasureMode::Pending3Min { duration_ms: 180_000 };
+        enc.measure_mode = MeasureMode::Pending3Min { duration_ms: 180_000, scope: MeasureScope::default() };
 
         process_scene_delta(
             &mut enc,
@@ -4522,7 +4516,7 @@ mod tests {
 
         let mut enc = Encounter::default();
         assert_eq!(enc.local_player_uid, 0, "テスト前提: 自キャラ未確定");
-        enc.measure_mode = MeasureMode::Pending3Min { duration_ms: 180_000 };
+        enc.measure_mode = MeasureMode::Pending3Min { duration_ms: 180_000, scope: MeasureScope::default() };
 
         process_scene_delta(
             &mut enc,

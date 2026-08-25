@@ -124,6 +124,8 @@ pub struct Settings {
     pub graph_for_local_player: bool,
     pub three_min_duration_sec: f64,
     pub three_min_auto_open: bool,
+    /// 計測ボタンで始めた計測のあいだ、自分の記録だけを集計・表示する。
+    pub measure_self_only: bool,
     pub abbreviate_scores: bool,
     pub show_buff_overlay: bool,
     pub imagine_only_mode: bool,
@@ -266,6 +268,7 @@ impl Default for Settings {
             graph_for_local_player: true,
             three_min_duration_sec: 180.0,
             three_min_auto_open: true,
+            measure_self_only: false,
             abbreviate_scores: false,
             show_buff_overlay: false,
             imagine_only_mode: false,

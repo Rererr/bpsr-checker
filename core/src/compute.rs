@@ -110,6 +110,7 @@ fn combat_elapsed_ms(encounter: &Encounter, now: u128) -> u128 {
     if let crate::engine::encounter::MeasureMode::Active3Min {
         armed_at_ms,
         duration_ms,
+        ..
     } = encounter.measure_mode
     {
         return now.saturating_sub(armed_at_ms).min(duration_ms);
@@ -204,6 +205,48 @@ pub enum StatType {
     DmgTaken,
 }
 
+/// 指標(タブ)に対応する `Entity` 側の集計。
+fn entity_stats_for(entity: &crate::engine::entity::Entity, stat: StatType) -> &CombatStats {
+    match stat {
+        StatType::Dmg => &entity.dmg_stats,
+        StatType::DmgBossOnly => &entity.dmg_stats_boss_only,
+        StatType::Heal => &entity.heal_stats,
+        StatType::DmgTaken => &entity.dmg_taken_stats,
+    }
+}
+
+/// 自分のみ計測が効いているときの自分のプレイヤー UID。
+///
+/// 通常モードでは常に `None`（計測ボタンで始めた計測のあいだだけ効く）。自キャラが未確定なら
+/// `None` を返し、呼び出し側は絞り込み無しで従来どおり全員を扱う。黙って空の画面になるより、
+/// 絞り込みが効いていないほうがまだ読める。
+fn self_only_uid(encounter: &Encounter) -> Option<i64> {
+    if !encounter.measure_scope().self_only {
+        return None;
+    }
+    let uid = selected_uid::get().unwrap_or(encounter.local_player_uid);
+    (uid != 0).then_some(uid)
+}
+
+/// 表示の母集団となる「全体の集計」。シェア率の分母とヘッダの合計値がここから出る。
+///
+/// 自分のみ計測が効いているあいだは自分の `Entity` の集計へ差し替える。集計そのものは全員ぶん
+/// 取り続けているので、計測を抜ければ元へ戻る（取り込み時に他人を捨てると復元できない）。
+/// `get_header_info` と `build_players_window_unsorted` が同じ選択規則を共有するための単一定義。
+fn total_stats_for(encounter: &Encounter, stat: StatType) -> &CombatStats {
+    if let Some(uid) = self_only_uid(encounter) {
+        if let Some(me) = encounter.entities.get(&EntityKey::player(uid)) {
+            return entity_stats_for(me, stat);
+        }
+    }
+    match stat {
+        StatType::Dmg => &encounter.dmg_stats,
+        StatType::DmgBossOnly => &encounter.dmg_stats_boss_only,
+        StatType::Heal => &encounter.heal_stats,
+        StatType::DmgTaken => &encounter.dmg_taken_stats,
+    }
+}
+
 // ─── Header ──────────────────────────────────────────────────────────────────
 
 /// `stat` に応じて合計DPS/合計値を切り替える。
@@ -218,12 +261,7 @@ pub fn get_header_info(enc: &EncounterMutex, stat: StatType) -> HeaderInfo {
         let elapsed_ms = combat_elapsed_ms(encounter, now);
         let elapsed_secs = elapsed_ms as f64 / 1000.0;
 
-        let stats = match stat {
-            StatType::Heal => &encounter.heal_stats,
-            StatType::DmgTaken => &encounter.dmg_taken_stats,
-            StatType::Dmg => &encounter.dmg_stats,
-            StatType::DmgBossOnly => &encounter.dmg_stats_boss_only,
-        };
+        let stats = total_stats_for(encounter, stat);
 
         HeaderInfo {
             total_dps: rate_per_sec(stats.total, elapsed_secs),
@@ -465,12 +503,10 @@ fn build_players_window_unsorted(
         return PlayersWindow::default();
     }
 
-    let encounter_stats = match stat_type {
-        StatType::Dmg => &encounter.dmg_stats,
-        StatType::DmgBossOnly => &encounter.dmg_stats_boss_only,
-        StatType::Heal => &encounter.heal_stats,
-        StatType::DmgTaken => &encounter.dmg_taken_stats,
-    };
+    let encounter_stats = total_stats_for(encounter, stat_type);
+    // 自分のみ計測中は自分の行だけを出す。母集団(encounter_stats)も同じ判定から導いているので、
+    // シェア率の分子と分母がずれない。
+    let only_uid = self_only_uid(encounter);
 
     let mut window = PlayersWindow {
         player_rows: Vec::new(),
@@ -479,12 +515,7 @@ fn build_players_window_unsorted(
     };
 
     for (&entity_key, entity) in &encounter.entities {
-        let entity_stats = match stat_type {
-            StatType::Dmg => &entity.dmg_stats,
-            StatType::DmgBossOnly => &entity.dmg_stats_boss_only,
-            StatType::Heal => &entity.heal_stats,
-            StatType::DmgTaken => &entity.dmg_taken_stats,
-        };
+        let entity_stats = entity_stats_for(entity, stat_type);
         // 推移グラフ・固定基準バーが指標(タブ)と一致した系列を見るように、stat_type に応じて
         // 時系列も切り替える（boss-onlyは専用系列を持たず通常の与ダメ系列を流用する）。
         let entity_time_series = match stat_type {
@@ -503,6 +534,10 @@ fn build_players_window_unsorted(
         }
         // ここから先はプレイヤー確定なので、キーの上位ビットはプレイヤー UID として一意。
         let entity_uid = entity_key.player_uid();
+
+        if only_uid.is_some_and(|uid| uid != entity_uid) {
+            continue;
+        }
 
         let pc = encounter.consumables.get(&entity_uid);
         let has_consumable = pc.is_some_and(|c| c.food.is_some() || c.syrup.is_some());
@@ -838,7 +873,13 @@ pub fn is_paused(enc: &EncounterMutex) -> bool {
 pub fn build_encounter_snapshot(encounter: &Encounter, now: u128) -> EncounterSnapshot {
     let elapsed_ms = combat_elapsed_ms(encounter, now);
     let elapsed_secs = elapsed_ms as f64 / 1000.0;
-    let total_dmg = encounter.dmg_stats.total as f64;
+    // ヘッダ・プレイヤー行と同じ射影を通す（自分のみ計測中は自分の集計が合計になる）。
+    let total_dmg = total_stats_for(encounter, StatType::Dmg).total as f64;
+    // 折れ線も合計に対応した系列へ揃える。エンティティ別系列は entity.dmg_stats の差分から
+    // 採られているので、自分の Entity のものがそのまま自分だけの推移になる。
+    let self_series = self_only_uid(encounter)
+        .and_then(|uid| encounter.entities.get(&EntityKey::player(uid)))
+        .map(|me| &me.time_series);
     let total_dps = if elapsed_secs > 0.0 {
         total_dmg / elapsed_secs
     } else {
@@ -878,7 +919,11 @@ pub fn build_encounter_snapshot(encounter: &Encounter, now: u128) -> EncounterSn
         total_dps,
         player_rows: window.player_rows,
         player_skill_rows,
-        time_series: encounter.time_series.iter().cloned().collect(),
+        time_series: self_series
+            .unwrap_or(&encounter.time_series)
+            .iter()
+            .cloned()
+            .collect(),
         participant_player_uids: encounter
             .participant_player_uids
             .iter()
@@ -1234,10 +1279,13 @@ pub fn capture_3min_result_skills(
             }
             let now = crate::engine::processor::now_ms();
             let elapsed_secs = combat_elapsed_ms(encounter, now) as f64 / 1000.0;
+            // 結果モーダルのスキル内訳も、プレイヤー行と同じ母集団に揃える。
+            let only_uid = self_only_uid(encounter);
             encounter
                 .entities
                 .iter()
                 .filter(|(key, _)| key.is_player())
+                .filter(|(key, _)| only_uid.is_none_or(|uid| uid == key.player_uid()))
                 .filter_map(|(&key, player)| {
                     let rows = build_skill_rows_for_player(player, elapsed_secs, false, true);
                     if rows.is_empty() {
@@ -1259,12 +1307,19 @@ pub fn finalize_3min_measure_mode(enc: &EncounterMutex) -> Option<EncounterSnaps
     })
 }
 
-pub fn start_3min_measure_mode(enc: &EncounterMutex, duration_secs: f64) {
+/// 計測ボタンで3分計測を開始する。`scope` は開始時の設定値のスナップショットで、以降は
+/// `MeasureMode` が運ぶ（走行中に設定を変えても計測結果がぶれない）。
+pub fn start_3min_measure_mode(
+    enc: &EncounterMutex,
+    duration_secs: f64,
+    scope: crate::engine::encounter::MeasureScope,
+) {
     let duration_ms = (duration_secs * 1000.0).max(1000.0) as u128;
     with_lock_or(enc, "start_3min_measure_mode", (), |enc| {
         enc.clear_combat_stats();
-        enc.measure_mode = crate::engine::encounter::MeasureMode::Pending3Min { duration_ms };
-        info!("3min measure mode: pending (duration={duration_ms}ms)");
+        enc.measure_mode =
+            crate::engine::encounter::MeasureMode::Pending3Min { duration_ms, scope };
+        info!("3min measure mode: pending (duration={duration_ms}ms, scope={scope:?})");
     });
 }
 
@@ -1378,7 +1433,7 @@ pub fn get_measure_mode_status(enc: &EncounterMutex) -> MeasureModeStatus {
                 duration_ms: None,
                 armed_at_ms: None,
             },
-            MeasureMode::Pending3Min { duration_ms } => MeasureModeStatus {
+            MeasureMode::Pending3Min { duration_ms, .. } => MeasureModeStatus {
                 kind: "pending".to_string(),
                 remaining_ms: None,
                 duration_ms: Some(duration_ms as f64),
@@ -1387,6 +1442,7 @@ pub fn get_measure_mode_status(enc: &EncounterMutex) -> MeasureModeStatus {
             MeasureMode::Active3Min {
                 armed_at_ms,
                 duration_ms,
+                ..
             } => {
                 let elapsed = now_ms().saturating_sub(armed_at_ms);
                 let remaining = duration_ms.saturating_sub(elapsed) as f64;
@@ -1844,9 +1900,97 @@ mod tests {
         assert!(snapshot.player_skill_rows.is_empty());
     }
 
+    // ─── 自分のみ計測（MeasureScope::self_only）の回帰テスト ──────────────────────
+    //
+    // 実装は取り込み時のフィルタではなく読み出し時の射影。Encounter 側の集計は全員ぶん残るので、
+    // 計測を抜ければ元の表示に戻る（可逆であることをテストで固定する）。
+
+    /// self_only 用の Encounter。自分と他プレイヤーが1人ずつ、計測中(Active3Min)。
+    fn enc_with_two_players(self_only: bool) -> Encounter {
+        use crate::engine::entity::Entity;
+        let me = 100_i64;
+        let other = 200_i64;
+        let mut enc = Encounter {
+            time_fight_start_ms: 1_000,
+            time_last_combat_packet_ms: 11_000,
+            local_player_uid: me,
+            measure_mode: crate::engine::encounter::MeasureMode::Active3Min {
+                armed_at_ms: 1_000,
+                duration_ms: 180_000,
+                scope: crate::engine::encounter::MeasureScope { self_only },
+            },
+            ..Default::default()
+        };
+        enc.dmg_stats.total = 1_000;
+        let mut mine = Entity::default();
+        mine.dmg_stats.total = 300;
+        let mut theirs = Entity::default();
+        theirs.dmg_stats.total = 700;
+        enc.entities.insert(EntityKey::player(me), mine);
+        enc.entities.insert(EntityKey::player(other), theirs);
+        enc
+    }
+
+    /// 自分のみ計測が off のときは全員ぶんが母集団になる（既定動作の固定）。
+    #[test]
+    fn self_only_off_keeps_every_player_and_the_full_total() {
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
+        let enc = enc_with_two_players(false);
+        assert_eq!(total_stats_for(&enc, StatType::Dmg).total, 1_000);
+        let window = build_players_window_unsorted(&enc, StatType::Dmg, false, 10.0);
+        assert_eq!(window.player_rows.len(), 2);
+    }
+
+    /// 自分のみ計測が on なら、行は自分だけ・母集団も自分の集計へ差し替わる。
+    /// シェア率の分子と分母が同じ値から出るので、自分のシェアは 100% になる。
+    #[test]
+    fn self_only_on_projects_rows_and_total_onto_the_local_player() {
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
+        let enc = enc_with_two_players(true);
+        assert_eq!(
+            total_stats_for(&enc, StatType::Dmg).total,
+            300,
+            "母集団が自分の集計へ差し替わっていない"
+        );
+        let window = build_players_window_unsorted(&enc, StatType::Dmg, false, 10.0);
+        assert_eq!(window.player_rows.len(), 1, "他プレイヤーの行が残っている");
+        assert_eq!(window.player_rows[0].uid as i64, 100);
+    }
+
+    /// 射影は読み出し時だけの操作で、Encounter 側の集計は全員ぶん残る。
+    /// 計測を抜ければ（Normal へ戻れば）元の表示に戻る＝不可逆な情報破壊をしていない。
+    #[test]
+    fn self_only_is_reversible_because_the_underlying_stats_are_untouched() {
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
+        let mut enc = enc_with_two_players(true);
+        assert_eq!(build_players_window_unsorted(&enc, StatType::Dmg, false, 10.0).player_rows.len(), 1);
+
+        enc.measure_mode = crate::engine::encounter::MeasureMode::Normal;
+
+        assert_eq!(total_stats_for(&enc, StatType::Dmg).total, 1_000);
+        assert_eq!(
+            build_players_window_unsorted(&enc, StatType::Dmg, false, 10.0).player_rows.len(),
+            2,
+            "計測を抜けても他プレイヤーが戻らない＝取り込み時に捨ててしまっている"
+        );
+    }
+
+    /// 通常モードは scope を持てないため、絞り込みは常に無効。
+    #[test]
+    fn normal_mode_never_has_a_measure_scope() {
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
+        let enc = Encounter::default();
+        assert_eq!(enc.measure_scope(), crate::engine::encounter::MeasureScope::default());
+        assert_eq!(self_only_uid(&enc), None);
+    }
+
     // ─── 分母(elapsed)の単一化・3分計測固定窓の回帰テスト ──────────────────────────
 
-    use crate::engine::encounter::MeasureMode;
+    use crate::engine::encounter::{MeasureMode, MeasureScope};
 
     // 未戦闘（time_fight_start_ms==0）は now に関わらず常に0（0除算・パニックの回帰防止）。
     #[test]
@@ -1885,7 +2029,7 @@ mod tests {
         let enc = Encounter {
             time_fight_start_ms: 1_000,
             time_last_combat_packet_ms: 1_000 + 10_000, // 直近まで攻撃していた（実測10秒）
-            measure_mode: MeasureMode::Active3Min { armed_at_ms: 1_000, duration_ms: 180_000 },
+            measure_mode: MeasureMode::Active3Min { armed_at_ms: 1_000, duration_ms: 180_000, scope: MeasureScope::default() },
             ..Default::default()
         };
         // 計測窓の途中（経過60秒）は armed_at からの実経過をそのまま返す。
@@ -1907,7 +2051,7 @@ mod tests {
         let enc = Encounter {
             time_fight_start_ms: 1_000,
             time_last_combat_packet_ms: 1_000 + 10_000, // 実測は10秒で殴り終えた
-            measure_mode: MeasureMode::Active3Min { armed_at_ms: 1_000, duration_ms: 180_000 },
+            measure_mode: MeasureMode::Active3Min { armed_at_ms: 1_000, duration_ms: 180_000, scope: MeasureScope::default() },
             ..Default::default()
         };
         // now を計測終了直後にしても、実測スパンでなく設定窓長(180秒)を使う。
@@ -1941,7 +2085,7 @@ mod tests {
         let mut enc = Encounter {
             time_fight_start_ms: 1_000,
             time_last_combat_packet_ms: 1_000 + 10_000,
-            measure_mode: MeasureMode::Active3Min { armed_at_ms: 1_000, duration_ms: 180_000 },
+            measure_mode: MeasureMode::Active3Min { armed_at_ms: 1_000, duration_ms: 180_000, scope: MeasureScope::default() },
             ..Default::default()
         };
         enc.dmg_stats.total = 1_800_000;
@@ -1977,7 +2121,7 @@ mod tests {
         let enc = Encounter {
             time_fight_start_ms: 1_000,
             time_last_combat_packet_ms: 1_000,
-            measure_mode: MeasureMode::Active3Min { armed_at_ms: 1_000, duration_ms: 180_000 },
+            measure_mode: MeasureMode::Active3Min { armed_at_ms: 1_000, duration_ms: 180_000, scope: MeasureScope::default() },
             ..Default::default()
         };
         let snap = build_encounter_snapshot(&enc, 1_000 + 180_000);
@@ -1999,7 +2143,7 @@ mod tests {
         let enc: EncounterMutex = std::sync::Mutex::new(Encounter {
             time_fight_start_ms: 1_000,
             time_last_combat_packet_ms: 1_000 + 10_000, // 実測は10秒で殴り終えた
-            measure_mode: MeasureMode::Active3Min { armed_at_ms: 1_000, duration_ms: 180_000 },
+            measure_mode: MeasureMode::Active3Min { armed_at_ms: 1_000, duration_ms: 180_000, scope: MeasureScope::default() },
             ..Default::default()
         });
         {
@@ -2031,7 +2175,7 @@ mod tests {
         let enc: EncounterMutex = std::sync::Mutex::new(Encounter {
             time_fight_start_ms: 1_000,
             time_last_combat_packet_ms: 1_000 + 10_000,
-            measure_mode: MeasureMode::Active3Min { armed_at_ms: 1_000, duration_ms: 180_000 },
+            measure_mode: MeasureMode::Active3Min { armed_at_ms: 1_000, duration_ms: 180_000, scope: MeasureScope::default() },
             ..Default::default()
         });
         {

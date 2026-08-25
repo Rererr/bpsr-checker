@@ -122,6 +122,7 @@ struct SettingsUi {
     aot: bool,
     three-min-auto-open: bool,
     measure-self-only: bool,   // 計測中は自分の記録だけを集計・表示するか
+    measure-first-target-only: bool, // 計測中は最初に攻撃した対象への与ダメージだけを集計するか
     compact-split: bool,
     graph-for-local: bool,
     allow-solo-hotkeys: bool,    // 修飾キー無しの単独ショートカット割当を許可（issue #8）
@@ -2239,6 +2240,13 @@ component CombatSection inherits SectionCard {
     StepperRow { label: @tr("計測時間(秒)"); value-text: root.nums.three-min-dur; dec => { root.bump-num("three-min-dur", -1); } inc => { root.bump-num("three-min-dur", 1); } }
     ToggleRow { label: @tr("計測を自動で開く"); checked: root.cfg.three-min-auto-open; toggled => { root.set-bool("three-min-auto-open", !root.cfg.three-min-auto-open); } }
     ToggleRow { label: @tr("計測を自分の記録のみにする"); checked: root.cfg.measure-self-only; toggled => { root.set-bool("measure-self-only", !root.cfg.measure-self-only); } }
+    ToggleRow { label: @tr("計測を最初に攻撃した敵のみにする"); checked: root.cfg.measure-first-target-only; toggled => { root.set-bool("measure-first-target-only", !root.cfg.measure-first-target-only); } }
+    Text {
+        text: @tr("単体の敵を測るとき用です。複数の敵を同時に攻撃する計測では、最初の1体ぶんしか集計されません");
+        color: SettingsStyle.hint;
+        font-size: SettingsStyle.hint-size;
+        wrap: word-wrap;
+    }
 }
 
 // 履歴・グラフ

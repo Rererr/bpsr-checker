@@ -13,6 +13,15 @@ pub type EncounterMutex = std::sync::Mutex<Encounter>;
 /// バリアントとして条件を持たないため、既定値＝絞り込み無しであることが型で保証される。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct MeasureScope {
+    /// 自分が最初にダメージを与えた対象への与ダメージだけを集計する。
+    ///
+    /// こちらは読み出し時に絞れない。`Entity` は攻撃者ごとに分かれているだけで対象別の内訳を
+    /// 持たないため、集計後に対象別へ分解する手段が無い。取り込み時に落とすしかない
+    /// （＝計測中に切り替えても遡って復元できない）。
+    ///
+    /// **単体の対象を殴っている前提が崩れると数字が大きく変わる**。2026-08-26 の実測では、
+    /// 複数の木人を叩く計測で自分の火力の 99.6%、ダンジョンの乱戦で 90% から 98% が落ちた。
+    pub first_target_only: bool,
     /// 自分の記録だけを集計・表示する。
     ///
     /// 実装は取り込み時のフィルタではなく読み出し時の射影（compute.rs）。`Entity` は
@@ -63,6 +72,10 @@ pub struct Encounter {
     /// （戦闘終了後もゲーム内効果は継続）、自然失効・履歴クリアでのみ消す。
     /// consumables.json にディスク永続化され、アプリ再起動後に復元される。
     pub consumables: std::collections::HashMap<i64, crate::engine::consumables::PlayerConsumables>,
+    /// 初撃対象ロック（[`MeasureScope::first_target_only`]）の対象。
+    /// 解除は `clear_combat_stats` の1箇所だけ（通常のロールオーバー・手動リセット・計測の
+    /// 開始/中止/確定がすべてそこを通るため、解除条件を書き足す必要が無い）。
+    pub locked_target: Option<EntityKey>,
     /// パーティ(PT)構成。consumables と同様、PT構成はキャラ選択・戦闘状態と無関係に
     /// アプリ全体で使うため clear_combat_stats・ServerHandover を跨いで保持する
     /// （戦闘リセットのたびに PT情報が消えると「PTメンバーのみ食事行表示」フィルタが
@@ -141,6 +154,7 @@ impl Encounter {
         self.last_sample_total_dmg = 0;
         self.has_selected_participant = false;
         self.participant_player_uids.clear();
+        self.locked_target = None;
         self.buff_tracker.clear();
         self.entities.retain(|key, _| !key.is_player());
         for entity in self.entities.values_mut() {

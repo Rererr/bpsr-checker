@@ -243,6 +243,12 @@ msgstr "Auto-open result"
 msgid "計測を自分の記録のみにする"
 msgstr "Measure my own records only"
 
+msgid "計測を最初に攻撃した敵のみにする"
+msgstr "Measure the first enemy I attack only"
+
+msgid "単体の敵を測るとき用です。複数の敵を同時に攻撃する計測では、最初の1体ぶんしか集計されません"
+msgstr "For single-target runs. When you attack several enemies, only the first one is counted."
+
 msgid "履歴・グラフ"
 msgstr "History & Graph"
 

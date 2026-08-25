@@ -424,6 +424,7 @@ use bpsr_core::compute::StatType;
 /// 値は `MeasureMode` が計測終了まで運ぶ（走行中に設定を変えても結果がぶれない）。
 fn measure_scope(c: &settings::Settings) -> bpsr_core::engine::encounter::MeasureScope {
     bpsr_core::engine::encounter::MeasureScope {
+        first_target_only: c.measure_first_target_only,
         self_only: c.measure_self_only,
     }
 }
@@ -1303,14 +1304,35 @@ fn finish_result_countup(m: &MainWindow, timer: &Rc<Timer>, final_store: &Rc<Cel
 
 /// シェア画像の透かし（アクション行左）: "bpsr-checker vX.X.X ・ YYYY-MM-DD HH:MM ・ 計測 M:SS"。
 /// 日時は計測終了時点のローカル時刻。
-fn build_result_watermark(app_version: &str, duration_ms: f64) -> String {
+///
+/// 絞り込み条件（自分のみ / 最初の敵のみ）が効いていた計測は、条件を末尾へ足す。
+/// 条件付きの数値と通常の数値は直接比較できないため、スクリーンショットだけを見た人が
+/// 同じ土俵の記録だと誤解しないようにする。
+fn build_result_watermark(
+    app_version: &str,
+    duration_ms: f64,
+    scope: bpsr_core::engine::encounter::MeasureScope,
+) -> String {
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M");
     let dur = format::format_elapsed(duration_ms);
-    if is_ja() {
+    let ja = is_ja();
+    let mut base = if ja {
         format!("{app_version} ・ {now} ・ 計測 {dur}")
     } else {
         format!("{app_version} ・ {now} ・ {dur} measured")
+    };
+    let mut conditions: Vec<&str> = Vec::new();
+    if scope.self_only {
+        conditions.push(if ja { "自分のみ" } else { "self only" });
     }
+    if scope.first_target_only {
+        conditions.push(if ja { "初撃の敵のみ" } else { "first target only" });
+    }
+    if !conditions.is_empty() {
+        base.push_str(" ・ ");
+        base.push_str(&conditions.join(if ja { "・" } else { ", " }));
+    }
+    base
 }
 
 /// 計測確定時の自己ベスト判定・更新。auto-open 設定(モーダルを開くか)に依らず、finalize の
@@ -1321,6 +1343,7 @@ fn record_best(
     best: &Rc<RefCell<best_records::BestRecords>>,
     snap: &bpsr_core::models::EncounterSnapshot,
     local_uid: i64,
+    scope: bpsr_core::engine::encounter::MeasureScope,
     persist: bool,
 ) -> Option<(bool, f64)> {
     let self_row = snap.player_rows.iter().find(|p| p.uid as i64 == local_uid)?;
@@ -1329,6 +1352,7 @@ fn record_best(
     let mut recs = best.borrow_mut();
     let is_new = recs.try_update(
         duration_sec,
+        scope,
         self_row.value_per_sec,
         self_row.total_value,
         recorded_at_ms,
@@ -1337,7 +1361,7 @@ fn record_best(
         recs.save();
     }
     let best_dps = recs
-        .get(duration_sec)
+        .get(duration_sec, scope)
         .map(|r| r.dps)
         .unwrap_or(self_row.value_per_sec);
     Some((is_new, best_dps))
@@ -1565,6 +1589,7 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         show_consumable: c.show_consumable,
         party_only_consumables: c.party_only_consumables,
         measure_self_only: c.measure_self_only,
+        measure_first_target_only: c.measure_first_target_only,
         show_in_taskbar: c.show_in_taskbar,
         overlay_text_color: c.overlay_text_color.clone().into(),
         main_font: c.main_font.clone().into(),
@@ -3790,6 +3815,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "show-consumable" => c.show_consumable = val,
                     "party-only-consumables" => c.party_only_consumables = val,
                     "measure-self-only" => c.measure_self_only = val,
+                    "measure-first-target-only" => c.measure_first_target_only = val,
                     "show-in-taskbar" => c.show_in_taskbar = val,
                     "main-font-bold" => c.main_font_bold = val,
                     "stats-overlay-font-bold" => c.stats_overlay_font_bold = val,
@@ -4757,12 +4783,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // DPSと食い違うため使わない。
                 let local_uid = compute::get_dps_players(&enc_poll).local_player_uid as i64;
                 let skills = compute::capture_3min_result_skills(&enc_poll);
+                // finalize で measure_mode が Normal へ戻る前に、この計測へ効いていた条件を採る。
+                let finalized_scope = compute::get_measure_scope(&enc_poll);
                 if let Some(snap) = compute::finalize_3min_measure_mode(&enc_poll) {
                     // 自己ベスト判定・更新は auto-open 設定に依らず finalize の都度必ず行う
                     // （auto-open OFF でも記録は静かに積み上がり、次にモーダルを見た時に
                     // 正しい自己ベストが出るようにする）。自キャラ不在なら None（記録もしない）。
                     // デモモードでは保存しない(persist=false)がメモリ上の比較は行う。
-                    let best_outcome = record_best(&best_records_poll, &snap, local_uid, !demo_mode);
+                    let best_outcome =
+                        record_best(&best_records_poll, &snap, local_uid, finalized_scope, !demo_mode);
                     let c = cfg_poll.borrow();
                     if c.three_min_auto_open && !c.imagine_only_mode {
                         // 既定の選択=自分(スキル有り)・無ければ最上位プレイヤー
@@ -4790,7 +4819,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         apply_result_best_record_ui(&m, best_outcome);
                         // シェア画像の透かし（バージョン・計測終了時刻・計測時間）。
                         m.set_result_watermark(
-                            build_result_watermark(&m.get_app_version(), snap.duration_ms).into(),
+                            build_result_watermark(
+                                &m.get_app_version(),
+                                snap.duration_ms,
+                                finalized_scope,
+                            )
+                            .into(),
                         );
                         // 新規計測確定時のみ DPS/総ダメをカウントアップ演出する（履歴等からの
                         // 再表示経路は show_result の即時表示のままにする）。

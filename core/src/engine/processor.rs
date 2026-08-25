@@ -1543,6 +1543,9 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
     let self_uid = selected.unwrap_or(encounter.local_player_uid);
     let self_key = (self_uid != 0).then(|| EntityKey::player(self_uid));
 
+    // 計測スコープ（計測ボタンで始めた計測の絞り込み条件。通常モードは既定値＝絞り込み無し）。
+    let scope = encounter.measure_scope();
+
     // このデルタに自分の行動（与ダメージまたは回復）が含まれていたか。
     // 3分計測の起点判定と M9計測の両方がこの1つの値から導かれる（同じ判定を2箇所に書かない）。
     // 攻撃者の解決規則はダメージループと `damage_attacker_uuid` を共有する。
@@ -1700,12 +1703,42 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
         // ためこの条件を通過し、引き続き自分の火力/回復として総計に残る（帰属漏れの分を落とさない）。
         let from_monster = attacker_entity_type == EntityKind::Monster;
 
+        // 初撃対象ロック（MeasureScope::first_target_only）。ロックの確立も適用も、同じ
+        // target_key からこの1箇所で導く。
+        //
+        // ロックを張るのは自分の与ダメージだけに限る。本アプリは AOI 全体を観測しているため、
+        // 街や訓練場では他プレイヤーが別の敵を殴ったデルタが先に届くのが普通で、全体基準だと
+        // 無関係な敵を掴んで以後の自分の火力が丸ごと落ちる。
+        //
+        // 対象は「プレイヤー以外」。木人は実測で Monster(種別コード64)だったが、EntityKind は
+        // 64/640 以外をすべて Unknown に落とすため、Monster 限定にすると Unknown で来る対象で
+        // 機能がエラーも出さずに無効化される。
+        //
+        // ロックは計測が終わるまで解除しない（clear_combat_stats が唯一の出口）。DamageRecord の
+        // is_dead で解除する案は実測で棄却した。同じ対象へ別スキル・別攻撃者から繰り返し立つ
+        // ＝「この一撃で死んだ」ではなく「対象が死亡状態」を意味するため、乗り換えが暴発する。
+        let lockable = !is_heal && !target_key.is_player();
+        let admit_target = if scope.first_target_only && lockable {
+            if let Some(key) = self_key {
+                if attacker_key == key && encounter.locked_target.is_none() {
+                    encounter.locked_target = Some(target_key);
+                    info!("first-target lock: target_uuid={target_uuid}");
+                }
+            }
+            // ロックが確定するまでは何も通さない。「最初に自分が攻撃した対象のみ」を素直に読めば、
+            // 自分が殴る前に届いた他プレイヤーの与ダメージは計測に入らない。
+            // 通す側に倒すと、確定までの短い窓に流れ込んだ無関係な火力が総計へ残る。
+            encounter.locked_target == Some(target_key)
+        } else {
+            true
+        };
+
         // Encounter-level totals first (avoids holding attacker_entity borrow across encounter.* mutations)
         if is_heal {
             if !from_monster {
                 process_stats(&damage, &mut encounter.heal_stats);
             }
-        } else if !from_monster {
+        } else if !from_monster && admit_target {
             process_stats(&damage, &mut encounter.dmg_stats);
             // M8計測: dmg_stats に積んだのと同じ条件・同じ値で対象別に記録する
             // （分岐を分けると「総ダメージには入るが内訳には出ない」ズレが生まれるため）。
@@ -1774,7 +1807,10 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
                 .or_default();
             process_stats(&damage, heal_skill);
             process_stats(&damage, &mut attacker_entity.heal_stats);
-        } else {
+        } else if admit_target {
+            // ゲートする書き込み先は encounter.dmg_stats を守っている条件集合と完全に一致させる。
+            // active_dmg_time は有効DPSの分母なので、ここを素通しにすると総ダメージ列と
+            // 有効DPS列が矛盾する（ロック対象外を殴っている時間だけ分母が伸びる）。
             let dps_skill = attacker_entity
                 .skill_uid_to_dps_stats
                 .entry(skill_uid)
@@ -4417,6 +4453,147 @@ mod tests {
             buff_list: None,
             skill_effects: None,
         }
+    }
+
+    // ─── 初撃対象ロック（MeasureScope::first_target_only） ────────────────────────
+
+    fn armed_with(scope: MeasureScope) -> Encounter {
+        Encounter {
+            measure_mode: MeasureMode::Active3Min {
+                armed_at_ms: 1_000,
+                duration_ms: 180_000,
+                scope,
+            },
+            ..Default::default()
+        }
+    }
+
+    /// 自分が最初に殴った対象へロックが張られ、以後は別の対象への与ダメージが集計から落ちる。
+    /// 落ちるのは総計・攻撃者側の合計・スキル別・有効DPSの分母のすべてで、同じ条件が効く。
+    #[test]
+    fn first_target_lock_admits_only_the_first_target_i_attacked() {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+        let me = 555_i64;
+        let first = monster_uuid_for(9001);
+        let second = monster_uuid_for(9002);
+
+        let mut enc = armed_with(MeasureScope { first_target_only: true, self_only: false });
+        enc.set_local_player_uid(me);
+
+        process_scene_delta(&mut enc, damage_delta(first, player_uuid_for(me), 100));
+        process_scene_delta(&mut enc, damage_delta(second, player_uuid_for(me), 900));
+
+        assert_eq!(enc.locked_target, Some(EntityKey::from_uuid(first)));
+        assert_eq!(enc.dmg_stats.total, 100, "ロック対象外への与ダメージが総計へ入っている");
+
+        let mine = enc.entities.get(&EntityKey::player(me)).expect("自分のEntity");
+        assert_eq!(mine.dmg_stats.total, 100, "攻撃者側の合計にロック対象外が入っている");
+        assert_eq!(
+            mine.skill_uid_to_dps_stats.values().map(|s| s.total).sum::<i64>(),
+            100,
+            "スキル別内訳だけロック対象外が残っている（合計と食い違う）"
+        );
+    }
+
+    /// ロックは自分の与ダメージでしか張らない。AOI には他プレイヤーが別の敵を殴ったデルタが
+    /// 常時流れており、全体基準にすると無関係な敵を掴んで自分の火力が丸ごと落ちる。
+    #[test]
+    fn first_target_lock_is_not_established_by_another_players_damage() {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+        let me = 555_i64;
+        let other = 666_i64;
+        let theirs = monster_uuid_for(9001);
+        let mine_target = monster_uuid_for(9002);
+
+        let mut enc = armed_with(MeasureScope { first_target_only: true, self_only: false });
+        enc.set_local_player_uid(me);
+
+        process_scene_delta(&mut enc, damage_delta(theirs, player_uuid_for(other), 700));
+        process_scene_delta(&mut enc, damage_delta(mine_target, player_uuid_for(me), 100));
+
+        assert_eq!(
+            enc.locked_target,
+            Some(EntityKey::from_uuid(mine_target)),
+            "他プレイヤーの与ダメージでロックが確定している"
+        );
+        assert_eq!(enc.dmg_stats.total, 100, "ロック確定前の他人の与ダメージが残っている");
+    }
+
+    /// ロック対象が倒れても解除しない（計測終了まで固定）。DamageRecord.is_dead は実測で
+    /// 「対象が死亡状態」を意味し同じ対象へ繰り返し立つため、乗り換えの判定には使えない。
+    #[test]
+    fn first_target_lock_survives_the_targets_death() {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+        let me = 555_i64;
+        let first = monster_uuid_for(9001);
+        let second = monster_uuid_for(9002);
+
+        let mut enc = armed_with(MeasureScope { first_target_only: true, self_only: false });
+        enc.set_local_player_uid(me);
+
+        process_scene_delta(&mut enc, damage_delta(first, player_uuid_for(me), 100));
+        let mut killing_blow = damage_delta(first, player_uuid_for(me), 50);
+        killing_blow.skill_effects.as_mut().unwrap().damages[0].is_dead = true;
+        process_scene_delta(&mut enc, killing_blow);
+        process_scene_delta(&mut enc, damage_delta(second, player_uuid_for(me), 900));
+
+        assert_eq!(enc.locked_target, Some(EntityKey::from_uuid(first)));
+        assert_eq!(enc.dmg_stats.total, 150, "撃破後に次の敵へ乗り換えている");
+    }
+
+    /// 設定 off（既定）では全対象が集計される。ロックも張らない。
+    #[test]
+    fn first_target_lock_off_keeps_every_target() {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+        let me = 555_i64;
+
+        let mut enc = armed_with(MeasureScope::default());
+        enc.set_local_player_uid(me);
+
+        process_scene_delta(&mut enc, damage_delta(monster_uuid_for(9001), player_uuid_for(me), 100));
+        process_scene_delta(&mut enc, damage_delta(monster_uuid_for(9002), player_uuid_for(me), 900));
+
+        assert_eq!(enc.locked_target, None);
+        assert_eq!(enc.dmg_stats.total, 1_000);
+    }
+
+    /// 回復はロックの対象外（対象がプレイヤーなので構造上排他）。
+    /// 自分のみ計測と併用しても、ヒール出力が消えることはない。
+    #[test]
+    fn first_target_lock_does_not_touch_heals() {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+        let me = 555_i64;
+        let ally = 777_i64;
+
+        let mut enc = armed_with(MeasureScope { first_target_only: true, self_only: false });
+        enc.set_local_player_uid(me);
+
+        process_scene_delta(&mut enc, damage_delta(monster_uuid_for(9001), player_uuid_for(me), 100));
+        process_scene_delta(&mut enc, heal_delta(player_uuid_for(ally), player_uuid_for(me), 300));
+
+        assert_eq!(enc.heal_stats.total, 300, "ロックが回復を落としている");
+    }
+
+    /// 通常モード（計測ボタンを押していない）ではロックは効かない。
+    #[test]
+    fn first_target_lock_is_inactive_outside_a_measurement() {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+        let me = 555_i64;
+
+        let mut enc = Encounter::default();
+        enc.set_local_player_uid(me);
+
+        process_scene_delta(&mut enc, damage_delta(monster_uuid_for(9001), player_uuid_for(me), 100));
+        process_scene_delta(&mut enc, damage_delta(monster_uuid_for(9002), player_uuid_for(me), 900));
+
+        assert_eq!(enc.locked_target, None);
+        assert_eq!(enc.dmg_stats.total, 1_000);
     }
 
     // ─── 3分計測の起点（Pending3Min → Active3Min） ───────────────────────────────

@@ -1,7 +1,9 @@
 //! 自己ベスト記録の永続化（settings.rs の読み書きパターンを踏襲）。
 //! %APPDATA%\bpsr-checker\best_records.json に保存する。
-//! キー=計測時間(秒。丸め)。同じ計測時間設定どうしのみで比較する（時間が違うと不公平なため）。
+//! キー=計測時間(秒。丸め)＋その計測に効いていた絞り込み条件。同じ条件どうしのみで比較する
+//! （時間や条件が違うと不公平なため）。
 
+use bpsr_core::engine::encounter::MeasureScope;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -83,20 +85,37 @@ impl BestRecords {
         }
     }
 
-    /// duration_sec の記録を取得（存在しなければ None）。
-    pub fn get(&self, duration_sec: u32) -> Option<&BestRecord> {
-        self.records.get(&duration_sec.to_string())
+    /// 記録のキー。計測時間に、その計測へ効いていた絞り込み条件を足す。
+    ///
+    /// 条件付きの計測は数値が下がる方向にしか働かないため、同じキーへ入れると通常計測で作った
+    /// 記録がずっと残り、条件付きの記録が二度と登録されない（機能が黙って動かなくなる）。
+    /// 条件なしは従来どおり `"180"` のままなので、既存の best_records.json をそのまま読める。
+    fn key(duration_sec: u32, scope: MeasureScope) -> String {
+        let mut key = duration_sec.to_string();
+        if scope.self_only {
+            key.push_str(":s");
+        }
+        if scope.first_target_only {
+            key.push_str(":t");
+        }
+        key
+    }
+
+    /// duration_sec とその計測条件に対応する記録を取得（存在しなければ None）。
+    pub fn get(&self, duration_sec: u32, scope: MeasureScope) -> Option<&BestRecord> {
+        self.records.get(&Self::key(duration_sec, scope))
     }
 
     /// dps が既存記録を上回っていれば更新して true を返す（既存が無ければ常に新記録）。
     pub fn try_update(
         &mut self,
         duration_sec: u32,
+        scope: MeasureScope,
         dps: f64,
         total_dmg: f64,
         recorded_at_ms: i64,
     ) -> bool {
-        let key = duration_sec.to_string();
+        let key = Self::key(duration_sec, scope);
         let is_new = match self.records.get(&key) {
             Some(r) => dps > r.dps,
             None => true,
@@ -125,12 +144,12 @@ mod tests {
     #[test]
     fn roundtrip_via_json_string() {
         let mut recs = BestRecords::default();
-        recs.try_update(180, 12345.6, 999_999.0, 1_700_000_000_000);
+        recs.try_update(180, MeasureScope::default(), 12345.6, 999_999.0, 1_700_000_000_000);
         let json = serde_json::to_string_pretty(&recs).unwrap();
         let restored = parse(&json);
         assert_eq!(restored.version, CURRENT_VERSION);
-        assert_eq!(restored.get(180).unwrap().dps, 12345.6);
-        assert_eq!(restored.get(180).unwrap().total_dmg, 999_999.0);
+        assert_eq!(restored.get(180, MeasureScope::default()).unwrap().dps, 12345.6);
+        assert_eq!(restored.get(180, MeasureScope::default()).unwrap().total_dmg, 999_999.0);
     }
 
     #[test]
@@ -143,21 +162,50 @@ mod tests {
     #[test]
     fn try_update_only_when_higher() {
         let mut recs = BestRecords::default();
-        assert!(recs.try_update(180, 100.0, 1000.0, 1));
-        assert!(!recs.try_update(180, 50.0, 1000.0, 2)); // 更新されない(下回る)
-        assert_eq!(recs.get(180).unwrap().dps, 100.0);
-        assert!(recs.try_update(180, 150.0, 1000.0, 3)); // 更新される(上回る)
-        assert_eq!(recs.get(180).unwrap().dps, 150.0);
+        assert!(recs.try_update(180, MeasureScope::default(), 100.0, 1000.0, 1));
+        assert!(!recs.try_update(180, MeasureScope::default(), 50.0, 1000.0, 2)); // 更新されない(下回る)
+        assert_eq!(recs.get(180, MeasureScope::default()).unwrap().dps, 100.0);
+        assert!(recs.try_update(180, MeasureScope::default(), 150.0, 1000.0, 3)); // 更新される(上回る)
+        assert_eq!(recs.get(180, MeasureScope::default()).unwrap().dps, 150.0);
+    }
+
+    /// 絞り込み条件が違う計測は別枠として記録される。同じ枠にすると、数値が下がる方向にしか
+    /// 働かない条件付きの計測が二度と記録を更新できない（機能が黙って動かなくなる）。
+    #[test]
+    fn different_measure_scopes_are_independent() {
+        let plain = MeasureScope::default();
+        let self_only = MeasureScope { first_target_only: false, self_only: true };
+        let both = MeasureScope { first_target_only: true, self_only: true };
+
+        let mut recs = BestRecords::default();
+        recs.try_update(180, plain, 100.0, 1000.0, 1);
+        recs.try_update(180, self_only, 30.0, 300.0, 2);
+        recs.try_update(180, both, 20.0, 200.0, 3);
+
+        assert_eq!(recs.get(180, plain).unwrap().dps, 100.0);
+        assert_eq!(recs.get(180, self_only).unwrap().dps, 30.0);
+        assert_eq!(recs.get(180, both).unwrap().dps, 20.0);
+    }
+
+    /// 条件なしのキーは従来どおり計測時間だけ＝既存の best_records.json をそのまま読める。
+    #[test]
+    fn plain_scope_keeps_the_legacy_key() {
+        let restored = parse(r#"{"version":1,"records":{"180":{"dps":42.0,"totalDmg":1.0,"recordedAtMs":1}}}"#);
+        assert_eq!(
+            restored.get(180, MeasureScope::default()).unwrap().dps,
+            42.0,
+            "旧ファイルの記録が読めなくなっている"
+        );
     }
 
     #[test]
     fn different_durations_are_independent() {
         let mut recs = BestRecords::default();
-        recs.try_update(180, 100.0, 1000.0, 1);
-        recs.try_update(300, 50.0, 1000.0, 2);
-        assert_eq!(recs.get(180).unwrap().dps, 100.0);
-        assert_eq!(recs.get(300).unwrap().dps, 50.0);
-        assert!(recs.get(60).is_none());
+        recs.try_update(180, MeasureScope::default(), 100.0, 1000.0, 1);
+        recs.try_update(300, MeasureScope::default(), 50.0, 1000.0, 2);
+        assert_eq!(recs.get(180, MeasureScope::default()).unwrap().dps, 100.0);
+        assert_eq!(recs.get(300, MeasureScope::default()).unwrap().dps, 50.0);
+        assert!(recs.get(60, MeasureScope::default()).is_none());
     }
 
     // 前方互換の確認: BestRecord に将来フィールドが増えても、それを持たない「旧形式」の
@@ -174,8 +222,8 @@ mod tests {
         }"#;
         let restored = parse(json);
         assert_eq!(restored.records.len(), 1);
-        assert_eq!(restored.get(180).unwrap().dps, 42.0);
-        assert_eq!(restored.get(180).unwrap().recorded_at_ms, 0); // default 値
+        assert_eq!(restored.get(180, MeasureScope::default()).unwrap().dps, 42.0);
+        assert_eq!(restored.get(180, MeasureScope::default()).unwrap().recorded_at_ms, 0); // default 値
 
         // ファイル自体(version含む)がまるごと欠けているケース(初回起動相当)も空扱いで壊れない。
         let restored_empty = parse("{}");

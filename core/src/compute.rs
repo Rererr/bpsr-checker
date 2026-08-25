@@ -1421,6 +1421,17 @@ pub fn get_tracked_buffs(
     }
 }
 
+/// 現在の計測スコープ。`finalize_3min_measure_mode`（内部で measure_mode を Normal へ戻す）
+/// より前に採ること。結果の透かしと自己ベストのキーが、その計測に効いていた条件を持つために使う。
+pub fn get_measure_scope(enc: &EncounterMutex) -> crate::engine::encounter::MeasureScope {
+    with_lock_or(
+        enc,
+        "get_measure_scope",
+        crate::engine::encounter::MeasureScope::default(),
+        |e| e.measure_scope(),
+    )
+}
+
 pub fn get_measure_mode_status(enc: &EncounterMutex) -> MeasureModeStatus {
     use crate::engine::encounter::MeasureMode;
     use crate::engine::processor::now_ms;
@@ -1917,7 +1928,10 @@ mod tests {
             measure_mode: crate::engine::encounter::MeasureMode::Active3Min {
                 armed_at_ms: 1_000,
                 duration_ms: 180_000,
-                scope: crate::engine::encounter::MeasureScope { self_only },
+                scope: crate::engine::encounter::MeasureScope {
+                    first_target_only: false,
+                    self_only,
+                },
             },
             ..Default::default()
         };

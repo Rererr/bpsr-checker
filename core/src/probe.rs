@@ -480,12 +480,68 @@ static SUMMON_DAMAGE_BY_SKILL: LazyLock<Mutex<HashMap<i32, (u64, i64)>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// M8: 総ダメージ（`encounter.dmg_stats`）へ計上した非Healダメージの対象別内訳。
-/// 値は (件数, 実効値合計)。キーは (target_uid, target の monster_id)。
+/// 値は (件数, 実効値合計)。キーは (target の UUID, target の monster_id)。
+///
+/// キーに `uuid >> 16` ではなく UUID をそのまま使う。上位ビットは種別ごとに独立した連番で
+/// プレイヤー・モンスター・召喚体の間で衝突するため、潰すと「同じ対象へのダメージ」を
+/// 数えたことにならず、初撃対象ロックのキー設計の根拠に使えない。
 static DAMAGE_BY_TARGET: LazyLock<Mutex<HashMap<(i64, Option<u32>), (u64, i64)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// M11: 同じ母集団の攻撃者別内訳。キーは attacker の UUID（`top_summoner_id` で
+/// 召喚主へ寄せたあとの値）。自分のみ計測を入れたときに何が落ちるかを測る。
+static DAMAGE_BY_ATTACKER: LazyLock<Mutex<HashMap<i64, (u64, i64)>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// M7/M8 の内訳ログに並べる最大件数（1行が肥大しないよう上位のみ出す）。
 const BREAKDOWN_TOP_N: usize = 12;
+
+// ─── M9〜M14: 計測スコープ（初撃対象ロック / 自分のみ計測）の実測 ─────────────────
+//
+// 実装前に確定させたいのは次の6点。いずれも集計には影響しない。
+//
+// - M9  計測時計の起点になったデルタが自分の一撃だったか（`fight-start` 行）
+// - M10 初撃対象ロックを入れたら総ダメージがどれだけ落ちるか（`encounter-scope` 行）
+// - M11 自分のみ計測を入れたら総ダメージがどれだけ落ちるか（同上・攻撃者別内訳）
+// - M12 木人やボスの UUID 種別コードが Monster(64) か Unknown か（`encounter-targets` 行）
+// - M13 `DamageRecord.is_dead` が実機で立つか、継続ダメージで多重に立たないか（`is-dead` 行）
+// - M14 範囲攻撃が対象ごとに別 SceneDelta で届くか（`delta-batch` 行）
+
+/// M10: 初撃対象ロックのシミュレーション対象（UUID）。0 は未確立。
+/// エンカウンターサマリーでリセットする（実装側の `clear_combat_stats` に相当）。
+static LOCK_SIM_TARGET: AtomicI64 = AtomicI64::new(0);
+
+/// M10/M11: `encounter.dmg_stats` へ積んだ非Healダメージの母集団と、その部分集合。
+/// self / locked / both は total の部分集合で、同じタイミングで加算する
+/// （別々の条件で数えると割合が出せなくなる）。
+static SCOPE_TOTAL_N: AtomicU64 = AtomicU64::new(0);
+static SCOPE_TOTAL_V: AtomicI64 = AtomicI64::new(0);
+static SCOPE_SELF_N: AtomicU64 = AtomicU64::new(0);
+static SCOPE_SELF_V: AtomicI64 = AtomicI64::new(0);
+static SCOPE_LOCKED_N: AtomicU64 = AtomicU64::new(0);
+static SCOPE_LOCKED_V: AtomicI64 = AtomicI64::new(0);
+static SCOPE_BOTH_N: AtomicU64 = AtomicU64::new(0);
+static SCOPE_BOTH_V: AtomicI64 = AtomicI64::new(0);
+
+/// 自キャラ UID が未確定（0）のあいだに処理したぶん。未確定の窓の実害を測る。
+static SCOPE_NO_SELF_UID_N: AtomicU64 = AtomicU64::new(0);
+static SCOPE_NO_SELF_UID_V: AtomicI64 = AtomicI64::new(0);
+
+/// M13: `is_dead=true` のレコード。件数は全数、明細は先頭のみ出す。
+static IS_DEAD_COUNT: AtomicU64 = AtomicU64::new(0);
+static IS_DEAD_LOGGED: AtomicU64 = AtomicU64::new(0);
+const IS_DEAD_LOG_SAMPLE: u64 = 15;
+
+/// M14: ダメージを含む WorldDeltaBatch の形。
+static BATCH_WITH_DAMAGE: AtomicU64 = AtomicU64::new(0);
+static BATCH_MULTI_TARGET: AtomicU64 = AtomicU64::new(0);
+static BATCH_MAX_TARGETS: AtomicU64 = AtomicU64::new(0);
+static BATCH_LOGGED: AtomicU64 = AtomicU64::new(0);
+static BATCH_MULTI_LOGGED: AtomicU64 = AtomicU64::new(0);
+/// 単一対象のバッチは最初の数件だけ形を見れば足りる。複数対象は範囲攻撃の到来パターンを
+/// 確定させる本命なので、別枠で多めに出す。
+const BATCH_LOG_SAMPLE: u64 = 5;
+const BATCH_MULTI_LOG_SAMPLE: u64 = 15;
 
 /// M7: 召喚体が出したダメージをスキル別に計上する。`actual_value` は
 /// combat_stats::actual_value と同じ「lucky_value優先」の実効値。
@@ -509,22 +565,89 @@ pub fn record_summon_damage(skill_uid: i32, actual_value: i64) {
     slot.1 += actual_value;
 }
 
-/// M8: `encounter.dmg_stats` へ実際に積んだ非Healダメージを対象別に計上する
-/// （`actual_value` の意味は上と同じ）。呼び出し位置は dmg_stats への加算と同じ分岐に置くこと。
+/// M8/M10/M11/M12: `encounter.dmg_stats` へ実際に積んだ非Healダメージを、対象別・攻撃者別・
+/// 「初撃対象ロックを入れていたら残ったか」別に計上する（`actual_value` の意味は上と同じ）。
+/// 呼び出し位置は dmg_stats への加算と同じ分岐に置くこと。
 ///
-/// 用途は「ターゲットロックが要るか」の判定。当アプリの総ダメージは target を一切見ずに
-/// 加算するため、範囲攻撃が計測対象以外へ当たっていればここに別キーとして現れる。
-/// 木人計測中に distinct が 1 のままなら、対象を絞る実装は当環境では不要と判断できる。
-pub fn record_damage_target(target_uid: i64, monster_id: Option<u32>, actual_value: i64) {
+/// 集計そのものには影響しない。ロックは記録の中だけで張り、実際の加算は従来どおり全対象ぶん
+/// 行う。したがってこの計測を入れた状態の表示は現行版と一致する。
+///
+/// `self_uid` は自キャラのプレイヤー UID。0 は未確定を表し、その間はロックを張らない
+/// （実装予定の条件と同じ。未確定の窓で無関係な対象へロックが確定するのを防ぐ）。
+pub fn record_damage_scope(
+    target_uuid: i64,
+    target_monster_id: Option<u32>,
+    attacker_uuid: i64,
+    self_uid: i64,
+    actual_value: i64,
+) {
     if !enabled() {
         return;
     }
-    let mut map = DAMAGE_BY_TARGET
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let slot = map.entry((target_uid, monster_id)).or_insert((0, 0));
-    slot.0 += 1;
-    slot.1 += actual_value;
+    use crate::protocol::constants::entity as entity_const;
+
+    let self_uuid = if self_uid == 0 {
+        0
+    } else {
+        self_uid << 16 | entity_const::PLAYER_TYPE_CODE
+    };
+    let from_self = self_uuid != 0 && attacker_uuid == self_uuid;
+    let target_code = target_uuid & entity_const::TYPE_MASK as i64;
+    let target_is_player = target_code == entity_const::PLAYER_TYPE_CODE;
+
+    // 初撃対象ロックのシミュレーション。実装予定の条件（自分の与ダメージ／対象はプレイヤー
+    // 以外／エンカウンターにつき1回）をそのまま再現する。compare_exchange で「最初の1件」を
+    // 取り、勝った側だけがログを出す。
+    if from_self
+        && !target_is_player
+        && LOCK_SIM_TARGET
+            .compare_exchange(0, target_uuid, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
+    {
+        info!(
+            "PROBE lock-sim: locked target_uuid={target_uuid} target_code={target_code} monster_id={target_monster_id:?} attacker_uuid={attacker_uuid}"
+        );
+    }
+    let locked = LOCK_SIM_TARGET.load(Ordering::Relaxed);
+    let on_locked = locked != 0 && locked == target_uuid;
+
+    SCOPE_TOTAL_N.fetch_add(1, Ordering::Relaxed);
+    SCOPE_TOTAL_V.fetch_add(actual_value, Ordering::Relaxed);
+    if from_self {
+        SCOPE_SELF_N.fetch_add(1, Ordering::Relaxed);
+        SCOPE_SELF_V.fetch_add(actual_value, Ordering::Relaxed);
+    }
+    if on_locked {
+        SCOPE_LOCKED_N.fetch_add(1, Ordering::Relaxed);
+        SCOPE_LOCKED_V.fetch_add(actual_value, Ordering::Relaxed);
+    }
+    if from_self && on_locked {
+        SCOPE_BOTH_N.fetch_add(1, Ordering::Relaxed);
+        SCOPE_BOTH_V.fetch_add(actual_value, Ordering::Relaxed);
+    }
+    if self_uid == 0 {
+        SCOPE_NO_SELF_UID_N.fetch_add(1, Ordering::Relaxed);
+        SCOPE_NO_SELF_UID_V.fetch_add(actual_value, Ordering::Relaxed);
+    }
+
+    {
+        let mut map = DAMAGE_BY_TARGET
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let slot = map
+            .entry((target_uuid, target_monster_id))
+            .or_insert((0, 0));
+        slot.0 += 1;
+        slot.1 += actual_value;
+    }
+    {
+        let mut map = DAMAGE_BY_ATTACKER
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let slot = map.entry(attacker_uuid).or_insert((0, 0));
+        slot.0 += 1;
+        slot.1 += actual_value;
+    }
 }
 
 /// 内訳マップを「実効値の降順・上位 [`BREAKDOWN_TOP_N`] 件」の1行文字列にする。
@@ -545,14 +668,120 @@ fn format_breakdown<K>(entries: Vec<(K, (u64, i64))>, label: impl Fn(&K) -> Stri
     }
 }
 
-/// M6: 戦闘時計（time_fight_start_ms）が起動した瞬間、そのデルタが damages を含んでいたか。
-/// false なら自己バフ・詠唱等の非ダメージ delta で時計が起動しており、分母（経過時間）が
-/// 実ダメージ開始より早く進み始めている可能性を示す。
-pub fn log_fight_start(had_damages: bool) {
+/// M6/M9: 戦闘時計（`time_fight_start_ms`）が起動した瞬間の帰属。
+///
+/// M6 は「そのデルタが damages を含んでいたか」だけを見ていた。false なら自己バフ・詠唱等の
+/// 非ダメージ delta で時計が起動しており、分母が実ダメージ開始より早く進み始めていることを示す。
+///
+/// M9 はここに「そのダメージが自分のものだったか」を足す。`Pending3Min` からの遷移も同じ
+/// ブロックで起きるため、計測ボタンの起点が自分の一撃だったかがこの1行で決まる
+/// （`self_damage=false` なら他人の与ダメージや自分の被弾で計測窓が回り始めている）。
+#[allow(clippy::too_many_arguments)]
+pub fn log_fight_start(
+    had_damages: bool,
+    self_damage: bool,
+    damages_n: usize,
+    target_uuid: i64,
+    target_monster_id: Option<u32>,
+    self_uid: i64,
+    pending_measure: bool,
+) {
     if !enabled() {
         return;
     }
-    info!("PROBE fight-start: had_damages={had_damages}");
+    let target_code = target_uuid & crate::protocol::constants::entity::TYPE_MASK as i64;
+    let target_kind = pb::EntityKind::from(target_uuid);
+    info!(
+        "PROBE fight-start: had_damages={had_damages} self_damage={self_damage} damages_n={damages_n} \
+         target_uuid={target_uuid} target_code={target_code} target_kind={target_kind:?} \
+         monster_id={target_monster_id:?} self_uid={self_uid} pending_measure={pending_measure}"
+    );
+}
+
+/// M13: `DamageRecord.is_dead` が立ったレコード。エンジンはこのフィールドを一度も読んで
+/// おらず、実機で立つのか、継続ダメージのティックごとに多重に立つのか、ボスのギミック死亡で
+/// 省略されるのかがどれも未検証である。ロック解除の判定に使えるかどうかをここで決める。
+pub fn record_is_dead(
+    target_uuid: i64,
+    target_monster_id: Option<u32>,
+    attacker_uuid: i64,
+    skill_uid: i32,
+    actual_value: i64,
+    is_heal: bool,
+) {
+    if !enabled() {
+        return;
+    }
+    let n = IS_DEAD_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+    if IS_DEAD_LOGGED.fetch_add(1, Ordering::Relaxed) >= IS_DEAD_LOG_SAMPLE {
+        return;
+    }
+    let target_code = target_uuid & crate::protocol::constants::entity::TYPE_MASK as i64;
+    info!(
+        "PROBE is-dead: #{n} target_uuid={target_uuid} target_code={target_code} \
+         monster_id={target_monster_id:?} attacker_uuid={attacker_uuid} skill={skill_uid} \
+         value={actual_value} heal={is_heal}"
+    );
+}
+
+/// M14: ダメージを含む `WorldDeltaBatch` の形を計上する。
+///
+/// 1つの `SceneDelta` は `uuid` ひとつ（＝被弾側1体）しか持てないため、範囲攻撃が複数の敵に
+/// 当たったなら対象ごとに別のデルタで届くはずである。これは protobuf の構造からの推論であって
+/// 実測ではないので、同一バッチ内の distinct 対象数を数えて確かめる。
+/// `distinct_targets >= 2` のバッチが観測できれば、初撃対象ロックを `target_key` 1個の比較で
+/// 実装してよいと確定する。
+pub fn record_delta_batch(deltas: &[pb::SceneDelta]) {
+    if !enabled() {
+        return;
+    }
+    let mut with_damage = 0usize;
+    let mut damage_records = 0usize;
+    let mut targets: Vec<i64> = Vec::new();
+    for delta in deltas {
+        let n = delta
+            .skill_effects
+            .as_ref()
+            .map_or(0, |effects| effects.damages.len());
+        if n == 0 {
+            continue;
+        }
+        with_damage += 1;
+        damage_records += n;
+        if !targets.contains(&delta.uuid) {
+            targets.push(delta.uuid);
+        }
+    }
+    if with_damage == 0 {
+        return;
+    }
+
+    BATCH_WITH_DAMAGE.fetch_add(1, Ordering::Relaxed);
+    BATCH_MAX_TARGETS.fetch_max(targets.len() as u64, Ordering::Relaxed);
+    let multi = targets.len() > 1;
+    if multi {
+        BATCH_MULTI_TARGET.fetch_add(1, Ordering::Relaxed);
+    }
+
+    // 複数対象のバッチは本命なので別枠で数える。単一対象は形の確認に数件あれば足りる。
+    let should_log = if multi {
+        BATCH_MULTI_LOGGED.fetch_add(1, Ordering::Relaxed) < BATCH_MULTI_LOG_SAMPLE
+    } else {
+        BATCH_LOGGED.fetch_add(1, Ordering::Relaxed) < BATCH_LOG_SAMPLE
+    };
+    if !should_log {
+        return;
+    }
+    let codes: Vec<i64> = targets
+        .iter()
+        .map(|uuid| uuid & crate::protocol::constants::entity::TYPE_MASK as i64)
+        .collect();
+    info!(
+        "PROBE delta-batch: deltas={} with_damage={with_damage} damage_records={damage_records} \
+         distinct_targets={} targets={targets:?} target_codes={codes:?}",
+        deltas.len(),
+        targets.len()
+    );
 }
 
 /// M2/M3/M5 のカウンタと M4（capture::status の常時カウンタ）を1行のサマリーとしてログする。
@@ -592,8 +821,11 @@ pub fn log_and_reset_encounter_summary() {
     let summon_breakdown = format_breakdown(summon.into_iter().collect(), |k| format!("skill={k}"));
     info!("PROBE encounter-summon: total(n={summon_n}, value={summon_v}) by_skill={summon_breakdown}");
 
-    // M8: 総ダメージへ積んだ非Healダメージの対象別内訳。distinct が 1 なら計測対象以外へは
+    // M8/M12: 総ダメージへ積んだ非Healダメージの対象別内訳。distinct が 1 なら計測対象以外へは
     // 一切飛んでいない＝ターゲットロックは当環境では不要、と判断できる。
+    // 種別コード（UUID 下位16bit）別の内訳を同じマップから導く（同じ母集団を二重に数えない）。
+    // 64=Monster / 640=Player / それ以外は EntityKind::Unknown。木人が Unknown で来るなら、
+    // ロック候補を Monster に限定する実装は当環境で黙って無効化される。
     let targets: HashMap<(i64, Option<u32>), (u64, i64)> = {
         let mut map = DAMAGE_BY_TARGET
             .lock()
@@ -601,10 +833,81 @@ pub fn log_and_reset_encounter_summary() {
         std::mem::take(&mut *map)
     };
     let targets_distinct = targets.len();
-    let targets_breakdown = format_breakdown(targets.into_iter().collect(), |(uid, monster_id)| {
-        format!("target={uid} monster_id={monster_id:?}")
+    let mut by_code: HashMap<i64, (u64, i64)> = HashMap::new();
+    for (&(uuid, _), &(n, v)) in &targets {
+        let slot = by_code
+            .entry(uuid & crate::protocol::constants::entity::TYPE_MASK as i64)
+            .or_insert((0, 0));
+        slot.0 += n;
+        slot.1 += v;
+    }
+    let code_breakdown = format_breakdown(by_code.into_iter().collect(), |code| {
+        format!("code={code}({:?})", pb::EntityKind::from(*code))
+    });
+    let targets_breakdown = format_breakdown(targets.into_iter().collect(), |(uuid, monster_id)| {
+        format!("target_uuid={uuid} monster_id={monster_id:?}")
     });
     info!(
-        "PROBE encounter-targets: distinct={targets_distinct} by_target={targets_breakdown}"
+        "PROBE encounter-targets: distinct={targets_distinct} by_code={code_breakdown} by_target={targets_breakdown}"
+    );
+
+    // M11: 同じ母集団の攻撃者別内訳。自分のみ計測で何が落ちるかを対象別と対で読む。
+    let attackers: HashMap<i64, (u64, i64)> = {
+        let mut map = DAMAGE_BY_ATTACKER
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        std::mem::take(&mut *map)
+    };
+    let attackers_distinct = attackers.len();
+    let attackers_breakdown = format_breakdown(attackers.into_iter().collect(), |uuid| {
+        format!(
+            "attacker_uuid={uuid}({:?})",
+            pb::EntityKind::from(*uuid)
+        )
+    });
+    info!(
+        "PROBE encounter-attackers: distinct={attackers_distinct} by_attacker={attackers_breakdown}"
+    );
+
+    // M10/M11: 二つの絞り込みを入れていたら総ダメージがどう変わっていたか。
+    // total が現行の表示値、self / locked / both がそれぞれの機能を入れた場合の値になる。
+    let total_n = SCOPE_TOTAL_N.swap(0, Ordering::Relaxed);
+    let total_v = SCOPE_TOTAL_V.swap(0, Ordering::Relaxed);
+    let self_n = SCOPE_SELF_N.swap(0, Ordering::Relaxed);
+    let self_v = SCOPE_SELF_V.swap(0, Ordering::Relaxed);
+    let locked_n = SCOPE_LOCKED_N.swap(0, Ordering::Relaxed);
+    let locked_v = SCOPE_LOCKED_V.swap(0, Ordering::Relaxed);
+    let both_n = SCOPE_BOTH_N.swap(0, Ordering::Relaxed);
+    let both_v = SCOPE_BOTH_V.swap(0, Ordering::Relaxed);
+    let no_uid_n = SCOPE_NO_SELF_UID_N.swap(0, Ordering::Relaxed);
+    let no_uid_v = SCOPE_NO_SELF_UID_V.swap(0, Ordering::Relaxed);
+    let lock_target = LOCK_SIM_TARGET.swap(0, Ordering::Relaxed);
+    let pct = |v: i64| {
+        if total_v == 0 {
+            0.0
+        } else {
+            v as f64 * 100.0 / total_v as f64
+        }
+    };
+    info!(
+        "PROBE encounter-scope: lock_sim_target={lock_target} total(n={total_n}, value={total_v}) \
+         self(n={self_n}, value={self_v}, {:.1}%) locked(n={locked_n}, value={locked_v}, {:.1}%) \
+         both(n={both_n}, value={both_v}, {:.1}%) no_self_uid(n={no_uid_n}, value={no_uid_v})",
+        pct(self_v),
+        pct(locked_v),
+        pct(both_v)
+    );
+
+    // M13/M14: is_dead の出現数と、ダメージ入りバッチの形。
+    let is_dead_n = IS_DEAD_COUNT.swap(0, Ordering::Relaxed);
+    IS_DEAD_LOGGED.store(0, Ordering::Relaxed);
+    let batch_n = BATCH_WITH_DAMAGE.swap(0, Ordering::Relaxed);
+    let batch_multi = BATCH_MULTI_TARGET.swap(0, Ordering::Relaxed);
+    let batch_max = BATCH_MAX_TARGETS.swap(0, Ordering::Relaxed);
+    BATCH_LOGGED.store(0, Ordering::Relaxed);
+    BATCH_MULTI_LOGGED.store(0, Ordering::Relaxed);
+    info!(
+        "PROBE encounter-shape: is_dead(n={is_dead_n}) delta_batches(with_damage={batch_n}, \
+         multi_target={batch_multi}, max_targets={batch_max})"
     );
 }

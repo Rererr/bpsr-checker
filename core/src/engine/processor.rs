@@ -1031,6 +1031,10 @@ pub fn process_opcode(enc: &EncounterMutex, env: PktEnvelope) -> AppResult<()> {
                     else {
                         return Ok(());
                     };
+                    // M14計測: 範囲攻撃が対象ごとに別 SceneDelta で届くかを、同一バッチ内の
+                    // distinct 対象数で確かめる（1つの SceneDelta は uuid ひとつしか持てない）。
+                    // 消費前に形だけ数える。
+                    crate::probe::record_delta_batch(&msg.delta_infos);
                     for scene_delta in msg.delta_infos {
                         process_scene_delta(&mut encounter, scene_delta);
                     }
@@ -1550,6 +1554,17 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
     // 使い回す＝O(1)）。通常DPSの分母（combat_elapsed_ms）には一切使わない、有効DPS専用の値。
     let active_ts = now_ms();
 
+    // M9〜M13（計測スコープの実測）で使う値。probe 無効時はここから先の probe 呼び出しが
+    // すべて即 return するため、実質ゼロコストで済む。
+    // 自キャラ UID は selected_uid（手動指定）が優先で、無ければ自動検出値。0 は未確定。
+    let probe_self_uid = if crate::probe::enabled() {
+        selected_uid::get().unwrap_or(encounter.local_player_uid)
+    } else {
+        0
+    };
+    let probe_damages_n = skill_effect.damages.len();
+    let mut probe_saw_self_damage = false;
+
     // Process each damage event
     for damage in skill_effect.damages {
         // M5計測: value と lucky_value が両方非ゼロで同時出現するレコードの実態を調べる
@@ -1563,6 +1578,20 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
         // 同じ対象を判定する式を2つ書かないよう、1つの変数から導出する。
         let target_monster_id = encounter.entities.get(&target_key).and_then(|e| e.monster_id);
         let is_boss = target_monster_id.is_some_and(|id| MONSTER_NAMES_BOSS.contains_key(&id));
+
+        // M13計測: is_dead はエンジンが一度も読んでいないフィールドで、実機で立つのか、
+        // 継続ダメージのティックごとに多重に立つのかが未検証。attacker/skill が確定する前の
+        // 生の値で記録する（この下の continue で捨てるレコードにも立ちうるため）。
+        if damage.is_dead {
+            crate::probe::record_is_dead(
+                target_uuid,
+                target_monster_id,
+                damage.attacker_uuid,
+                damage.owner_id,
+                actual_value(&damage),
+                damage.r#type == pb::DmgKind::Heal as i32,
+            );
+        }
 
         let attacker_uuid = if damage.top_summoner_id != 0 {
             damage.top_summoner_id
@@ -1643,7 +1672,21 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
             process_stats(&damage, &mut encounter.dmg_stats);
             // M8計測: dmg_stats に積んだのと同じ条件・同じ値で対象別に記録する
             // （分岐を分けると「総ダメージには入るが内訳には出ない」ズレが生まれるため）。
-            crate::probe::record_damage_target(target_uid, target_monster_id, actual_value(&damage));
+            crate::probe::record_damage_scope(
+                target_uuid,
+                target_monster_id,
+                attacker_uuid,
+                probe_self_uid,
+                actual_value(&damage),
+            );
+            // M9計測: このデルタに「集計された自分の与ダメージ」が含まれていたか。
+            // 戦闘時計と3分計測の起点が自分の一撃だったかの判定に使うため、record_damage_scope
+            // と同じ条件（＝dmg_stats へ積んだもの）から導く。
+            if probe_self_uid != 0
+                && attacker_key == EntityKey::player(probe_self_uid)
+            {
+                probe_saw_self_damage = true;
+            }
             if is_boss {
                 process_stats(&damage, &mut encounter.dmg_stats_boss_only);
             }
@@ -1725,9 +1768,23 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
     let ts = now_ms();
     if encounter.time_fight_start_ms == 0 {
         encounter.time_fight_start_ms = ts;
-        // M6計測: 戦闘時計の起点となったデルタが damages を含んでいたか記録する
-        // （false なら自己バフ・詠唱等で分母が実ダメージ開始より早く進み始めている）。
-        crate::probe::log_fight_start(had_damages);
+        // M6/M9計測: 戦闘時計の起点となったデルタが damages を含んでいたか（false なら
+        // 自己バフ・詠唱等で分母が実ダメージ開始より早く進み始めている）と、そのダメージが
+        // 自分のものだったか（false なら他人の与ダメージや自分の被弾で計測窓が回り始めている）。
+        // 3分計測の Pending→Active 遷移も直後の同じブロックで起きるため、計測ボタンの起点は
+        // この1行で決まる。
+        crate::probe::log_fight_start(
+            had_damages,
+            probe_saw_self_damage,
+            probe_damages_n,
+            target_uuid,
+            encounter.entities.get(&target_key).and_then(|e| e.monster_id),
+            probe_self_uid,
+            matches!(
+                encounter.measure_mode,
+                crate::engine::encounter::MeasureMode::Pending3Min { .. }
+            ),
+        );
         if let crate::engine::encounter::MeasureMode::Pending3Min { duration_ms } =
             encounter.measure_mode
         {

@@ -188,6 +188,8 @@ struct SkillRowUi {
 // 展開はネスト配列を避け、Rust 側で展開中のみプレイヤー行を差し込む。
 struct HistoryRowUi {
     is-header: bool,
+    // 計測に効いていた絞り込み条件（空文字＝条件なし。見出し行でのみ使う）
+    scope-text: string,
     is-skill: bool,
     snap-id: string,
     toggle-key: string,
@@ -1119,6 +1121,8 @@ component HistoryRowItem inherits Rectangle {
         // ── 見出し ──
         if root.e.is-header: Text { text: root.e.name; color: #e6e6f0; font-size: 11px * root.font-scale; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
         if root.e.is-header: Text { text: root.e.duration-text; color: #888; font-size: 10px * root.font-scale; width: 40px; vertical-alignment: center; }
+        // 条件付きの計測だけラベルを出す（幅は内容なり。条件なしの行はレイアウトが変わらない）
+        if root.e.is-header && root.e.scope-text != "": Text { text: root.e.scope-text; color: Theme.accent; font-size: 9px * root.font-scale; vertical-alignment: center; }
         if root.e.is-header: Text { text: root.e.dps-text + " DPS"; color: Theme.accent; font-size: 11px * root.font-scale; width: 90px; vertical-alignment: center; }
         if root.e.is-header: Text { text: root.e.dmg-text; color: #aaa; font-size: 10px * root.font-scale; width: 60px; vertical-alignment: center; }
         if root.e.is-header: Text { text: root.e.count-text + @tr("人"); color: #666; font-size: 10px * root.font-scale; width: 28px; vertical-alignment: center; }
@@ -2230,6 +2234,10 @@ component StatsSection inherits SectionCard {
 
 // 戦闘（終了判定・更新間隔・3分計測）
 component CombatSection inherits SectionCard {
+    // 3分計測の状態（0=通常 / 1=待機 / 2=計測中）。計測の絞り込み条件は開始時にコピーされて
+    // 固定されるため、走行中に触れると「設定はON・実際の計測はOFF」という2つの表示が並ぶ。
+    // 変えられないものを操作させないよう、待機中・計測中は該当トグルを無効化する。
+    in property <int> measure-kind;
     in property <SettingsUi> cfg;
     in property <SettingsNumUi> nums;
     callback set-bool(string, bool);
@@ -2239,14 +2247,14 @@ component CombatSection inherits SectionCard {
     StepperRow { label: @tr("更新間隔(ms)"); value-text: root.nums.poll-interval; dec => { root.bump-num("poll-interval", -1); } inc => { root.bump-num("poll-interval", 1); } }
     StepperRow { label: @tr("計測時間(秒)"); value-text: root.nums.three-min-dur; dec => { root.bump-num("three-min-dur", -1); } inc => { root.bump-num("three-min-dur", 1); } }
     ToggleRow { label: @tr("計測を自動で開く"); checked: root.cfg.three-min-auto-open; toggled => { root.set-bool("three-min-auto-open", !root.cfg.three-min-auto-open); } }
-    ToggleRow { label: @tr("計測を自分の記録のみにする"); checked: root.cfg.measure-self-only; toggled => { root.set-bool("measure-self-only", !root.cfg.measure-self-only); } }
+    ToggleRow { label: @tr("計測を自分の記録のみにする"); checked: root.cfg.measure-self-only; enabled: root.measure-kind == 0; toggled => { root.set-bool("measure-self-only", !root.cfg.measure-self-only); } }
     Text {
         text: @tr("計測中だけ他のプレイヤーを一覧から隠します。データは取り続けているので、設定を戻せば元の表示に戻ります");
         color: SettingsStyle.hint;
         font-size: SettingsStyle.hint-size;
         wrap: word-wrap;
     }
-    ToggleRow { label: @tr("計測を最初に攻撃した敵のみにする"); checked: root.cfg.measure-first-target-only; toggled => { root.set-bool("measure-first-target-only", !root.cfg.measure-first-target-only); } }
+    ToggleRow { label: @tr("計測を最初に攻撃した敵のみにする"); checked: root.cfg.measure-first-target-only; enabled: root.measure-kind == 0; toggled => { root.set-bool("measure-first-target-only", !root.cfg.measure-first-target-only); } }
     Text {
         text: @tr("単体の敵を測るとき用です。複数の敵を同時に攻撃する計測では、最初の1体ぶんしか集計されません");
         color: SettingsStyle.hint;
@@ -3818,7 +3826,7 @@ export component MainWindow inherits Window {
                             if root.scol(1) == 0: DisplayColsSection { cfg: root.cfg-ui; set-bool(k, v) => { root.set-bool(k, v); } }
                             if root.scol(2) == 0: DisplaySection { cfg: root.cfg-ui; nums: root.nums; accent-h: root.accent-h; accent-s: root.accent-s; accent-v: root.accent-v; dps-bar-fixed-max-value <=> root.dps-bar-fixed-max-value; dps-bar-window-secs-value <=> root.dps-bar-window-secs-value; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } commit-str(k) => { root.commit-str(k); } pick-accent(h, s, v) => { root.pick-accent(h, s, v); } picker-dragging-changed(d) => { root.picker-dragging = d; } }
                             if root.scol(3) == 0: OverlaySection { cfg: root.cfg-ui; nums: root.nums; overlay-opacity: root.overlay-opacity; text-h: root.overlay-text-h; text-s: root.overlay-text-s; text-v: root.overlay-text-v; set-bool(k, v) => { root.set-bool(k, v); } set-overlay-opacity(v) => { root.set-overlay-opacity(v); } pick-text(h, s, v) => { root.pick-overlay-text(h, s, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } picker-dragging-changed(d) => { root.picker-dragging = d; } }
-                            if root.scol(4) == 0: CombatSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
+                            if root.scol(4) == 0: CombatSection { cfg: root.cfg-ui; nums: root.nums; measure-kind: root.measure-kind; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
                             if root.scol(5) == 0: HistorySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
                             if root.scol(7) == 0: ImagineTimerSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } clear-watchlist => { root.clear-watchlist(); } }
                             if root.scol(6) == 0: StatsSection { cfg: root.cfg-ui; nums: root.nums; catalog-left: root.stat-catalog-left; catalog-right: root.stat-catalog-right; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } }
@@ -3834,7 +3842,7 @@ export component MainWindow inherits Window {
                             if root.scol(1) == 1: DisplayColsSection { cfg: root.cfg-ui; set-bool(k, v) => { root.set-bool(k, v); } }
                             if root.scol(2) == 1: DisplaySection { cfg: root.cfg-ui; nums: root.nums; accent-h: root.accent-h; accent-s: root.accent-s; accent-v: root.accent-v; dps-bar-fixed-max-value <=> root.dps-bar-fixed-max-value; dps-bar-window-secs-value <=> root.dps-bar-window-secs-value; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } commit-str(k) => { root.commit-str(k); } pick-accent(h, s, v) => { root.pick-accent(h, s, v); } picker-dragging-changed(d) => { root.picker-dragging = d; } }
                             if root.scol(3) == 1: OverlaySection { cfg: root.cfg-ui; nums: root.nums; overlay-opacity: root.overlay-opacity; text-h: root.overlay-text-h; text-s: root.overlay-text-s; text-v: root.overlay-text-v; set-bool(k, v) => { root.set-bool(k, v); } set-overlay-opacity(v) => { root.set-overlay-opacity(v); } pick-text(h, s, v) => { root.pick-overlay-text(h, s, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } picker-dragging-changed(d) => { root.picker-dragging = d; } }
-                            if root.scol(4) == 1: CombatSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
+                            if root.scol(4) == 1: CombatSection { cfg: root.cfg-ui; nums: root.nums; measure-kind: root.measure-kind; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
                             if root.scol(5) == 1: HistorySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
                             if root.scol(7) == 1: ImagineTimerSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } clear-watchlist => { root.clear-watchlist(); } }
                             if root.scol(6) == 1: StatsSection { cfg: root.cfg-ui; nums: root.nums; catalog-left: root.stat-catalog-left; catalog-right: root.stat-catalog-right; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } }
@@ -3850,7 +3858,7 @@ export component MainWindow inherits Window {
                             if root.scol(1) == 2: DisplayColsSection { cfg: root.cfg-ui; set-bool(k, v) => { root.set-bool(k, v); } }
                             if root.scol(2) == 2: DisplaySection { cfg: root.cfg-ui; nums: root.nums; accent-h: root.accent-h; accent-s: root.accent-s; accent-v: root.accent-v; dps-bar-fixed-max-value <=> root.dps-bar-fixed-max-value; dps-bar-window-secs-value <=> root.dps-bar-window-secs-value; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } commit-str(k) => { root.commit-str(k); } pick-accent(h, s, v) => { root.pick-accent(h, s, v); } picker-dragging-changed(d) => { root.picker-dragging = d; } }
                             if root.scol(3) == 2: OverlaySection { cfg: root.cfg-ui; nums: root.nums; overlay-opacity: root.overlay-opacity; text-h: root.overlay-text-h; text-s: root.overlay-text-s; text-v: root.overlay-text-v; set-bool(k, v) => { root.set-bool(k, v); } set-overlay-opacity(v) => { root.set-overlay-opacity(v); } pick-text(h, s, v) => { root.pick-overlay-text(h, s, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } picker-dragging-changed(d) => { root.picker-dragging = d; } }
-                            if root.scol(4) == 2: CombatSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
+                            if root.scol(4) == 2: CombatSection { cfg: root.cfg-ui; nums: root.nums; measure-kind: root.measure-kind; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
                             if root.scol(5) == 2: HistorySection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } }
                             if root.scol(7) == 2: ImagineTimerSection { cfg: root.cfg-ui; nums: root.nums; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } clear-watchlist => { root.clear-watchlist(); } }
                             if root.scol(6) == 2: StatsSection { cfg: root.cfg-ui; nums: root.nums; catalog-left: root.stat-catalog-left; catalog-right: root.stat-catalog-right; set-bool(k, v) => { root.set-bool(k, v); } bump-num(k, d) => { root.bump-num(k, d); } set-str(k, v) => { root.set-str(k, v); } }

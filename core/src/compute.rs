@@ -958,6 +958,7 @@ pub fn build_encounter_snapshot(encounter: &Encounter, now: u128) -> EncounterSn
             .iter()
             .cloned()
             .collect(),
+        measure_scope: encounter.measure_scope(),
         participant_player_uids: encounter
             .participant_player_uids
             .iter()
@@ -2063,6 +2064,51 @@ mod tests {
 
         assert!(get_skills(&enc, 200, StatType::Dmg).is_ok());
         assert!(get_dmg_taken_attackers(&enc, 200).is_ok());
+    }
+
+    /// スナップショットは、その計測に効いていた条件を運ぶ。透かし・履歴・自己ベストのキーは
+    /// すべてここから導くため、finalize より前に別途採る必要が無い。
+    #[test]
+    fn snapshot_carries_the_measure_scope_it_was_taken_under() {
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
+        let enc = enc_with_two_players(true);
+
+        let snap = build_encounter_snapshot(&enc, 11_000);
+
+        assert!(snap.measure_scope.self_only, "条件がスナップショットに残っていない");
+        assert!(!snap.measure_scope.first_target_only);
+    }
+
+    /// 通常モードの計測は条件なしで記録される（既定動作の固定）。
+    #[test]
+    fn snapshot_from_normal_mode_has_no_measure_scope() {
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
+        let mut enc = enc_with_two_players(false);
+        enc.measure_mode = crate::engine::encounter::MeasureMode::Normal;
+
+        let snap = build_encounter_snapshot(&enc, 11_000);
+
+        assert_eq!(
+            snap.measure_scope,
+            crate::engine::encounter::MeasureScope::default()
+        );
+    }
+
+    /// 条件フィールドを持たない旧 history.json も、絞り込み無しとして読める。
+    #[test]
+    fn legacy_snapshot_json_without_scope_still_parses() {
+        let snap: EncounterSnapshot = serde_json::from_str(
+            r#"{"id":1.0,"startMs":0.0,"endMs":1000.0,"durationMs":1000.0,"totalDmg":5.0,"totalDps":5.0}"#,
+        )
+        .expect("旧 history.json がパースできなくなっている");
+
+        assert_eq!(snap.total_dmg, 5.0);
+        assert_eq!(
+            snap.measure_scope,
+            crate::engine::encounter::MeasureScope::default()
+        );
     }
 
     /// 通常モードは scope を持てないため、絞り込みは常に無効。

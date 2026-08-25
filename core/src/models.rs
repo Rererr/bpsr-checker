@@ -101,6 +101,10 @@ pub struct EncounterSnapshot {
     pub player_skill_rows: Vec<PlayerSkillSnapshot>,
     pub time_series: Vec<TimeSeriesPoint>,
     pub participant_player_uids: Vec<f64>,
+    /// この計測に効いていた絞り込み条件。条件付きの記録は通常の記録と直接比較できないため、
+    /// 履歴・透かし・自己ベストのキーはすべてここから導く（採取タイミングに依存しない）。
+    /// 旧 history.json には無いフィールドで、default は絞り込み無し。
+    pub measure_scope: crate::engine::encounter::MeasureScope,
 }
 
 #[derive(serde::Serialize, Clone, Debug)]

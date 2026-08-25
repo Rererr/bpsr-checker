@@ -11,7 +11,10 @@ pub type EncounterMutex = std::sync::Mutex<Encounter>;
 /// 開始時の設定値をここへコピーして `MeasureMode` が運ぶ（`duration_ms` と同じ扱い）。
 /// 走行中に設定を変えても計測結果がぶれない。通常モード（[`MeasureMode::Normal`]）は
 /// バリアントとして条件を持たないため、既定値＝絞り込み無しであることが型で保証される。
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// 履歴（`EncounterSnapshot`）へ焼き込むため serde 可能にしてある。フィールド単位の
+/// `default` で、旧 history.json（条件フィールドを持たない）も絞り込み無しとして読める。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct MeasureScope {
     /// 自分が最初にダメージを与えた対象への与ダメージだけを集計する。
     ///

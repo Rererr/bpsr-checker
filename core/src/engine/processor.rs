@@ -1409,6 +1409,20 @@ fn process_local_delta_batch(
     process_scene_delta(encounter, base_delta);
 }
 
+/// ダメージレコードの攻撃者 UUID。召喚体のダメージは `top_summoner_id` で主人へ寄せる。
+/// 0 は攻撃者不明（集計から落とすレコード）。
+///
+/// 3分計測の起点判定（デルタに自分の行動が含まれるか）と集計ループの両方がこの規則を使うため、
+/// 判定を2箇所に書かずここへ集約する。
+#[inline]
+fn damage_attacker_uuid(damage: &pb::DamageRecord) -> i64 {
+    if damage.top_summoner_id != 0 {
+        damage.top_summoner_id
+    } else {
+        damage.attacker_uuid
+    }
+}
+
 pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::SceneDelta) {
     let target_uuid = scene_delta.uuid;
     if target_uuid == 0 {
@@ -1522,6 +1536,40 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
     // M6計測用: このデルタが damages を含んでいたか（下の for ループが Vec を消費する前に控える）。
     let had_damages = !skill_effect.damages.is_empty();
 
+    // 自キャラの識別。selected_uid（手動指定）が優先で、無ければ自動検出値。0 は未確定。
+    // 以前はダメージレコードごとに selected_uid::get() を呼んでいたが、デルタ内で値は変わらない
+    // ためここで1回だけ読む（同じ値を2回引かない）。
+    let selected = selected_uid::get();
+    let self_uid = selected.unwrap_or(encounter.local_player_uid);
+    let self_key = (self_uid != 0).then(|| EntityKey::player(self_uid));
+
+    // このデルタに自分の行動（与ダメージまたは回復）が含まれていたか。
+    // 3分計測の起点判定と M9計測の両方がこの1つの値から導かれる（同じ判定を2箇所に書かない）。
+    // 攻撃者の解決規則はダメージループと `damage_attacker_uuid` を共有する。
+    let delta_has_self_action = self_key.is_some_and(|key| {
+        skill_effect
+            .damages
+            .iter()
+            .any(|damage| EntityKey::from_uuid(damage_attacker_uuid(damage)) == key)
+    });
+
+    // 3分計測の待機中（Pending3Min）は、自分の行動が届くまで集計もタイムスタンプ更新も行わない。
+    // 計測窓の起点を自分の初撃へ固定するため。以前は skill_effects を持つ任意のデルタで
+    // Pending→Active が発火しており、他プレイヤーの与ダメージや自分の被弾で窓が回り始めていた
+    // （2026-08-26 の実測では計測ボタンを押した4回すべてがこれに該当した）。
+    //
+    // 自キャラが未確定（self_key が None）のときは従来どおり最初のダメージで開始する。
+    // ここで待ち続けると計測ボタンが何も起きないまま無反応になるため。
+    if self_key.is_some()
+        && !delta_has_self_action
+        && matches!(
+            encounter.measure_mode,
+            crate::engine::encounter::MeasureMode::Pending3Min { .. }
+        )
+    {
+        return;
+    }
+
     if had_damages {
         let ts = now_ms();
         // 「戦闘中」判定は Encounter::is_combat_active に集約されている（同じ述語を
@@ -1554,16 +1602,8 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
     // 使い回す＝O(1)）。通常DPSの分母（combat_elapsed_ms）には一切使わない、有効DPS専用の値。
     let active_ts = now_ms();
 
-    // M9〜M13（計測スコープの実測）で使う値。probe 無効時はここから先の probe 呼び出しが
-    // すべて即 return するため、実質ゼロコストで済む。
-    // 自キャラ UID は selected_uid（手動指定）が優先で、無ければ自動検出値。0 は未確定。
-    let probe_self_uid = if crate::probe::enabled() {
-        selected_uid::get().unwrap_or(encounter.local_player_uid)
-    } else {
-        0
-    };
+    // M9計測用（下の for ループが Vec を消費する前に控える）。
     let probe_damages_n = skill_effect.damages.len();
-    let mut probe_saw_self_damage = false;
 
     // Process each damage event
     for damage in skill_effect.damages {
@@ -1593,18 +1633,15 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
             );
         }
 
-        let attacker_uuid = if damage.top_summoner_id != 0 {
-            damage.top_summoner_id
-        } else if damage.attacker_uuid != 0 {
-            damage.attacker_uuid
-        } else {
+        let attacker_uuid = damage_attacker_uuid(&damage);
+        if attacker_uuid == 0 {
             // M2計測: attacker不明で捨てるレコード（DoT・バフ由来・設置物ダメージ等の
             // 疑いがある）を件数・実効値合計で計上する。実効値は combat_stats::actual_value
             // と同じ「lucky_value優先」（ラッキーヒットは value==0 で来る想定のため、生value
             // だと欠損量を過小評価してしまう）。
             crate::probe::record_skip_no_attacker(actual_value(&damage));
             continue; // no attacker — skip
-        };
+        }
         let attacker_key = EntityKey::from_uuid(attacker_uuid);
         let attacker_uid = attacker_key.player_uid();
         let attacker_entity_type = attacker_key.kind();
@@ -1616,8 +1653,8 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
             continue;
         }
 
-        // selected_uid 参加判定
-        if let Some(sel) = selected_uid::get() {
+        // selected_uid 参加判定（`selected` はデルタ先頭で1回だけ読んだ値）
+        if let Some(sel) = selected {
             if attacker_uid == sel || target_uid == sel {
                 encounter.has_selected_participant = true;
             }
@@ -1676,17 +1713,9 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
                 target_uuid,
                 target_monster_id,
                 attacker_uuid,
-                probe_self_uid,
+                self_uid,
                 actual_value(&damage),
             );
-            // M9計測: このデルタに「集計された自分の与ダメージ」が含まれていたか。
-            // 戦闘時計と3分計測の起点が自分の一撃だったかの判定に使うため、record_damage_scope
-            // と同じ条件（＝dmg_stats へ積んだもの）から導く。
-            if probe_self_uid != 0
-                && attacker_key == EntityKey::player(probe_self_uid)
-            {
-                probe_saw_self_damage = true;
-            }
             if is_boss {
                 process_stats(&damage, &mut encounter.dmg_stats_boss_only);
             }
@@ -1775,11 +1804,11 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
         // この1行で決まる。
         crate::probe::log_fight_start(
             had_damages,
-            probe_saw_self_damage,
+            delta_has_self_action,
             probe_damages_n,
             target_uuid,
             encounter.entities.get(&target_key).and_then(|e| e.monster_id),
-            probe_self_uid,
+            self_uid,
             matches!(
                 encounter.measure_mode,
                 crate::engine::encounter::MeasureMode::Pending3Min { .. }
@@ -4394,6 +4423,116 @@ mod tests {
             buff_list: None,
             skill_effects: None,
         }
+    }
+
+    // ─── 3分計測の起点（Pending3Min → Active3Min） ───────────────────────────────
+    //
+    // 計測窓の分母は armed_at_ms から回る（compute::combat_elapsed_ms）。以前は
+    // skill_effects を持つ任意のデルタで遷移していたため、押した瞬間に周囲の誰かが殴っていれば
+    // その時刻が起点になった（2026-08-26 の実測では計測ボタンを押した4回すべてが該当）。
+
+    /// 待機中は他プレイヤーの与ダメージで計測窓が開かない。集計も戦闘時計も動かさない。
+    #[test]
+    fn pending_3min_is_not_armed_by_another_players_damage() {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+        let my_uid = 555_i64;
+        let other_uid = 666_i64;
+
+        let mut enc = Encounter::default();
+        enc.set_local_player_uid(my_uid);
+        enc.measure_mode = MeasureMode::Pending3Min { duration_ms: 180_000 };
+
+        process_scene_delta(
+            &mut enc,
+            damage_delta(monster_uuid_for(9001), player_uuid_for(other_uid), 1_000),
+        );
+
+        assert!(
+            matches!(enc.measure_mode, MeasureMode::Pending3Min { .. }),
+            "他プレイヤーの与ダメージで計測が始まってはいけない"
+        );
+        assert_eq!(enc.time_fight_start_ms, 0, "待機中は戦闘時計も動かさない");
+        assert_eq!(enc.dmg_stats.total, 0, "待機中は集計もしない");
+    }
+
+    /// 自分の与ダメージで計測窓が開き、分母の起点(armed_at_ms)が戦闘時計と一致する。
+    /// 起点より前に届いた他プレイヤーのダメージは集計に入らない。
+    #[test]
+    fn pending_3min_is_armed_by_own_damage_and_starts_the_denominator_there() {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+        let my_uid = 555_i64;
+        let other_uid = 666_i64;
+        let boss_uuid = monster_uuid_for(9001);
+
+        let mut enc = Encounter::default();
+        enc.set_local_player_uid(my_uid);
+        enc.measure_mode = MeasureMode::Pending3Min { duration_ms: 180_000 };
+
+        process_scene_delta(&mut enc, damage_delta(boss_uuid, player_uuid_for(other_uid), 1_000));
+        process_scene_delta(&mut enc, damage_delta(boss_uuid, player_uuid_for(my_uid), 500));
+
+        match enc.measure_mode {
+            MeasureMode::Active3Min { armed_at_ms, duration_ms } => {
+                assert_eq!(duration_ms, 180_000, "設定した計測長が失われている");
+                assert_ne!(armed_at_ms, 0);
+                assert_eq!(
+                    armed_at_ms, enc.time_fight_start_ms,
+                    "分母の起点は自分の初撃へ揃える"
+                );
+            }
+            other => panic!("自分の与ダメージで Active3Min へ遷移するはず: {other:?}"),
+        }
+        assert_eq!(
+            enc.dmg_stats.total, 500,
+            "起点より前に届いた他プレイヤーのダメージが集計へ混ざっている"
+        );
+    }
+
+    /// 自分の回復でも計測窓は開く（ヒーラーが計測ボタンを押しても始まらない、を防ぐ）。
+    #[test]
+    fn pending_3min_is_armed_by_own_heal() {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+        let my_uid = 555_i64;
+        let ally_uid = 777_i64;
+
+        let mut enc = Encounter::default();
+        enc.set_local_player_uid(my_uid);
+        enc.measure_mode = MeasureMode::Pending3Min { duration_ms: 180_000 };
+
+        process_scene_delta(
+            &mut enc,
+            heal_delta(player_uuid_for(ally_uid), player_uuid_for(my_uid), 300),
+        );
+
+        assert!(
+            matches!(enc.measure_mode, MeasureMode::Active3Min { .. }),
+            "自分の回復でも計測は始まるべき"
+        );
+    }
+
+    /// 自キャラが未確定(local_player_uid==0 かつ selected_uid なし)なら、従来どおり最初の
+    /// ダメージで開始する。ここで待ち続けると計測ボタンが無反応のままになるため。
+    #[test]
+    fn pending_3min_falls_back_to_any_damage_when_self_uid_is_unknown() {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+
+        let mut enc = Encounter::default();
+        assert_eq!(enc.local_player_uid, 0, "テスト前提: 自キャラ未確定");
+        enc.measure_mode = MeasureMode::Pending3Min { duration_ms: 180_000 };
+
+        process_scene_delta(
+            &mut enc,
+            damage_delta(monster_uuid_for(9001), player_uuid_for(666), 1_000),
+        );
+
+        assert!(
+            matches!(enc.measure_mode, MeasureMode::Active3Min { .. }),
+            "自キャラ未確定では待たずに開始する"
+        );
     }
 
     /// player→ボス(MONSTER_NAMES_BOSS 収録の monster_id)のダメージは dmg_stats_boss_only にも

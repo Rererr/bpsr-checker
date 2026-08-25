@@ -1350,6 +1350,10 @@ pub fn start_3min_measure_mode(
 ) {
     let duration_ms = (duration_secs * 1000.0).max(1000.0) as u128;
     with_lock_or(enc, "start_3min_measure_mode", (), |enc| {
+        // 計測を始める前の戦闘ぶんをサマリーとして切り出す（reset_encounter と同じ扱い）。
+        // clear_combat_stats は集計を消すが probe のカウンタは別管理で残るため、ここを飛ばすと
+        // 直前の通常戦闘が計測ぶんのサマリーへ持ち越され、対象別内訳やロック対象が混ざって読める。
+        crate::probe::log_and_reset_encounter_summary();
         enc.clear_combat_stats();
         enc.measure_mode =
             crate::engine::encounter::MeasureMode::Pending3Min { duration_ms, scope };
@@ -1359,6 +1363,8 @@ pub fn start_3min_measure_mode(
 
 pub fn cancel_3min_measure_mode(enc: &EncounterMutex) {
     with_lock_or(enc, "cancel_3min_measure_mode", (), |enc| {
+        // 中止した計測ぶんも他のエンカウンターと同じ粒度で切り出す（開始側と対）。
+        crate::probe::log_and_reset_encounter_summary();
         enc.clear_combat_stats();
         enc.measure_mode = crate::engine::encounter::MeasureMode::Normal;
         info!("3min measure mode: cancelled");

@@ -150,7 +150,7 @@ Open it with the **Settings** button in the header (slider icon in narrow layout
 - Fixing your character UID / selecting from candidates
 - Opacity, font size, column visibility (including ON/OFF for food/syrup display)
 - Copy templates (placeholders such as `{name} {dmg} {dps}`)
-- Time setting for the 3-minute measurement mode
+- Time setting for the 3-minute measurement mode, plus optional narrowing during a measurement (own records only / first enemy attacked only)
 - Imagine debuff timer display toggle / sync with the main DPS list (order-following ON/OFF, clear-all watch) / individual selection of which Imagine types to show / dense layout / debuff-timer-only mode (stops DPS aggregation for lighter operation) / 2-column compact layout ON/OFF
 - Self buff/debuff display ON/OFF
 - Adding to the watchlist is done via the pin icon next to the player row in the DPS list

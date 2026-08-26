@@ -154,8 +154,8 @@ pub struct ImagineEntry {
 /// バトルイマジンをグループ化した一覧（canonical 名の昇順）。UIの一覧表示・dev編集の
 /// 対象選択に使う。グループ化のキーは「その id の解決名（ja優先→en）」の一致であり、
 /// 異なる id が偶然同じ解決名を持つ場合は同一グループへ束ねられる
-/// （例: 3905/3939 はどちらも ja="マイティボア" のため同一グループになり、
-/// 3939 固有の en 名は `name_en` には現れない＝仕様上の既知の制約）。
+/// （例: 3931/3980 はどちらも ja="ドゴルマン" のため同一グループになり、
+/// main 以外の id 固有の en 名は `name_en` には現れない＝仕様上の既知の制約）。
 pub fn imagine_entries() -> Vec<ImagineEntry> {
     let table = NAMES.read().unwrap_or_else(|e| e.into_inner());
 
@@ -340,16 +340,16 @@ mod tests {
     #[test]
     fn imagine_entries_groups_duplicate_ja_canonical_by_resolved_name() {
         let _guard = crate::engine::imagine_test_support::guard();
-        // 3905/3939 はどちらも ja="マイティボア" で解決されるため同一グループへ束ねられる
-        // （既知の仕様上の制約: 3939 固有の en「Great Warhog」は main 側の en に負けて消える）。
+        // 3931/3980 は別スキル（奥义！护佑领域 / 绝技！捶地猛击）だがどちらも ja="ドゴルマン" で
+        // 解決されるため同一グループへ束ねられる（既知の仕様上の制約）。
         let entries = imagine_entries();
         let entry = entries
             .iter()
-            .find(|e| e.canonical == "マイティボア")
-            .expect("マイティボア group must exist");
-        assert_eq!(entry.main_skill_id, 3905); // 3900-3999 内の最小
-        assert_eq!(entry.clone_skill_ids, vec![3939, 102640, 102658, 1008040]);
-        assert_eq!(entry.name_en, Some("Boarrier Tyrant".to_string())); // 3905側のen（3939のenは採用されない）
+            .find(|e| e.canonical == "ドゴルマン")
+            .expect("ドゴルマン group must exist");
+        assert_eq!(entry.main_skill_id, 3931); // 3900-3999 内の最小
+        assert_eq!(entry.clone_skill_ids, vec![3980]);
+        assert_eq!(entry.name_en, Some("Dogorman".to_string())); // main(3931)側のenが採用される
     }
 
     #[test]

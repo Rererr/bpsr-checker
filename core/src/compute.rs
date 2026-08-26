@@ -1791,7 +1791,7 @@ mod tests {
                 ImagineSlot { name: "アルーナ".to_string(), last_seen: 2, tier: 3, pending_hits: 0 },
                 ImagineSlot { name: "ファルファラ".to_string(), last_seen: 3, tier: 0, pending_hits: 0 },
                 ImagineSlot { name: "鉄牙".to_string(), last_seen: 4, tier: 1, pending_hits: 0 },
-                ImagineSlot { name: "ムークボス".to_string(), last_seen: 5, tier: 0, pending_hits: 0 },
+                ImagineSlot { name: "キングムーク".to_string(), last_seen: 5, tier: 0, pending_hits: 0 },
             ];
             e.entities.insert(EntityKey::player(SELF_UID), p);
         }
@@ -1805,7 +1805,7 @@ mod tests {
         assert_eq!(row.imagine_suffix, "-ゴーストカニクモ/ティナ");
         assert_eq!(
             row.role_skill_suffix,
-            " (R:アルーナ(3)/ファルファラ/鉄牙(1)/ムークボス)",
+            " (R:アルーナ(3)/ファルファラ/鉄牙(1)/キングムーク)",
             "all 4 simultaneous role skill labels must be shown, none silently dropped"
         );
     }

@@ -3342,7 +3342,7 @@ mod tests {
         let expected_labels = vec![
             "サンダーオーガ(4)".to_string(),
             "フレイムオーガ(2)".to_string(),
-            "ムークボス".to_string(),
+            "キングムーク".to_string(),
             "鉄牙(3)".to_string(),
         ];
         assert_eq!(
@@ -3379,7 +3379,7 @@ mod tests {
             vec![
                 "サンダーオーガ".to_string(),
                 "フレイムオーガ".to_string(),
-                "ムークボス".to_string(),
+                "キングムーク".to_string(),
                 "鉄牙".to_string(),
             ]
         );

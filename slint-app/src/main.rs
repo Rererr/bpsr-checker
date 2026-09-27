@@ -448,6 +448,16 @@ fn fetch_players(enc: &EncounterMutex, tab: i32) -> bpsr_core::models::PlayersWi
     }
 }
 
+/// ヘッダー・合計行（issue #9 PR1）の合計DPS/経過時間/合計ダメージ量をUIへ反映する。
+/// poll（定期更新）とタブ切替（on_select_tab）の両方から呼ぶこと。タブ切替は行だけ即時
+/// 再構築しヘッダー反映はしていなかったため、切替直後は次のpollまで前タブの値が残っていた。
+fn refresh_header(m: &MainWindow, enc: &EncounterMutex, tab: i32) {
+    let header = compute::get_header_info(enc, tab_stat(tab));
+    m.set_total_text(format::format_dps(header.total_dps).into());
+    m.set_elapsed_text(format::format_elapsed(header.elapsed_ms).into());
+    m.set_total_dmg_text(format::format_number(header.total_dmg).into());
+}
+
 /// グラフ列(DPS推移)を出すか。graph設定が有効で、被ダメ(tab=2)以外。
 fn graph_col_active(c: &settings::Settings, tab: i32) -> bool {
     (c.graph_player_count > 0.0 || c.graph_for_local_player) && tab != 2
@@ -3169,6 +3179,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(m) = w.upgrade() {
                 m.set_tab(n);
                 m.set_view(0);
+                // 行は下のif/elseで即時再構築するが、合計行/ヘッダーの値もここで揃えないと
+                // 次のpollまで前タブの合計DPS/経過が残ってしまう（issue #9 PR1レビュー対応）。
+                refresh_header(&m, &enc_sel, n);
                 if n == 3 {
                     let hist = compute::get_history();
                     hist_rows_sel.set_vec(build_history_rows(
@@ -4733,15 +4746,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         compute::refresh_consumables(&enc_poll);
 
         // ライブ集計を反映（共有セルの現在タブに応じて取得）
-        let header = compute::get_header_info(&enc_poll, tab_stat(tab_cell_poll.get()));
-        m.set_total_text(format::format_dps(header.total_dps).into());
-        m.set_elapsed_text(format::format_elapsed(header.elapsed_ms).into());
-        // 合計行（issue #9 PR1）の合計ダメージ/回復/被ダメ量。他の set と違い毎tick変わるとは
-        // 限らないため、notice_scale と同じ要領で値が変わった時だけ書く。
-        let total_dmg_text: slint::SharedString = format::format_number(header.total_dmg).into();
-        if total_dmg_text != m.get_total_dmg_text() {
-            m.set_total_dmg_text(total_dmg_text);
-        }
+        refresh_header(&m, &enc_poll, tab_cell_poll.get());
 
         // 観測ステータス（0=起動中 1=待機 2=受信中 3=失敗）。
         // 「受信中」はゲームサーバのパケットを直近10秒以内に処理した場合のみ。

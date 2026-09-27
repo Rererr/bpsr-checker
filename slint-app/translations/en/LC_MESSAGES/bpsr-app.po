@@ -27,6 +27,9 @@ msgstr "Player"
 msgid "ダメージ"
 msgstr "Damage"
 
+msgid "合計"
+msgstr "Total"
+
 msgid "終了"
 msgstr "Quit"
 
@@ -321,6 +324,9 @@ msgstr "Show in taskbar"
 msgid "フッターを表示"
 msgstr "Show footer"
 
+msgid "合計行を表示"
+msgstr "Show total row"
+
 msgid "フォントサイズ"
 msgstr "Font size"
 
@@ -440,6 +446,12 @@ msgstr "New Record!"
 
 msgid "総ダメ"
 msgstr "Total dmg"
+
+msgid "総回復"
+msgstr "Total heal"
+
+msgid "総被ダメ"
+msgstr "Total taken"
 
 msgid "計測時間"
 msgstr "Duration"

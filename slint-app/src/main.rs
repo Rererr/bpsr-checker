@@ -1616,6 +1616,7 @@ fn apply_settings(m: &MainWindow, c: &settings::Settings) {
         overlay_outline: c.overlay_outline,
         overlay_shadow: c.overlay_shadow,
         show_footer: c.show_footer,
+        show_total_row: c.show_total_row,
         dps_bar_mode: c.dps_bar_mode.clone().into(),
         dps_bar_intensity: c.dps_bar_intensity.clone().into(),
         dps_bar_animate: c.dps_bar_animate,
@@ -3836,6 +3837,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "overlay-outline" => c.overlay_outline = val,
                     "overlay-shadow" => c.overlay_shadow = val,
                     "show-footer" => c.show_footer = val,
+                    "show-total-row" => c.show_total_row = val,
                     "dps-bar-animate" => c.dps_bar_animate = val,
                     "check-update-on-startup" => c.check_update_on_startup = val,
                     other => log::warn!("unknown setting key: {other}"),
@@ -4734,6 +4736,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let header = compute::get_header_info(&enc_poll, tab_stat(tab_cell_poll.get()));
         m.set_total_text(format::format_dps(header.total_dps).into());
         m.set_elapsed_text(format::format_elapsed(header.elapsed_ms).into());
+        // 合計行（issue #9 PR1）の合計ダメージ/回復/被ダメ量。他の set と違い毎tick変わるとは
+        // 限らないため、notice_scale と同じ要領で値が変わった時だけ書く。
+        let total_dmg_text: slint::SharedString = format::format_number(header.total_dmg).into();
+        if total_dmg_text != m.get_total_dmg_text() {
+            m.set_total_dmg_text(total_dmg_text);
+        }
 
         // 観測ステータス（0=起動中 1=待機 2=受信中 3=失敗）。
         // 「受信中」はゲームサーバのパケットを直近10秒以内に処理した場合のみ。

@@ -788,6 +788,10 @@ component PlayerRowItem inherits Rectangle {
     in property <float> font-scale: 1.0;
     in property <bool> show-graph-col;
     in property <bool> show-consumable: true;
+    // 名前セクションの min-width。見出し側(MainWindow::name-col-min-width)と同じ値を呼び出し元
+    // から受け取り、ここで明示 min-width として与える（子要素合計の暗黙値に任せない）。
+    // これにより見出しと行の下限が構造的に一致し、二重管理にならない。
+    in property <length> name-col-min-width;
     in property <bool> sync-timer; // イマジンタイマー同期ON/OFF（ウォッチボタンのツールチップ文言切替に使う）
     in property <string> bar-intensity; // バー濃度（"none"/"subtle"/"strong"）
     in property <bool> bar-animate;     // バー幅変化のアニメーション
@@ -830,6 +834,7 @@ component PlayerRowItem inherits Rectangle {
         spacing: 6px;
         HorizontalLayout {
             horizontal-stretch: 1;
+            min-width: root.name-col-min-width;
             spacing: 5px;
             Rectangle {
                 width: 3px;
@@ -3196,11 +3201,13 @@ export component MainWindow inherits Window {
         eff-dps: root.cols.eff-dps && root.tab == 0 && root.col-level >= 6,
     };
     property <bool> effective-show-graph-col: root.show-graph-col && root.col-level >= 1;
-    // 見出しの名前列 min-width は PlayerRowItem 側の名前セクション（クラス色バー3px＋
-    // NameTemplateのmin 90px*scale＋spacing5px×ギャップ数＋show-consumable時は食事/シロップ
-    // バッジ12px*scale×2）の実際の下限に一致させる。ここが単純な90px*scaleのままだと、狭幅で
-    // 見出し列だけ先に縮み切り、ダメージ以降の列がPlayerRowItemの行とx位置が食い違う
-    // （PlayerRowItem側の値を変えたらここも合わせて直すこと）。
+    // 名前列 min-width の単一ソース。見出し(下記 Text)と PlayerRowItem の名前セクション
+    // (in property name-col-min-width 経由で明示 min-width として渡す)の両方がこの値を参照する。
+    // 子要素合計の暗黙値に任せると、見出し=単純な90px*scale・行=バー3px＋NameTemplateのmin
+    // 90px*scale＋spacing5px×ギャップ数＋show-consumable時は食事/シロップバッジ12px*scale×2の
+    // 合計、という二重管理になり、狭幅で床がズレて見出しと行のx位置が食い違う（実際に発生した
+    // 不具合）。この値は一覧表示中の窓の最小幅も決める（Slintのレイアウト最小幅としてOS側の
+    // 最小ウィンドウサイズ制約にも伝播するため、変更するとユーザーが縮小できる限界も変わる）。
     property <length> name-col-min-width: 90px * root.font-scale
         + (root.show-consumable ? (18px + 24px * root.font-scale) : 8px);
     // 自キャラの total-value が有効(>0)か。dps_bar::bar_pct の SelfRelative フォールバック条件
@@ -3477,6 +3484,7 @@ export component MainWindow inherits Window {
                         font-scale: root.font-scale;
                         show-graph-col: root.effective-show-graph-col;
                         show-consumable: root.show-consumable;
+                        name-col-min-width: root.name-col-min-width;
                         sync-timer: root.cfg-ui.sync-timer;
                         bar-intensity: root.cfg-ui.dps-bar-intensity;
                         bar-animate: root.cfg-ui.dps-bar-animate;

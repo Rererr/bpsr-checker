@@ -3049,6 +3049,10 @@ export component MainWindow inherits Window {
     in property <bool> skills-clickable; // 被ダメ攻撃元一覧のとき true（行クリックで技別へ）
     in property <bool> settings-open;
     in property <SettingsUi> cfg-ui;
+    // 合計行が実際に画面に出ているか（一覧/軽量分割の表示中かつ設定ON）。合計行とヘッダー右の
+    // 退避表示はこの1変数の肯定/否定で切り替え、スキル内訳・履歴・設定表示中に合計DPS/経過が
+    // どこにも出ない状態を作らない。
+    private property <bool> total-row-visible: root.cfg-ui.show-total-row && !root.settings-open && root.view == 0 && root.tab != 3;
     in property <SettingsNumUi> nums;
     in property <string> name-template-value;
     in property <string> copy-template-value;
@@ -3298,7 +3302,7 @@ export component MainWindow inherits Window {
 
     VerticalLayout {
         // ── ヘッダ（タブ + ドラッグ + 状態ドット + ボタン群 + 終了）──
-        // 合計行(cfg-ui.show-total-row)がOFFのときだけ、ドラッグ領域に合計DPS/経過を退避表示する。
+        // 合計行が出ていないとき（設定OFF、またはスキル内訳・履歴・設定の表示中）は、ドラッグ領域に合計DPS/経過を退避表示する。
         Rectangle {
             height: 26px;
             background: #1c1c2acc;
@@ -3322,10 +3326,9 @@ export component MainWindow inherits Window {
                             root.start-drag();
                         }
                     }
-                    // 合計行OFF時の退避先。表示条件は cfg-ui.show-total-row の否定１つに集約し、
-                    // 合計行側の表示条件と食い違わないようにする（OFFにした人が合計DPS/経過を
-                    // 見失わないため。issue #9 PR1レビュー対応）。
-                    if !root.cfg-ui.show-total-row: Text {
+                    // 合計行が出ていないときの退避先。表示条件は total-row-visible の否定にし、
+                    // 合計行と必ずどちらか一方だけが出るようにする（issue #9 PR1レビュー対応）。
+                    if !root.total-row-visible: Text {
                         x: parent.width - self.width - 6px;
                         // 狭幅時はラベルを省き値のみ。それでも収まらない幅では隠して
                         // タブへのはみ出し重なりを防ぐ（ドラッグ領域は stretch で潰れ得る）
@@ -3496,9 +3499,9 @@ export component MainWindow inherits Window {
                 }
             }
             // ── 合計行（列見出し直下・固定表示。issue #9 PR1）──
-            // 幅・spacing は ListCol（列見出し行/PlayerRowItem と共有する単一ソース）を使い、
+            // 列幅は ListCol（列見出し行/PlayerRowItem と共有する単一ソース）を使い、
             // 罫線が縦に通るようにする。オプション列は表示中でも値を出さず空欄。
-            if root.cfg-ui.show-total-row: Rectangle {
+            if root.total-row-visible: Rectangle {
                 height: 16px * root.font-scale;
                 background: #20202e;
                 Rectangle { y: parent.height - 1px; width: 100%; height: 1px; background: #ffffff20; }
@@ -3638,7 +3641,7 @@ export component MainWindow inherits Window {
             // 合計サマリー行（2カラムの上に全幅1行。issue #9 PR1）。列見出しが無い全幅行のため、
             // 一覧の合計行と違い数値の意味が分かるよう最小限のラベルを添える。一覧ビューの合計行と
             // 同じ理由でFlickableの外（固定表示）に置き、2カラム側を下へスクロールしても隠れない。
-            if root.cfg-ui.show-total-row: Rectangle {
+            if root.total-row-visible: Rectangle {
                 height: 16px * root.font-scale;
                 HorizontalLayout {
                     alignment: center;

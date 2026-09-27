@@ -102,6 +102,19 @@ struct ColumnFlags {
     eff-dps: bool, // 有効DPS（実働時間ベース）
 }
 
+// 一覧ビュー（列見出し・合計行・PlayerRowItem）の固定列幅の単一ソース。値はいずれも
+// font-scale=1.0基準のpx。呼び出し側が自分のfont-scaleを掛ける（このglobal自体はfont-scaleを
+// 持たない）。ここを変えれば3箇所（列見出しHorizontalLayout・合計行・PlayerRowItem）すべてに
+// 効く。推移列(graph)とウォッチピン用スペーサー(pin)は既存挙動どおりfont-scale倍しない。
+global ListCol {
+    out property <length> graph-w: 60px;  // 推移(スパークライン)列
+    out property <length> dmg-w: 64px;    // ダメージ/回復/被ダメ列
+    out property <length> dps-w: 58px;    // DPS/HPS/被DPS列（有効DPS列も同幅を共用）
+    out property <length> pct-w: 44px;    // %列
+    out property <length> opt-w: 50px;    // 会心率/会心ダメ率/幸運率/幸運ダメ率/ヒット数/毎分ヒット数/戦力（共通幅）
+    out property <length> pin-w: 14px;    // 末尾ウォッチピン用スペーサー
+}
+
 // 設定パネルのトグル表示状態（Rust が cfg から set）
 struct SettingsUi {
     show-crit: bool,
@@ -874,7 +887,7 @@ component PlayerRowItem inherits Rectangle {
             } }
         }
         if root.show-graph-col: Rectangle {
-            width: 60px;
+            width: ListCol.graph-w;
             // 対象行のみ折れ線を描く（非対象は空セルで列を揃える）
             Path {
                 x: 2px;
@@ -892,21 +905,21 @@ component PlayerRowItem inherits Rectangle {
                 fill: transparent;
             }
         }
-        Text { text: root.entry.dmg-text; color: #e6e6f0; font-size: 12px * root.font-scale; width: 64px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-        Text { text: root.entry.dps-text; color: Theme.accent; font-size: 12px * root.font-scale; width: 58px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-        Text { text: root.entry.pct-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: 44px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.crit: Text { text: root.entry.crit-text; color: #f39c12; font-size: 11px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.crit-value: Text { text: root.entry.crit-value-text; color: #f39c12; font-size: 11px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.lucky: Text { text: root.entry.lucky-text; color: #2ecc71; font-size: 11px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.lucky-value: Text { text: root.entry.lucky-value-text; color: #2ecc71; font-size: 11px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.hits: Text { text: root.entry.hits-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.hpm: Text { text: root.entry.hpm-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.score: Text { text: root.entry.score-text; color: #99aa99; font-size: 11px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.entry.dmg-text; color: #e6e6f0; font-size: 12px * root.font-scale; width: ListCol.dmg-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.entry.dps-text; color: Theme.accent; font-size: 12px * root.font-scale; width: ListCol.dps-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.entry.pct-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: ListCol.pct-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.crit: Text { text: root.entry.crit-text; color: #f39c12; font-size: 11px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.crit-value: Text { text: root.entry.crit-value-text; color: #f39c12; font-size: 11px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.lucky: Text { text: root.entry.lucky-text; color: #2ecc71; font-size: 11px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.lucky-value: Text { text: root.entry.lucky-value-text; color: #2ecc71; font-size: 11px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.hits: Text { text: root.entry.hits-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.hpm: Text { text: root.entry.hpm-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.score: Text { text: root.entry.score-text; color: #99aa99; font-size: 11px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
         // 通常DPS列(Theme.accent、既定は青系だがユーザーが任意hexへ変更可能)と並んでも
         // 判別できるよう、隣接しない色相(紫)を固定で使う（アクセント色に連動させない）。
-        if root.cols.eff-dps: Text { text: root.entry.eff-dps-text; color: #b39ddb; font-size: 11px * root.font-scale; width: 58px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        if root.cols.eff-dps: Text { text: root.entry.eff-dps-text; color: #b39ddb; font-size: 11px * root.font-scale; width: ListCol.dps-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
         watch := TouchArea {
-            width: 14px;
+            width: ListCol.pin-w;
             clicked => { root.toggle-watch(root.entry.uid-str); }
             changed has-hover => {
                 if (self.has-hover) {
@@ -3284,7 +3297,8 @@ export component MainWindow inherits Window {
     preferred-height: 360px;
 
     VerticalLayout {
-        // ── ヘッダ（タブ + 合計 + ドラッグ + 終了）──
+        // ── ヘッダ（タブ + ドラッグ + 状態ドット + ボタン群 + 終了）──
+        // 合計行(cfg-ui.show-total-row)がOFFのときだけ、ドラッグ領域に合計DPS/経過を退避表示する。
         Rectangle {
             height: 26px;
             background: #1c1c2acc;
@@ -3299,7 +3313,7 @@ export component MainWindow inherits Window {
                 TabButton { label: @tr("被ダメ"); active: root.tab == 2; clicked => { root.select-tab(2); } }
                 TabButton { label: @tr("履歴"); active: root.tab == 3; clicked => { root.select-tab(3); } }
                 // 合計DPS/経過はヘッダー直下の合計行（一覧・軽量分割の両方に固定表示）へ移設した
-                // ため、ここは純粋なドラッグ領域のみ（issue #9 PR1）。
+                // ため、合計行がONの間はここはドラッグ領域のみ（issue #9 PR1）。
                 drag := TouchArea {
                     horizontal-stretch: 1;
                     mouse-cursor: move;
@@ -3307,6 +3321,21 @@ export component MainWindow inherits Window {
                         if (ev.kind == PointerEventKind.down) {
                             root.start-drag();
                         }
+                    }
+                    // 合計行OFF時の退避先。表示条件は cfg-ui.show-total-row の否定１つに集約し、
+                    // 合計行側の表示条件と食い違わないようにする（OFFにした人が合計DPS/経過を
+                    // 見失わないため。issue #9 PR1レビュー対応）。
+                    if !root.cfg-ui.show-total-row: Text {
+                        x: parent.width - self.width - 6px;
+                        // 狭幅時はラベルを省き値のみ。それでも収まらない幅では隠して
+                        // タブへのはみ出し重なりを防ぐ（ドラッグ領域は stretch で潰れ得る）
+                        text: root.narrow-header
+                            ? root.total-text + "  " + root.elapsed-text
+                            : root.total-rate-label() + " " + root.total-text + "   " + @tr("経過") + " " + root.elapsed-text;
+                        visible: self.width + 12px <= parent.width;
+                        color: #c8c8d8;
+                        font-size: 11px * root.font-scale;
+                        vertical-alignment: center;
                     }
                 }
                 // 観測ステータスドット（緑=ゲーム通信受信中 / 青=待機 / 赤=開始失敗 / 灰=起動中）
@@ -3436,12 +3465,12 @@ export component MainWindow inherits Window {
                     padding-right: 8px;
                     spacing: 6px;
                     Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; min-width: root.name-col-min-width; vertical-alignment: center; }
-                    if root.effective-show-graph-col: Text { text: @tr("推移"); color: #888; font-size: 9px * root.font-scale; width: 60px; horizontal-alignment: center; vertical-alignment: center; }
+                    if root.effective-show-graph-col: Text { text: @tr("推移"); color: #888; font-size: 9px * root.font-scale; width: ListCol.graph-w; horizontal-alignment: center; vertical-alignment: center; }
                     Text {
                         text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ"));
                         color: #888;
                         font-size: 10px * root.font-scale;
-                        width: 64px * root.font-scale;
+                        width: ListCol.dmg-w * root.font-scale;
                         horizontal-alignment: right;
                         vertical-alignment: center;
                     }
@@ -3449,26 +3478,26 @@ export component MainWindow inherits Window {
                         text: root.tab == 1 ? @tr("HPS") : (root.tab == 2 ? @tr("被DPS") : @tr("DPS"));
                         color: #888;
                         font-size: 10px * root.font-scale;
-                        width: 58px * root.font-scale;
+                        width: ListCol.dps-w * root.font-scale;
                         horizontal-alignment: right;
                         vertical-alignment: center;
                     }
-                    Text { text: @tr("%"); color: #888; font-size: 10px * root.font-scale; width: 44px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.effective-cols.crit: Text { text: @tr("会心率"); color: #888; font-size: 10px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.effective-cols.crit-value: Text { text: @tr("会心ダメ率"); color: #888; font-size: 9px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.effective-cols.lucky: Text { text: @tr("幸運率"); color: #888; font-size: 10px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.effective-cols.lucky-value: Text { text: @tr("幸運ダメ率"); color: #888; font-size: 9px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.effective-cols.hits: Text { text: @tr("ヒット数"); color: #888; font-size: 9px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.effective-cols.hpm: Text { text: @tr("毎分ヒット数"); color: #888; font-size: 9px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.effective-cols.score: Text { text: @tr("戦力"); color: #888; font-size: 10px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.effective-cols.eff-dps: Text { text: @tr("有効DPS"); color: #888; font-size: 9px * root.font-scale; width: 58px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-                    // データ行末尾のウォッチピン(14px)に合わせた見出し用スペーサー（列ズレ防止）
-                    Rectangle { width: 14px; }
+                    Text { text: @tr("%"); color: #888; font-size: 10px * root.font-scale; width: ListCol.pct-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.effective-cols.crit: Text { text: @tr("会心率"); color: #888; font-size: 10px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.effective-cols.crit-value: Text { text: @tr("会心ダメ率"); color: #888; font-size: 9px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.effective-cols.lucky: Text { text: @tr("幸運率"); color: #888; font-size: 10px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.effective-cols.lucky-value: Text { text: @tr("幸運ダメ率"); color: #888; font-size: 9px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.effective-cols.hits: Text { text: @tr("ヒット数"); color: #888; font-size: 9px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.effective-cols.hpm: Text { text: @tr("毎分ヒット数"); color: #888; font-size: 9px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.effective-cols.score: Text { text: @tr("戦力"); color: #888; font-size: 10px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.effective-cols.eff-dps: Text { text: @tr("有効DPS"); color: #888; font-size: 9px * root.font-scale; width: ListCol.dps-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    // データ行末尾のウォッチピン（ListCol.pin-w）に合わせた見出し用スペーサー（列ズレ防止）
+                    Rectangle { width: ListCol.pin-w; }
                 }
             }
             // ── 合計行（列見出し直下・固定表示。issue #9 PR1）──
-            // 幅・spacing は列見出し行/PlayerRowItem と同じ単一の定数セットを使い、罫線が縦に通る
-            // ようにする（列ごとに別ソースの幅を持たない）。オプション列は表示中でも値を出さず空欄。
+            // 幅・spacing は ListCol（列見出し行/PlayerRowItem と共有する単一ソース）を使い、
+            // 罫線が縦に通るようにする。オプション列は表示中でも値を出さず空欄。
             if root.cfg-ui.show-total-row: Rectangle {
                 height: 16px * root.font-scale;
                 background: #20202e;
@@ -3479,10 +3508,10 @@ export component MainWindow inherits Window {
                     spacing: 6px;
                     HorizontalLayout {
                         horizontal-stretch: 1;
-                        // 列見出しの「プレイヤー」Textと同じ min-width（単一ソースの値）を持たせて
+                        // 列見出しの「プレイヤー」Textと同じ root.name-col-min-width を持たせて
                         // 縮小時の床を揃える。無いと名前欄の自然最小幅がヘッダーと食い違い、
                         // ここより右の列がヘッダーに対して横にズレる（狭幅で顕在化）。
-                        min-width: 90px * root.font-scale;
+                        min-width: root.name-col-min-width;
                         spacing: 5px;
                         // 「合計」ラベルは残し、右のコンテンツ名(content-name)側から先に縮む
                         // （PR2でコンテンツ名を入れたときの省略順。合計ラベルには stretch を与えない）。
@@ -3497,19 +3526,19 @@ export component MainWindow inherits Window {
                             vertical-alignment: center;
                         }
                     }
-                    if root.effective-show-graph-col: Rectangle { width: 60px; }
-                    Text { text: root.total-dmg-text; color: #e6e6f0; font-size: 11px * root.font-scale; width: 64px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-                    Text { text: root.total-text; color: Theme.accent; font-size: 11px * root.font-scale; width: 58px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-                    Text { text: root.elapsed-text; color: #cfcfe0; font-size: 10px * root.font-scale; width: 44px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-                    if root.effective-cols.crit: Rectangle { width: 50px * root.font-scale; }
-                    if root.effective-cols.crit-value: Rectangle { width: 50px * root.font-scale; }
-                    if root.effective-cols.lucky: Rectangle { width: 50px * root.font-scale; }
-                    if root.effective-cols.lucky-value: Rectangle { width: 50px * root.font-scale; }
-                    if root.effective-cols.hits: Rectangle { width: 50px * root.font-scale; }
-                    if root.effective-cols.hpm: Rectangle { width: 50px * root.font-scale; }
-                    if root.effective-cols.score: Rectangle { width: 50px * root.font-scale; }
-                    if root.effective-cols.eff-dps: Rectangle { width: 58px * root.font-scale; }
-                    Rectangle { width: 14px; }
+                    if root.effective-show-graph-col: Rectangle { width: ListCol.graph-w; }
+                    Text { text: root.total-dmg-text; color: #e6e6f0; font-size: 11px * root.font-scale; width: ListCol.dmg-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    Text { text: root.total-text; color: Theme.accent; font-size: 11px * root.font-scale; width: ListCol.dps-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    Text { text: root.elapsed-text; color: #cfcfe0; font-size: 10px * root.font-scale; width: ListCol.pct-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.effective-cols.crit: Rectangle { width: ListCol.opt-w * root.font-scale; }
+                    if root.effective-cols.crit-value: Rectangle { width: ListCol.opt-w * root.font-scale; }
+                    if root.effective-cols.lucky: Rectangle { width: ListCol.opt-w * root.font-scale; }
+                    if root.effective-cols.lucky-value: Rectangle { width: ListCol.opt-w * root.font-scale; }
+                    if root.effective-cols.hits: Rectangle { width: ListCol.opt-w * root.font-scale; }
+                    if root.effective-cols.hpm: Rectangle { width: ListCol.opt-w * root.font-scale; }
+                    if root.effective-cols.score: Rectangle { width: ListCol.opt-w * root.font-scale; }
+                    if root.effective-cols.eff-dps: Rectangle { width: ListCol.dps-w * root.font-scale; }
+                    Rectangle { width: ListCol.pin-w; }
                 }
             }
             Flickable {
@@ -3600,118 +3629,133 @@ export component MainWindow inherits Window {
 
         // ── 軽量分割表示（2カラム・履歴タブ以外）──
         // 一覧ビューと同じ理由で init のみによる初回フェードイン(タブ切替自体は即時のまま見送り)。
-        if !root.settings-open && root.view == 0 && root.tab != 3 && root.cfg-ui.compact-split: Flickable {
+        if !root.settings-open && root.view == 0 && root.tab != 3 && root.cfg-ui.compact-split: VerticalLayout {
             vertical-stretch: 1;
-            max-height: 100000px;
             property <bool> entered: false;
             opacity: self.entered ? 1.0 : 0.0;
             animate opacity { duration: 140ms; easing: ease-out; }
             init => { self.entered = true; }
-            viewport-height: csbox.preferred-height;
-            csbox := VerticalLayout {
-                // 合計サマリー行（2カラムの上に全幅1行。issue #9 PR1）。列見出しが無い全幅行のため、
-                // 一覧の合計行と違い数値の意味が分かるよう最小限のラベルを添える。
-                if root.cfg-ui.show-total-row: Rectangle {
-                    height: 16px;
-                    Text {
-                        width: 100%;
-                        text: @tr("経過") + " " + root.elapsed-text + "   "
-                            + root.total-value-label() + " " + root.total-dmg-text + "   "
-                            + root.total-rate-label() + " " + root.total-text;
-                        color: #888;
-                        font-size: 10px * root.font-scale;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-                }
-                // 一覧ビューと同じ理由で、専用モード中は2カラム側にも案内と解除導線を出す
-                // （こちらの空状態は「データなし」だけで、集計を止めていることが読み取れない）。
-                if root.rows.length == 0 && root.cfg-ui.imagine-only && root.capture-state != 3: ImagineOnlyNotice {
-                    ui-scale: root.notice-scale;
-                    disable => { root.set-bool("imagine-only", false); }
-                }
+            // 合計サマリー行（2カラムの上に全幅1行。issue #9 PR1）。列見出しが無い全幅行のため、
+            // 一覧の合計行と違い数値の意味が分かるよう最小限のラベルを添える。一覧ビューの合計行と
+            // 同じ理由でFlickableの外（固定表示）に置き、2カラム側を下へスクロールしても隠れない。
+            if root.cfg-ui.show-total-row: Rectangle {
+                height: 16px * root.font-scale;
                 HorizontalLayout {
-                    spacing: 4px;
-                    // 左カラム（前半）
-                    VerticalLayout {
-                        horizontal-stretch: 1;
-                        min-width: 0px;
-                        preferred-width: 0px;
-                        alignment: start;
-                        Rectangle {
-                            height: 16px;
-                            HorizontalLayout {
-                                padding-left: 6px;
-                                padding-right: 6px;
-                                spacing: 5px;
-                                Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; vertical-alignment: center; }
-                                Text { text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ")); color: #888; font-size: 10px * root.font-scale; width: 56px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: root.tab == 1 ? @tr("HPS") : (root.tab == 2 ? @tr("被DPS") : @tr("DPS")); color: #888; font-size: 10px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-                            }
-                        }
-                        // 動的リピーターを VerticalLayout に任せると余白を行へ誤配分するため、固定行高で配置する。
-                        left-rows := Rectangle {
-                            horizontal-stretch: 1;
-                            min-width: 0px;
-                            preferred-width: 0px;
-                            height: root.compact-left.length * root.compact-row-h;
-                            vertical-stretch: 0;
-                            for row[i] in root.compact-left: CompactRowItem {
-                                x: 0;
-                                y: i * root.compact-row-h;
-                                width: 100%;
-                                row-height: root.compact-row-h;
-                                entry: row;
-                                highlight-local: root.highlight-local;
-                                font-scale: root.font-scale;
-                                bar-intensity: root.cfg-ui.dps-bar-intensity;
-                                bar-animate: root.cfg-ui.dps-bar-animate;
-                                show-self-guide: root.bar-self-guide;
-                                activate(u) => { root.open-drill(u); }
-                            }
-                        }
+                    alignment: center;
+                    spacing: 14px;
+                    HorizontalLayout {
+                        spacing: 4px;
+                        Text { text: @tr("経過"); color: #888; font-size: 10px * root.font-scale; min-width: 0px; overflow: elide; vertical-alignment: center; }
+                        Text { text: root.elapsed-text; color: #cfcfe0; font-size: 10px * root.font-scale; min-width: 0px; overflow: elide; vertical-alignment: center; }
                     }
-                    // 右カラム（後半）
-                    VerticalLayout {
-                        horizontal-stretch: 1;
-                        min-width: 0px;
-                        preferred-width: 0px;
-                        alignment: start;
-                        Rectangle {
-                            height: 16px;
-                            HorizontalLayout {
-                                padding-left: 6px;
-                                padding-right: 6px;
-                                spacing: 5px;
-                                Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; vertical-alignment: center; }
-                                Text { text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ")); color: #888; font-size: 10px * root.font-scale; width: 56px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: root.tab == 1 ? @tr("HPS") : (root.tab == 2 ? @tr("被DPS") : @tr("DPS")); color: #888; font-size: 10px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-                            }
-                        }
-                        right-rows := Rectangle {
-                            horizontal-stretch: 1;
-                            min-width: 0px;
-                            preferred-width: 0px;
-                            height: root.compact-right.length * root.compact-row-h;
-                            vertical-stretch: 0;
-                            for row[i] in root.compact-right: CompactRowItem {
-                                x: 0;
-                                y: i * root.compact-row-h;
-                                width: 100%;
-                                row-height: root.compact-row-h;
-                                entry: row;
-                                highlight-local: root.highlight-local;
-                                font-scale: root.font-scale;
-                                bar-intensity: root.cfg-ui.dps-bar-intensity;
-                                bar-animate: root.cfg-ui.dps-bar-animate;
-                                show-self-guide: root.bar-self-guide;
-                                activate(u) => { root.open-drill(u); }
-                            }
-                        }
-                        if root.rows.length == 0 && (!root.cfg-ui.imagine-only || root.capture-state == 3): Text { text: @tr("データなし"); color: #666; font-size: 12px; height: 40px; horizontal-alignment: center; vertical-alignment: center; }
+                    HorizontalLayout {
+                        spacing: 4px;
+                        Text { text: root.total-value-label(); color: #888; font-size: 10px * root.font-scale; min-width: 0px; overflow: elide; vertical-alignment: center; }
+                        // 一覧の合計行のダメージ列と同じ色（#e6e6f0）で、単色サマリーに埋没しないようにする。
+                        Text { text: root.total-dmg-text; color: #e6e6f0; font-size: 10px * root.font-scale; min-width: 0px; overflow: elide; vertical-alignment: center; }
+                    }
+                    HorizontalLayout {
+                        spacing: 4px;
+                        Text { text: root.total-rate-label(); color: #888; font-size: 10px * root.font-scale; min-width: 0px; overflow: elide; vertical-alignment: center; }
+                        // 一覧の合計行のDPS列と同じ Theme.accent。単色 #888 のままだと合計DPSが埋没していた。
+                        Text { text: root.total-text; color: Theme.accent; font-size: 10px * root.font-scale; min-width: 0px; overflow: elide; vertical-alignment: center; }
                     }
                 }
             }
+            Flickable {
+                vertical-stretch: 1;
+                max-height: 100000px;
+                viewport-height: csbox.preferred-height;
+                csbox := VerticalLayout {
+                    // 一覧ビューと同じ理由で、専用モード中は2カラム側にも案内と解除導線を出す
+                    // （こちらの空状態は「データなし」だけで、集計を止めていることが読み取れない）。
+                    if root.rows.length == 0 && root.cfg-ui.imagine-only && root.capture-state != 3: ImagineOnlyNotice {
+                        ui-scale: root.notice-scale;
+                        disable => { root.set-bool("imagine-only", false); }
+                    }
+                    HorizontalLayout {
+                        spacing: 4px;
+                        // 左カラム（前半）
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            min-width: 0px;
+                            preferred-width: 0px;
+                            alignment: start;
+                            Rectangle {
+                                height: 16px;
+                                HorizontalLayout {
+                                    padding-left: 6px;
+                                    padding-right: 6px;
+                                    spacing: 5px;
+                                    Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; vertical-alignment: center; }
+                                    Text { text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ")); color: #888; font-size: 10px * root.font-scale; width: 56px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: root.tab == 1 ? @tr("HPS") : (root.tab == 2 ? @tr("被DPS") : @tr("DPS")); color: #888; font-size: 10px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                                }
+                            }
+                            // 動的リピーターを VerticalLayout に任せると余白を行へ誤配分するため、固定行高で配置する。
+                            left-rows := Rectangle {
+                                horizontal-stretch: 1;
+                                min-width: 0px;
+                                preferred-width: 0px;
+                                height: root.compact-left.length * root.compact-row-h;
+                                vertical-stretch: 0;
+                                for row[i] in root.compact-left: CompactRowItem {
+                                    x: 0;
+                                    y: i * root.compact-row-h;
+                                    width: 100%;
+                                    row-height: root.compact-row-h;
+                                    entry: row;
+                                    highlight-local: root.highlight-local;
+                                    font-scale: root.font-scale;
+                                    bar-intensity: root.cfg-ui.dps-bar-intensity;
+                                    bar-animate: root.cfg-ui.dps-bar-animate;
+                                    show-self-guide: root.bar-self-guide;
+                                    activate(u) => { root.open-drill(u); }
+                                }
+                            }
+                        }
+                        // 右カラム（後半）
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            min-width: 0px;
+                            preferred-width: 0px;
+                            alignment: start;
+                            Rectangle {
+                                height: 16px;
+                                HorizontalLayout {
+                                    padding-left: 6px;
+                                    padding-right: 6px;
+                                    spacing: 5px;
+                                    Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; vertical-alignment: center; }
+                                    Text { text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ")); color: #888; font-size: 10px * root.font-scale; width: 56px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: root.tab == 1 ? @tr("HPS") : (root.tab == 2 ? @tr("被DPS") : @tr("DPS")); color: #888; font-size: 10px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                                }
+                            }
+                            right-rows := Rectangle {
+                                horizontal-stretch: 1;
+                                min-width: 0px;
+                                preferred-width: 0px;
+                                height: root.compact-right.length * root.compact-row-h;
+                                vertical-stretch: 0;
+                                for row[i] in root.compact-right: CompactRowItem {
+                                    x: 0;
+                                    y: i * root.compact-row-h;
+                                    width: 100%;
+                                    row-height: root.compact-row-h;
+                                    entry: row;
+                                    highlight-local: root.highlight-local;
+                                    font-scale: root.font-scale;
+                                    bar-intensity: root.cfg-ui.dps-bar-intensity;
+                                    bar-animate: root.cfg-ui.dps-bar-animate;
+                                    show-self-guide: root.bar-self-guide;
+                                    activate(u) => { root.open-drill(u); }
+                                }
+                            }
+                            if root.rows.length == 0 && (!root.cfg-ui.imagine-only || root.capture-state == 3): Text { text: @tr("データなし"); color: #666; font-size: 12px; height: 40px; horizontal-alignment: center; vertical-alignment: center; }
+                        }
+                    }
+                } // csbox
+            } // Flickable（2カラム側のみスクロール。合計サマリー行は外側で固定）
         }
 
         // ── 履歴ビュー ──

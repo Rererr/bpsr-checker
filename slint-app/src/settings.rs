@@ -201,6 +201,8 @@ pub struct Settings {
     pub overlay_shadow: bool,
     /// メイン窓最下部のフッター（お問い合わせ／GitHub報告リンク）を表示するか（既定 true）。
     pub show_footer: bool,
+    /// 一覧・軽量分割表示の合計行（issue #9 PR1）を表示するか（既定 true）。
+    pub show_total_row: bool,
     /// グローバルショートカット（issue #3）。保存/表示兼用文字列（例 "Ctrl+Shift+R"）。
     /// 空文字 = 未割当。既定はすべて無効（ゲーム側キーバインドとの衝突事故を初期状態で
     /// 起こさないため。ユーザーが明示的に割り当てるまでは何も奪わない）。
@@ -310,6 +312,7 @@ impl Default for Settings {
             overlay_outline: true,
             overlay_shadow: false,
             show_footer: true,
+            show_total_row: true,
             hotkey_reset: String::new(),
             hotkey_pause: String::new(),
             hotkey_measure: String::new(),

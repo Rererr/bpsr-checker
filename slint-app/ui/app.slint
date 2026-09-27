@@ -152,6 +152,7 @@ struct SettingsUi {
     overlay-outline: bool,             // オーバーレイ文字の縁取り（stroke）
     overlay-shadow: bool,              // オーバーレイ文字の影（ドロップシャドウ）
     show-footer: bool,                 // メイン窓最下部のフッター（バージョン情報／お問い合わせ／GitHub報告リンク）
+    show-total-row: bool,              // 一覧・軽量分割表示の合計行（issue #9 PR1）
     dps-bar-mode: string,              // DPS一覧の行バー幅比率の基準（"top"/"share"/"fixed"/"self"）
     dps-bar-intensity: string,         // DPS一覧の行バーの濃度（"none"/"subtle"/"strong"）
     dps-bar-animate: bool,             // DPS一覧の行バー幅変化のアニメーション
@@ -1807,6 +1808,7 @@ component DisplaySection inherits SectionCard {
     ToggleRow { label: @tr("軽量分割表示"); checked: root.cfg.compact-split; toggled => { root.set-bool("compact-split", !root.cfg.compact-split); } }
     ToggleRow { label: @tr("タスクバーに常駐"); checked: root.cfg.show-in-taskbar; toggled => { root.set-bool("show-in-taskbar", !root.cfg.show-in-taskbar); } }
     ToggleRow { label: @tr("フッターを表示"); checked: root.cfg.show-footer; toggled => { root.set-bool("show-footer", !root.cfg.show-footer); } }
+    ToggleRow { label: @tr("合計行を表示"); checked: root.cfg.show-total-row; toggled => { root.set-bool("show-total-row", !root.cfg.show-total-row); } }
     // メイン窓の文字サイズ・フォント（バフ/デバフ オーバーレイもこれに追随する）。
     FontControls {
         size-text: root.nums.font-size;
@@ -3021,6 +3023,10 @@ export component MainWindow inherits Window {
     in property <[HistoryRowUi]> history-rows;
     in property <string> total-text: "0";
     in property <string> elapsed-text: "0:00";
+    in property <string> total-dmg-text: "0"; // 合計行のダメージ/回復/被ダメ量（HeaderInfo.total_dmg）
+    // 合計行のプレイヤー列に「合計」の右へ続けるコンテンツ名。後続PR(issue #9 PR2)で
+    // Rust から push する想定で、このPRでは常に空文字（先に stretch/elide の受け皿を用意する）。
+    in property <string> content-name: "";
     in property <string> inspected-name;
     in property <bool> highlight-local: true;
     in property <bool> aot: true; // 常に最前面（設定連動）
@@ -3257,6 +3263,15 @@ export component MainWindow inherits Window {
         return 0;
     }
 
+    // タブ依存の合計系ラベル判定。軽量分割表示の合計サマリー行がここを参照する
+    // （ヘッダー列見出しの「ダメージ/回復/被ダメ」ラベルとは別に、値ラベルの判定を1箇所へ集約）。
+    pure function total-value-label() -> string {
+        return root.tab == 1 ? @tr("総回復") : (root.tab == 2 ? @tr("総被ダメ") : @tr("総ダメ"));
+    }
+    pure function total-rate-label() -> string {
+        return root.tab == 1 ? @tr("合計HPS") : (root.tab == 2 ? @tr("合計被DPS") : @tr("合計DPS"));
+    }
+
     title: @tr("DPSメーター");
     // femtovg は ClearType 非対応のため既定は可読性重視の和文フォント。設定で変更可（バフ/デバフ オーバーレイも追随）。
     default-font-family: root.main-font;
@@ -3283,6 +3298,8 @@ export component MainWindow inherits Window {
                 TabButton { label: @tr("回復"); active: root.tab == 1; clicked => { root.select-tab(1); } }
                 TabButton { label: @tr("被ダメ"); active: root.tab == 2; clicked => { root.select-tab(2); } }
                 TabButton { label: @tr("履歴"); active: root.tab == 3; clicked => { root.select-tab(3); } }
+                // 合計DPS/経過はヘッダー直下の合計行（一覧・軽量分割の両方に固定表示）へ移設した
+                // ため、ここは純粋なドラッグ領域のみ（issue #9 PR1）。
                 drag := TouchArea {
                     horizontal-stretch: 1;
                     mouse-cursor: move;
@@ -3290,18 +3307,6 @@ export component MainWindow inherits Window {
                         if (ev.kind == PointerEventKind.down) {
                             root.start-drag();
                         }
-                    }
-                    Text {
-                        x: parent.width - self.width - 6px;
-                        // 狭幅時はラベルを省き値のみ。それでも収まらない幅では隠して
-                        // タブへのはみ出し重なりを防ぐ（ドラッグ領域は stretch で潰れ得る）
-                        text: root.narrow-header
-                            ? root.total-text + "  " + root.elapsed-text
-                            : (root.tab == 1 ? @tr("合計HPS") : (root.tab == 2 ? @tr("合計被DPS") : @tr("合計DPS"))) + " " + root.total-text + "   " + @tr("経過") + " " + root.elapsed-text;
-                        visible: self.width + 12px <= parent.width;
-                        color: #c8c8d8;
-                        font-size: 11px * root.font-scale;
-                        vertical-alignment: center;
                     }
                 }
                 // 観測ステータスドット（緑=ゲーム通信受信中 / 青=待機 / 赤=開始失敗 / 灰=起動中）
@@ -3461,6 +3466,52 @@ export component MainWindow inherits Window {
                     Rectangle { width: 14px; }
                 }
             }
+            // ── 合計行（列見出し直下・固定表示。issue #9 PR1）──
+            // 幅・spacing は列見出し行/PlayerRowItem と同じ単一の定数セットを使い、罫線が縦に通る
+            // ようにする（列ごとに別ソースの幅を持たない）。オプション列は表示中でも値を出さず空欄。
+            if root.cfg-ui.show-total-row: Rectangle {
+                height: 16px * root.font-scale;
+                background: #20202e;
+                Rectangle { y: parent.height - 1px; width: 100%; height: 1px; background: #ffffff20; }
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    spacing: 6px;
+                    HorizontalLayout {
+                        horizontal-stretch: 1;
+                        // 列見出しの「プレイヤー」Textと同じ min-width（単一ソースの値）を持たせて
+                        // 縮小時の床を揃える。無いと名前欄の自然最小幅がヘッダーと食い違い、
+                        // ここより右の列がヘッダーに対して横にズレる（狭幅で顕在化）。
+                        min-width: 90px * root.font-scale;
+                        spacing: 5px;
+                        // 「合計」ラベルは残し、右のコンテンツ名(content-name)側から先に縮む
+                        // （PR2でコンテンツ名を入れたときの省略順。合計ラベルには stretch を与えない）。
+                        Text { text: @tr("合計"); color: #aaa; font-size: 10px * root.font-scale; vertical-alignment: center; }
+                        Text {
+                            text: root.content-name;
+                            color: #888;
+                            font-size: 10px * root.font-scale;
+                            horizontal-stretch: 1;
+                            min-width: 0px;
+                            overflow: elide;
+                            vertical-alignment: center;
+                        }
+                    }
+                    if root.effective-show-graph-col: Rectangle { width: 60px; }
+                    Text { text: root.total-dmg-text; color: #e6e6f0; font-size: 11px * root.font-scale; width: 64px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    Text { text: root.total-text; color: Theme.accent; font-size: 11px * root.font-scale; width: 58px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    Text { text: root.elapsed-text; color: #cfcfe0; font-size: 10px * root.font-scale; width: 44px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.effective-cols.crit: Rectangle { width: 50px * root.font-scale; }
+                    if root.effective-cols.crit-value: Rectangle { width: 50px * root.font-scale; }
+                    if root.effective-cols.lucky: Rectangle { width: 50px * root.font-scale; }
+                    if root.effective-cols.lucky-value: Rectangle { width: 50px * root.font-scale; }
+                    if root.effective-cols.hits: Rectangle { width: 50px * root.font-scale; }
+                    if root.effective-cols.hpm: Rectangle { width: 50px * root.font-scale; }
+                    if root.effective-cols.score: Rectangle { width: 50px * root.font-scale; }
+                    if root.effective-cols.eff-dps: Rectangle { width: 58px * root.font-scale; }
+                    Rectangle { width: 14px; }
+                }
+            }
             Flickable {
                 vertical-stretch: 1;
                 max-height: 100000px;
@@ -3558,6 +3609,21 @@ export component MainWindow inherits Window {
             init => { self.entered = true; }
             viewport-height: csbox.preferred-height;
             csbox := VerticalLayout {
+                // 合計サマリー行（2カラムの上に全幅1行。issue #9 PR1）。列見出しが無い全幅行のため、
+                // 一覧の合計行と違い数値の意味が分かるよう最小限のラベルを添える。
+                if root.cfg-ui.show-total-row: Rectangle {
+                    height: 16px;
+                    Text {
+                        width: 100%;
+                        text: @tr("経過") + " " + root.elapsed-text + "   "
+                            + root.total-value-label() + " " + root.total-dmg-text + "   "
+                            + root.total-rate-label() + " " + root.total-text;
+                        color: #888;
+                        font-size: 10px * root.font-scale;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
                 // 一覧ビューと同じ理由で、専用モード中は2カラム側にも案内と解除導線を出す
                 // （こちらの空状態は「データなし」だけで、集計を止めていることが読み取れない）。
                 if root.rows.length == 0 && root.cfg-ui.imagine-only && root.capture-state != 3: ImagineOnlyNotice {

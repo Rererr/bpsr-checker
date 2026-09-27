@@ -3196,6 +3196,13 @@ export component MainWindow inherits Window {
         eff-dps: root.cols.eff-dps && root.tab == 0 && root.col-level >= 6,
     };
     property <bool> effective-show-graph-col: root.show-graph-col && root.col-level >= 1;
+    // 見出しの名前列 min-width は PlayerRowItem 側の名前セクション（クラス色バー3px＋
+    // NameTemplateのmin 90px*scale＋spacing5px×ギャップ数＋show-consumable時は食事/シロップ
+    // バッジ12px*scale×2）の実際の下限に一致させる。ここが単純な90px*scaleのままだと、狭幅で
+    // 見出し列だけ先に縮み切り、ダメージ以降の列がPlayerRowItemの行とx位置が食い違う
+    // （PlayerRowItem側の値を変えたらここも合わせて直すこと）。
+    property <length> name-col-min-width: 90px * root.font-scale
+        + (root.show-consumable ? (18px + 24px * root.font-scale) : 8px);
     // 自キャラの total-value が有効(>0)か。dps_bar::bar_pct の SelfRelative フォールバック条件
     // (self_total.is_some_and(|s| s > 0.0)) と同じ判定を Rust 側(build_rows)から push する
     // （バー計算側のフォールバック条件とガイド線の表示条件を2箇所に書かない）。
@@ -3416,7 +3423,7 @@ export component MainWindow inherits Window {
                     padding-left: 8px;
                     padding-right: 8px;
                     spacing: 6px;
-                    Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; min-width: 90px * root.font-scale; vertical-alignment: center; }
+                    Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; min-width: root.name-col-min-width; vertical-alignment: center; }
                     if root.effective-show-graph-col: Text { text: @tr("推移"); color: #888; font-size: 9px * root.font-scale; width: 60px; horizontal-alignment: center; vertical-alignment: center; }
                     Text {
                         text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ"));

@@ -2751,6 +2751,13 @@ fn poll_hotkey_events(m: &MainWindow, hotkeys_holder: &RefCell<Option<hotkey::Ho
     }
 }
 
+/// メイン窓の復元が完了し、settle 期間（起動直後の再アサート対策で毎tick 復元サイズを
+/// 強制適用する期間）も終わったか。poll_window_settle が「まだ強制中」を判定する条件の
+/// 否定に等しく、settle 完了後にしか安全に行えない処理（自動保存・grow_to_min）はこれで揃える。
+fn main_settled(st: &PollState) -> bool {
+    st.setup_done && st.tick >= st.setup_tick + SETTLE_TICKS
+}
+
 /// 起動/表示直後に Slint が preferred サイズを再アサートして保存サイズを上書きする
 /// ことがあるため、settle 期間中は毎tick 復元サイズを再適用する（サイズ一致なら no-op）。
 fn poll_window_settle(
@@ -2799,7 +2806,7 @@ fn poll_auto_save(
     stats_overlay_w: &slint::Weak<StatsOverlay>,
     last_saved: &RefCell<window_state::Layout>,
 ) {
-    if !st.setup_done || st.tick < st.setup_tick + SETTLE_TICKS {
+    if !main_settled(st) {
         return;
     }
     let tick = st.tick;
@@ -4960,6 +4967,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // 起動/表示直後の preferred サイズ再アサートを settle 期間中の再適用で打ち消す
         // （自動保存ガードより手前で実施）。
         poll_window_settle(&m, &st, &self_overlay_w, &buff_overlay_w, &stats_overlay_w);
+
+        // settle 完了後、実行中の設定変更（食事表示ON・文字サイズ変更等）で最小窓幅が
+        // 広がっていれば底上げする（settle 中は poll_window_settle と競合するため対象外）。
+        if main_settled(&st) {
+            let sf = m.window().scale_factor();
+            let min_w = (m.get_layout_min_width() * sf).round() as u32;
+            let min_h = (m.get_layout_min_height() * sf).round() as u32;
+            window_state::grow_to_min(m.window(), min_w, min_h);
+        }
 
         // レイアウト自動保存（復元確定後・差分時のみ）。
         poll_auto_save(

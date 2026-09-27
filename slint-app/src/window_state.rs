@@ -137,8 +137,42 @@ pub fn restore(
     rect
 }
 
+/// 現在の窓サイズが `min_w`/`min_h`（物理px、呼び出し側で MainWindow の
+/// `layout-min-width`/`layout-min-height` に scale_factor を掛けて算出）を下回っていれば
+/// 底上げする。settle 期間（`poll_window_settle`）は毎tick `enforce_size` で復元サイズを
+/// 強制再適用しており、その経路（winit `request_inner_size`）は Slint のレイアウト制約を
+/// 経由しないため、settle 完了までは狭すぎるサイズが残りうる。settle 完了後に呼び、
+/// 最終的に正しい幅へ底上げする（呼び出し側で settle 完了を判定する）。
+/// ユーザーが広げたサイズを縮める方向には関与しない。
+pub fn grow_to_min(window: &slint::Window, min_w: u32, min_h: u32) {
+    let cur = window.size();
+    if cur.width >= min_w && cur.height >= min_h {
+        return;
+    }
+    let pos = window.position();
+    let mut target = WinRect {
+        x: pos.x,
+        y: pos.y,
+        w: cur.width.max(min_w),
+        h: cur.height.max(min_h),
+    };
+    let monitors = crate::overlay::monitors(window);
+    if let Some(m) = best_monitor(&target, &monitors) {
+        target = clamp_to_monitor(&target, m);
+    }
+    window.set_position(PhysicalPosition::new(target.x, target.y));
+    enforce_size(window, &target);
+}
+
 /// 保存サイズを winit 経由で再適用（preferred 再アサートによる上書き対策）。
 /// 現在サイズが一致していれば何もしない（チラつき・不要な OS 呼び出しを避ける）。
+///
+/// 注意: ここで使う winit の `request_inner_size`（`SetWindowPos` 相当）による
+/// リサイズには Slint の最小サイズ制約が効かない。winit 0.30.13 の
+/// `WM_WINDOWPOSCHANGING` ハンドラ（`platform_impl/windows/event_loop.rs`）は
+/// 常に `DefWindowProcW` を呼ばず 0 を返すため、`DefWindowProcW` が本来行う
+/// `WM_GETMINMAXINFO` 由来のサイズクランプが一切走らない。そのため呼び出し側
+/// （`grow_to_min` 等）が明示的に最小サイズを確保する必要がある。
 pub fn enforce_size(window: &slint::Window, target: &WinRect) {
     let cur = window.size();
     if cur.width == target.w && cur.height == target.h {

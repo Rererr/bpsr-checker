@@ -3299,6 +3299,11 @@ export component MainWindow inherits Window {
     background: #14141e.with-alpha(root.win-opacity);
     preferred-width: 520px;
     preferred-height: 360px;
+    // レイアウトが要求する暗黙の最小サイズ（論理px）。Rust 側 window_state::grow_to_min が
+    // scale_factor を掛けて物理pxへ変換し、現在の窓サイズがこれを下回れば底上げする。
+    // col-level は現在の窓幅（changed width）で決まるため、この値も窓幅に追随して変わる。
+    out property <length> layout-min-width: self.min-width;
+    out property <length> layout-min-height: self.min-height;
 
     VerticalLayout {
         // ── ヘッダ（タブ + ドラッグ + 状態ドット + ボタン群 + 終了）──

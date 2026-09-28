@@ -197,7 +197,12 @@ message WorldLocation {
 
 message SkillImpact { repeated DamageRecord damages = 2; }
 
-message SocialBody { WorldLocation scene_data = 10; }
+// char_id(=uid) は他の SocialData 系メッセージ（PlayerSnapshot 等）と同じ tag1 の想定
+// （参照実装のプロトコル定義由来の推定。実機のバイト列では未確認）。
+message SocialBody {
+  int64 char_id = 1;
+  WorldLocation scene_data = 10;
+}
 
 message WorldEnterSnapshot { PlayerSnapshot v_data = 1; }
 

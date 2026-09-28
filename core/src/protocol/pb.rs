@@ -286,8 +286,12 @@ pub struct SkillImpact {
     #[prost(message, repeated, tag = "2")]
     pub damages: ::prost::alloc::vec::Vec<DamageRecord>,
 }
+/// char_id(=uid) は他の SocialData 系メッセージ（PlayerSnapshot 等）と同じ tag1 の想定
+/// （参照実装のプロトコル定義由来の推定。実機のバイト列では未確認）。
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SocialBody {
+    #[prost(int64, tag = "1")]
+    pub char_id: i64,
     #[prost(message, optional, tag = "10")]
     pub scene_data: ::core::option::Option<WorldLocation>,
 }

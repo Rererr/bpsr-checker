@@ -84,6 +84,13 @@ pub struct Encounter {
     /// （戦闘リセットのたびに PT情報が消えると「PTメンバーのみ食事行表示」フィルタが
     /// リセット直後だけ全員非表示になってしまう）。
     pub team: crate::engine::team::TeamState,
+    /// 自キャラの最新シーン(level_map_id)。consumables/team と同様、戦闘状態と無関係に
+    /// アプリ全体で使うため clear_combat_stats・ServerHandover を跨いで保持する。
+    pub current_level_map_id: u32,
+    /// 戦闘開始の瞬間に `current_level_map_id` を写した値。「この計測がどこで行われたか」
+    /// の記録用で、戦闘中にシーンが変わっても遡って書き換えない。`clear_combat_stats` で
+    /// 0 に戻す（次の戦闘開始時に改めて写される）。
+    pub fight_level_map_id: u32,
 }
 
 impl Encounter {
@@ -160,8 +167,11 @@ impl Encounter {
         // active_connection と conn_to_uid は保持する。
         // これらはセッション間でコネクション識別に再利用するため、
         // ServerHandover 受信時と set_selected_uid 変更時のみクリアする。
+        // current_level_map_id も consumables/team と同様に保持する
+        // （戦闘リセットとシーン移動は無関係）。
         self.is_paused = false;
         self.time_fight_start_ms = 0;
+        self.fight_level_map_id = 0;
         self.time_last_combat_packet_ms = 0;
         self.dmg_stats = CombatStats::default();
         self.dmg_stats_boss_only = CombatStats::default();

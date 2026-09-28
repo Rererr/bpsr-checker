@@ -415,7 +415,7 @@ msgid "戦闘が終了すると自動的にここへ記録されます"
 msgstr "Finished battles are recorded here automatically"
 
 msgid "人"
-msgstr " players"
+msgstr " p"
 
 msgid "推移"
 msgstr "Trend"

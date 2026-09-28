@@ -113,6 +113,15 @@ global ListCol {
     out property <length> pct-w: 44px;    // %列
     out property <length> opt-w: 50px;    // 会心率/会心ダメ率/幸運率/幸運ダメ率/ヒット数/毎分ヒット数/戦力（共通幅）
     out property <length> pin-w: 14px;    // 末尾ウォッチピン用スペーサー
+    // 列見出し行・合計行・PlayerRowItem/SkillRowItem の HorizontalLayout が共有する外枠余白/列間隔。
+    out property <length> pad-x: 8px;   // padding-left/right
+    out property <length> gap: 6px;     // spacing
+    // 名前セクションの内訳（MainWindow.name-col-min-width の算出根拠。PlayerRowItem本体の
+    // クラス色バー・内側spacing・NameTemplateのmin-text-width・ConsumableBadgeの幅と一致させる）。
+    out property <length> name-bar-w: 3px;          // クラス色バー(PlayerRowItem)
+    out property <length> name-gap: 5px;            // 名前セクション内 HorizontalLayout の spacing
+    out property <length> name-min-text-w: 90px;    // NameTemplate の min-text-width
+    out property <length> consumable-badge-w: 12px; // ConsumableBadge 1個の width
 }
 
 // 設定パネルのトグル表示状態（Rust が cfg から set）
@@ -665,8 +674,10 @@ component ConsumableBadge inherits Rectangle {
     in property <float> font-scale: 1.0;
     callback clicked();
     property <float> elapsed: 1.0 - root.remaining;  // 経過割合（上から色が消える境界）
-    // アイコン径＝メインのフォントサイズ（font_size = 12px*font_scale）に一致
-    width: 12px * root.font-scale;
+    // アイコン径＝メインのフォントサイズ（font_size = 12px*font_scale）に一致。
+    // ListCol.consumable-badge-w は MainWindow.name-col-min-width の算出にもこの値を使うため
+    // 単一ソース化してある（ここだけ変えると名前列の下限とバッジ実寸がズレる）。
+    width: ListCol.consumable-badge-w * root.font-scale;
     height: self.width;
     // 下地: 常にグレーのフルアイコン（未使用時はこれのみが見える）。
     Path {
@@ -843,15 +854,15 @@ component PlayerRowItem inherits Rectangle {
     HorizontalLayout {
         width: 100%;
         height: 100%;
-        padding-left: 8px;
-        padding-right: 8px;
-        spacing: 6px;
+        padding-left: ListCol.pad-x;
+        padding-right: ListCol.pad-x;
+        spacing: ListCol.gap;
         HorizontalLayout {
             horizontal-stretch: 1;
             min-width: root.name-col-min-width;
-            spacing: 5px;
+            spacing: ListCol.name-gap;
             Rectangle {
-                width: 3px;
+                width: ListCol.name-bar-w;
                 background: root.entry.class-color;
                 border-radius: 1px;
             }
@@ -862,7 +873,7 @@ component PlayerRowItem inherits Rectangle {
                 font-scale: root.font-scale;
                 text-size: 12px * root.font-scale;
                 icon-box: 18px * root.font-scale;
-                min-text-width: 90px * root.font-scale;
+                min-text-width: ListCol.name-min-text-w * root.font-scale;
             }
             // 食事/シロップ バフのタイマーアイコン（残量に応じて色が上から縦に抜ける・ホバーで詳細）
             if root.show-consumable: VerticalLayout { alignment: center; ConsumableBadge {
@@ -1075,18 +1086,19 @@ component SkillRowItem inherits Rectangle {
     HorizontalLayout {
         width: 100%;
         height: 100%;
-        padding-left: 8px;
-        padding-right: 8px;
-        spacing: 6px;
+        padding-left: ListCol.pad-x;
+        padding-right: ListCol.pad-x;
+        spacing: ListCol.gap;
         HorizontalLayout {
             horizontal-stretch: 1;
             spacing: 4px;
             VerticalLayout { alignment: center; ElementIcon { id: root.entry.elem-id; tint: root.entry.elem-color; box: 14px * root.font-scale; } }
             Text { text: root.entry.name; color: white; font-size: 12px * root.font-scale; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; }
         }
-        Text { text: root.entry.total-text; color: #e6e6f0; font-size: 12px * root.font-scale; width: 64px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-        Text { text: root.entry.dps-text; color: Theme.accent; font-size: 12px * root.font-scale; width: 58px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-        Text { text: root.entry.pct-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: 44px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        // ダメージ/DPS/%列の幅は一覧の ListCol と共用（見出しは下記スキル内訳ヘッダーが同じ値を参照）。
+        Text { text: root.entry.total-text; color: #e6e6f0; font-size: 12px * root.font-scale; width: ListCol.dmg-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.entry.dps-text; color: Theme.accent; font-size: 12px * root.font-scale; width: ListCol.dps-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        Text { text: root.entry.pct-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: ListCol.pct-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
     }
     ta := TouchArea {
         enabled: root.clickable;
@@ -3226,13 +3238,17 @@ export component MainWindow inherits Window {
     property <bool> effective-show-graph-col: root.show-graph-col && root.col-level >= 1;
     // 名前列 min-width の単一ソース。見出し(下記 Text)と PlayerRowItem の名前セクション
     // (in property name-col-min-width 経由で明示 min-width として渡す)の両方がこの値を参照する。
-    // 子要素合計の暗黙値に任せると、見出し=単純な90px*scale・行=バー3px＋NameTemplateのmin
-    // 90px*scale＋spacing5px×ギャップ数＋show-consumable時は食事/シロップバッジ12px*scale×2の
-    // 合計、という二重管理になり、狭幅で床がズレて見出しと行のx位置が食い違う（実際に発生した
-    // 不具合）。この値は一覧表示中の窓の最小幅も決める（Slintのレイアウト最小幅としてOS側の
+    // 内訳は PlayerRowItem 名前セクションの実際の構成（クラス色バー→spacing→NameTemplate→
+    // [spacing→ConsumableBadge]×表示中のバッジ数）と1対1に対応させ、ListCol の定数から導出する。
+    // 子要素合計の暗黙値に任せると、見出し=単純な90px*scale・行=実構成の合計、という二重管理に
+    // なり、定数側だけ変えると狭幅で床がズレて見出しと行のx位置が食い違う（実際に発生した不具合）。
+    // この値は一覧表示中の窓の最小幅も決める（Slintのレイアウト最小幅としてOS側の
     // 最小ウィンドウサイズ制約にも伝播するため、変更するとユーザーが縮小できる限界も変わる）。
-    property <length> name-col-min-width: 90px * root.font-scale
-        + (root.show-consumable ? (18px + 24px * root.font-scale) : 8px);
+    property <length> name-col-min-width: ListCol.name-min-text-w * root.font-scale
+        + ListCol.name-bar-w + ListCol.name-gap
+        + (root.show-consumable
+            ? 2 * (ListCol.name-gap + ListCol.consumable-badge-w * root.font-scale)
+            : 0px);
     // 自キャラの total-value が有効(>0)か。dps_bar::bar_pct の SelfRelative フォールバック条件
     // (self_total.is_some_and(|s| s > 0.0)) と同じ判定を Rust 側(build_rows)から push する
     // （バー計算側のフォールバック条件とガイド線の表示条件を2箇所に書かない）。
@@ -3469,9 +3485,9 @@ export component MainWindow inherits Window {
             Rectangle {
                 height: 16px;
                 HorizontalLayout {
-                    padding-left: 8px;
-                    padding-right: 8px;
-                    spacing: 6px;
+                    padding-left: ListCol.pad-x;
+                    padding-right: ListCol.pad-x;
+                    spacing: ListCol.gap;
                     Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; min-width: root.name-col-min-width; vertical-alignment: center; }
                     if root.effective-show-graph-col: Text { text: @tr("推移"); color: #888; font-size: 9px * root.font-scale; width: ListCol.graph-w; horizontal-alignment: center; vertical-alignment: center; }
                     Text {
@@ -3504,16 +3520,16 @@ export component MainWindow inherits Window {
                 }
             }
             // ── 合計行（列見出し直下・固定表示。issue #9 PR1）──
-            // 列幅は ListCol（列見出し行/PlayerRowItem と共有する単一ソース）を使い、
+            // 幅・spacing は ListCol（列見出し行/PlayerRowItem と共有する単一ソース）を使い、
             // 罫線が縦に通るようにする。オプション列は表示中でも値を出さず空欄。
             if root.total-row-visible: Rectangle {
                 height: 16px * root.font-scale;
                 background: #20202e;
                 Rectangle { y: parent.height - 1px; width: 100%; height: 1px; background: #ffffff20; }
                 HorizontalLayout {
-                    padding-left: 8px;
-                    padding-right: 8px;
-                    spacing: 6px;
+                    padding-left: ListCol.pad-x;
+                    padding-right: ListCol.pad-x;
+                    spacing: ListCol.gap;
                     HorizontalLayout {
                         horizontal-stretch: 1;
                         // 列見出しの「プレイヤー」Textと同じ root.name-col-min-width を持たせて
@@ -3859,14 +3875,15 @@ export component MainWindow inherits Window {
             }
             Rectangle {
                 height: 16px;
+                // 幅・spacing は SkillRowItem と共有する ListCol（一覧の列幅と同じ値を流用）。
                 HorizontalLayout {
-                    padding-left: 8px;
-                    padding-right: 8px;
-                    spacing: 6px;
+                    padding-left: ListCol.pad-x;
+                    padding-right: ListCol.pad-x;
+                    spacing: ListCol.gap;
                     Text { text: @tr("スキル"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; vertical-alignment: center; }
-                    Text { text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ")); color: #888; font-size: 10px * root.font-scale; width: 64px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-                    Text { text: root.tab == 1 ? @tr("HPS") : (root.tab == 2 ? @tr("被DPS") : @tr("DPS")); color: #888; font-size: 10px * root.font-scale; width: 58px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-                    Text { text: @tr("%"); color: #888; font-size: 10px * root.font-scale; width: 44px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    Text { text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ")); color: #888; font-size: 10px * root.font-scale; width: ListCol.dmg-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    Text { text: root.tab == 1 ? @tr("HPS") : (root.tab == 2 ? @tr("被DPS") : @tr("DPS")); color: #888; font-size: 10px * root.font-scale; width: ListCol.dps-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+                    Text { text: @tr("%"); color: #888; font-size: 10px * root.font-scale; width: ListCol.pct-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
                 }
             }
             Flickable {

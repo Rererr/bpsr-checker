@@ -130,8 +130,8 @@ global ListCol {
 // NameTemplate/NamePartView(名前パーツ描画)の内部寸法。一覧・軽量分割表示の両方が
 // このNameTemplateを使うため、一覧/軽量分割どちらにも属さない中立の場所に置く。
 global NameLayout {
-    // NameTemplateがNamePartViewへ渡すgap-before(クラスアイコン直後だけ5px)の値。
-    // 本ファイル内 NameTemplate の for（クラスアイコン直後の判定）がここを参照する。
+    // NameTemplateがNamePartViewへ渡すgap-beforeの値。クラスアイコンの前後に入る
+    // （アイコンが先頭なら前には入らない）。NameTemplate の for の判定がここを参照する。
     out property <length> icon-gap: 5px;
     // NamePartView(名前パーツ)の min-width フロア(text-size*3＝全角2文字+省略記号ぶん)。
     // NamePartView.name-floor と MainWindow.compact-name-col-min-width の両方が呼ぶ
@@ -144,7 +144,8 @@ global NameLayout {
 // 軽量分割表示(CompactRowItem/見出し)の寸法の単一ソース（font-scale=1.0基準px。
 // このglobal自体はfont-scaleを持たない。一覧の ListCol と同じ役割）。
 // 利用箇所: 見出し(CompactColHeader)・CompactRowItem・MainWindow.compact-name-col-min-width/
-// compact-col-min-width。値を変えたらこの4箇所の見た目・最小幅が連動して変わる。
+// compact-col-min-width、2カラム間の csbox.spacing と Flickable.min-width（col-gap）。
+// 値を変えたらこれらの見た目・最小幅が連動して変わる。
 global CompactCol {
     out property <length> pad-x: 6px;      // 見出し・CompactRowItemの padding-left/right
     out property <length> gap: 5px;        // 同, spacing（名前|ダメージ, ダメージ|DPS）
@@ -1041,8 +1042,8 @@ component CompactRowItem inherits Rectangle {
     // 呼び出し元から単一ソース（MainWindow::compact-row-h）で受け取る。
     in property <length> row-height: 18px;
     // 名前セクションの min-width。見出し側(MainWindow::compact-name-col-min-width)と同じ値を
-    // 呼び出し元から受け取り、settle中の一時的な幅でも見出しと行の列位置を揃える
-    // （一覧ビューのPlayerRowItem.name-col-min-widthと同じ理由）。
+    // 呼び出し元から受け取り、行にも明示する。構造を一覧ビューの PlayerRowItem と対称にする
+    // 保険で、現状は列側の最小幅（Flickable/VerticalLayout）で担保されており発火しない。
     in property <length> name-col-min-width;
     callback activate(string);
     height: root.row-height;
@@ -3341,8 +3342,7 @@ export component MainWindow inherits Window {
     // 追随させないと、font-scale>1 で日本語の行高が行に収まらず名前列が描画されなくなる。
     property <length> compact-row-h: 18px * root.font-scale;
     // 軽量分割表示の名前セクション min-width の単一ソース。CompactColHeader(見出し)と
-    // CompactRowItem(name-col-min-width経由)の両方へ渡し、settle中の一時的な幅でも
-    // 見出しと行の名前セクション幅を常に一致させる。内訳はCompactRowItemの実構成
+    // CompactRowItem(name-col-min-width経由・保険)の両方へ渡す。内訳はCompactRowItemの実構成
     // (クラス色バー→spacing→NameTemplateの内部フロア=アイコン+gap+name-floor)と対応させ、
     // 定数はすべて CompactCol/NameLayout を参照する（ここに直接リテラルを書き直さない）。
     // 見出しと行のダメージ/DPS列のx位置がズレないのは、この値の正確さではなく
@@ -3790,7 +3790,7 @@ export component MainWindow inherits Window {
                 // (layout-min-width)は変わらなかった）。窓の最小幅へ伝わる経路はここだけ
                 // （下記2カラムのVerticalLayout.min-widthはcsbox自身の最小幅にしか効かず、
                 // Flickableの外(窓)へは伝わらない）。csbox.min-widthをそのまま使わないのは、
-                // 専用モードの空状態に出すImagineOnlyNotice(最小幅 288px*ui-scale)が混ざり、
+                // 専用モードの空状態に出すImagineOnlyNotice(最小幅 推定 約288px*ui-scale)が混ざり、
                 // 窓幅とui-scaleが互いを押し上げ合う恐れがあるため。2カラム分をここで明示する。
                 min-width: 2 * root.compact-col-min-width + CompactCol.col-gap;
                 viewport-height: csbox.preferred-height;
@@ -3807,10 +3807,10 @@ export component MainWindow inherits Window {
                         VerticalLayout {
                             horizontal-stretch: 1;
                             // ここはcsbox自身の最小幅にしか効かない（窓の最小幅への経路は
-                            // 上記Flickable.min-widthのコメント参照）。CompactRowItemは
-                            // 絶対配置+width:100%で子側に固有のmin/preferredを持たないため、
-                            // ここを0のままにすると値をいくら大きくしても列が縮んだまま
-                            // （名前が隣のダメージ/DPS列と重なる。修正コミット 03b2f3b 参照）。
+                            // 上記Flickable.min-widthのコメント参照）。通常時の列幅は Flickable の
+                            // min-width が、名前の重なりは NameTemplate の clip（03b2f3b）が防ぐ。
+                            // ここが効くのは settle 中に列を押し潰さず横にはみ出させることだけ
+                            // （CompactColHeader の最小幅と同じ値で重複）。
                             min-width: root.compact-col-min-width;
                             preferred-width: 0px;
                             alignment: start;

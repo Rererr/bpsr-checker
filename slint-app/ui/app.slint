@@ -579,6 +579,10 @@ component NameTemplate inherits Rectangle {
     in property <length> min-text-width: 0px;
     horizontal-stretch: 1;
     min-width: root.min-text-width;
+    // min-text-width:0(軽量分割表示の呼び出し)だと、割り当て幅がアイコン+名前の内部フロア
+    // (NamePartViewのmin-width。クラスアイコン分+`ああ…`まで読める分)を下回れる。Rectangleは
+    // 既定でクリップしないため、そのままだと中身が割り当て幅を超えて隣の数値列の上に描画される。
+    clip: true;
     HorizontalLayout {
         width: 100%;
         height: 100%;

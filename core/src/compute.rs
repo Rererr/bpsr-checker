@@ -306,6 +306,7 @@ pub fn get_header_info(enc: &EncounterMutex, stat: StatType) -> HeaderInfo {
             total_dmg: stats.total as f64,
             elapsed_ms: elapsed_ms as f64,
             time_last_combat_packet_ms: encounter.time_last_combat_packet_ms as f64,
+            fight_level_map_id: encounter.fight_level_map_id,
         }
     })
 }

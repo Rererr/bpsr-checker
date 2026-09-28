@@ -10,6 +10,9 @@ pub struct HeaderInfo {
     pub total_dmg: f64,
     pub elapsed_ms: f64,
     pub time_last_combat_packet_ms: f64,
+    /// この計測が行われたコンテンツの id（`Encounter::fight_level_map_id`）。
+    /// 表示名への変換は content_names.rs を都度引く（issue #9 PR2b）。
+    pub fight_level_map_id: u32,
 }
 
 pub type PlayerRows = Vec<PlayerRow>;

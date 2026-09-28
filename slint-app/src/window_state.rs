@@ -144,24 +144,43 @@ pub fn restore(
 /// 経由しないため、settle 完了までは狭すぎるサイズが残りうる。settle 完了後に呼び、
 /// 最終的に正しい幅へ底上げする（呼び出し側で settle 完了を判定する）。
 /// ユーザーが広げたサイズを縮める方向には関与しない。
+///
+/// 最小化中は何もしない（位置が (-32000,-32000) を返し、モニタ内へ補正した
+/// SetWindowPos を最小化中の窓へ出してしまうため）。
 pub fn grow_to_min(window: &slint::Window, min_w: u32, min_h: u32) {
     let cur = window.size();
     if cur.width >= min_w && cur.height >= min_h {
         return;
     }
+    // アプリは ShowWindow(SW_MINIMIZE) で直接最小化するため、Slint の状態でなく winit(IsIconic) に問う。
+    if window.with_winit_window(|w| w.is_minimized()).flatten() == Some(true) {
+        return;
+    }
     let pos = window.position();
-    let mut target = WinRect {
-        x: pos.x,
-        y: pos.y,
-        w: cur.width.max(min_w),
-        h: cur.height.max(min_h),
-    };
+    let current = WinRect { x: pos.x, y: pos.y, w: cur.width, h: cur.height };
     let monitors = crate::overlay::monitors(window);
-    if let Some(m) = best_monitor(&target, &monitors) {
+    let Some(target) = grow_target(&current, min_w, min_h, &monitors) else {
+        return;
+    };
+    if (target.x, target.y) != (current.x, current.y) {
+        window.set_position(PhysicalPosition::new(target.x, target.y));
+    }
+    enforce_size(window, &target);
+}
+
+/// `current` を最小サイズまで広げ、最も重なるモニタ内へ収めた矩形を返す。
+/// 変更が不要なら None。最小幅がモニタより広いとモニタ幅で頭打ちになり
+/// `current` のままになるため、その場合も None を返して毎tick の SetWindowPos を避ける。
+fn grow_target(current: &WinRect, min_w: u32, min_h: u32, monitors: &[MonitorRect]) -> Option<WinRect> {
+    let mut target = WinRect {
+        w: current.w.max(min_w),
+        h: current.h.max(min_h),
+        ..current.clone()
+    };
+    if let Some(m) = best_monitor(&target, monitors) {
         target = clamp_to_monitor(&target, m);
     }
-    window.set_position(PhysicalPosition::new(target.x, target.y));
-    enforce_size(window, &target);
+    (target != *current).then_some(target)
 }
 
 /// 保存サイズを winit 経由で再適用（preferred 再アサートによる上書き対策）。
@@ -183,4 +202,40 @@ pub fn enforce_size(window: &slint::Window, target: &WinRect) {
             target.w, target.h,
         ));
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mon(x: i32, w: u32) -> MonitorRect {
+        MonitorRect { x, y: 0, w, h: 1080, scale: 1.0, name: String::new(), primary: x == 0 }
+    }
+
+    fn rect(x: i32, y: i32, w: u32, h: u32) -> WinRect {
+        WinRect { x, y, w, h }
+    }
+
+    #[test]
+    fn grow_target_widens_to_min() {
+        let got = grow_target(&rect(100, 100, 432, 420), 474, 300, &[mon(0, 1920)]);
+        assert_eq!(got, Some(rect(100, 100, 474, 420)));
+    }
+
+    #[test]
+    fn grow_target_none_when_already_wide_enough() {
+        assert_eq!(grow_target(&rect(100, 100, 800, 420), 474, 300, &[mon(0, 1920)]), None);
+    }
+
+    #[test]
+    fn grow_target_shifts_left_at_monitor_edge() {
+        let got = grow_target(&rect(1500, 100, 400, 420), 474, 300, &[mon(0, 1920)]);
+        assert_eq!(got, Some(rect(1446, 100, 474, 420)));
+    }
+
+    #[test]
+    fn grow_target_none_when_min_exceeds_monitor_and_already_capped() {
+        // 最小幅がモニタより広いとモニタ幅で頭打ちになる。頭打ち済みなら毎tick 動かさない。
+        assert_eq!(grow_target(&rect(0, 0, 1280, 420), 1500, 300, &[mon(0, 1280)]), None);
+    }
 }

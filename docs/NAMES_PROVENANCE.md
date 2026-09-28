@@ -12,6 +12,7 @@
 - `core/data/json/MonsterNameBoss.en.json`
 - `core/data/json/ImagineSkillNames.json`（召喚/分身 id の紐付け）
 - `core/data/json/ConsumableBuffIds.json`
+- `core/data/json/ContentName.json`
 - `slint-app/data/BuffName.en.json`
 - `slint-app/data/ConsumableBuffNames.ja.json`
 

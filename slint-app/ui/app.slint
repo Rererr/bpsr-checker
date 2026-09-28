@@ -3715,7 +3715,10 @@ export component MainWindow inherits Window {
                                     padding-left: 6px;
                                     padding-right: 6px;
                                     spacing: 5px;
-                                    Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; vertical-alignment: center; }
+                                    // min-width:0: CompactRowItem の名前セクション(NameTemplate min-text-width既定0)は
+                                    // 幅0まで縮められるが、この見出しTextは指定が無いと文字列の自然幅が下限になり、
+                                    // 列が狭い時に見出し側だけそれを下回れず行送りの列(ダメージ/DPS)とズレる。
+                                    Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; min-width: 0px; vertical-alignment: center; }
                                     Text { text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ")); color: #888; font-size: 10px * root.font-scale; width: 56px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
                                     Text { text: root.tab == 1 ? @tr("HPS") : (root.tab == 2 ? @tr("被DPS") : @tr("DPS")); color: #888; font-size: 10px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
                                 }
@@ -3754,7 +3757,8 @@ export component MainWindow inherits Window {
                                     padding-left: 6px;
                                     padding-right: 6px;
                                     spacing: 5px;
-                                    Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; vertical-alignment: center; }
+                                    // 左カラムの見出しと同じ理由（コメント参照）で min-width:0。
+                                    Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; min-width: 0px; vertical-alignment: center; }
                                     Text { text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ")); color: #888; font-size: 10px * root.font-scale; width: 56px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
                                     Text { text: root.tab == 1 ? @tr("HPS") : (root.tab == 2 ? @tr("被DPS") : @tr("DPS")); color: #888; font-size: 10px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
                                 }

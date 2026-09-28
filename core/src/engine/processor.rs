@@ -32,7 +32,8 @@ fn next_imagine_seq() -> u64 {
 /// SocialEnvelope の char_id 不一致（他キャラの通知が届いた）を、プロセス生存中1回だけ
 /// info で記録済みかどうか。level_map_id 追跡は実機未確認の推定実装（pb.proto 参照）なので、
 /// 実機で char_id の値そのものが観測できているかを切り分けるための最小限のログ。
-/// 2回目以降は debug に留め、人が多い場所で毎回ログが連発しないようにする。
+/// 2回目以降は debug に留め、他キャラの通知が繰り返し届く場合でもログが連発しないようにする
+/// （他キャラの通知が自クライアントに届くかは実機未確認）。
 static SOCIAL_ENVELOPE_MISMATCH_LOGGED: AtomicBool = AtomicBool::new(false);
 
 /// `pending_imagine` が単独昇格（自己修復）するまでに要求する再検知回数
@@ -757,9 +758,9 @@ fn conn_is_other_client(encounter: &Encounter, conn: Option<Server>) -> bool {
 }
 
 fn should_accept(encounter: &mut Encounter, conn: Option<Server>, op: &Pkt) -> bool {
-    // ServerHandover は接続状態そのものの通知。SocialEnvelope は conn_is_other_client と
-    // char_id 判定を自前で行うため、ここでの粗い conn 判定は不要（二重に弾くと自キャラ
-    // 未確定時の暫定受理ができなくなる）。
+    // ServerHandover と SocialEnvelope は process_opcode の専用アームで処理されるため、
+    // ここには到達しない（SocialEnvelope は conn_is_other_client と char_id 判定を自前で行う。
+    // ここを経由させると、自キャラ確定後の ServerHandover 直後に未学習 conn へ届く継続通知が落ちる）。
     // WorldEnterSnapshot/WorldEnterScene/LocalDeltaBatch は conn ↔ char_id の学習経路なので、
     // 身元不明の conn でも必ず通す（ここで弾くと学習が永久に起きず、UID 指定時に何も
     // 表示されなくなる）。他クライアント由来かどうかは各 process_* が learn_connection で

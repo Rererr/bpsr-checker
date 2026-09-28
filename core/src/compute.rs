@@ -2442,6 +2442,23 @@ mod tests {
         selected_uid::set(None);
     }
 
+    // 選択解除(Some(A)→None)でもクリアする。後の自動検出 0→B では set_local_player_uid が
+    // クリアしないため、ここで消さないと前キャラのシーンが B の最初の戦闘に残る。
+    #[test]
+    fn set_selected_uid_clears_current_level_map_id_on_deselect() {
+        let _guard = selected_uid::lock_for_test();
+        let enc: EncounterMutex = std::sync::Mutex::new(Encounter {
+            local_player_uid: 100,
+            current_level_map_id: 6545,
+            ..Default::default()
+        });
+
+        set_selected_uid(&enc, None);
+
+        assert_eq!(enc.lock().unwrap().current_level_map_id, 0, "選択解除でクリアする");
+        selected_uid::set(None);
+    }
+
     // capture_3min_result_skills は finalize（build_encounter_snapshot）と同じ分母
     // (combat_elapsed_ms＝Active3Minは固定窓)を使う（結果モーダルのスキル内訳DPSがヘッダ/
     // プレイヤー行と食い違わないことの回帰テスト。以前はライブの get_skills を別途呼んでいた

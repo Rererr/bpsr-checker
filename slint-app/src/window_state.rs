@@ -146,8 +146,8 @@ pub fn restore(
 /// 最小サイズを満たすために縮めることはしない（モニタに収まらない分だけはモニタ内へ縮める）。
 ///
 /// 最小化中・最大化中は何もしない。最小化中は位置が (-32000,-32000) を返し、モニタ内へ
-/// 補正した SetWindowPos を最小化中の窓へ出してしまう。最大化中は位置が枠の分だけ負になり、
-/// set_position/request_inner_size が最大化を解除してしまう。
+/// 補正した SetWindowPos を最小化中の窓へ出してしまう。最大化中は位置が枠の分だけ負になりうり
+/// （未実測）、そのまま set_position/request_inner_size を出すと最大化が解除されてしまう。
 pub fn grow_to_min(window: &slint::Window, min_w: u32, min_h: u32) {
     let cur = window.size();
     if cur.width >= min_w && cur.height >= min_h {

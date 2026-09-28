@@ -127,6 +127,21 @@ global ListCol {
     out property <length> consumable-badge-w: 12px; // ConsumableBadge 1個の width
 }
 
+// 軽量分割表示(CompactRowItem/見出し)の名前セクション寸法の単一ソース（font-scale=1.0基準）。
+// text-size/icon-box は CompactRowItem の NameTemplate 呼び出しと同じ値を持たせること
+// （値がズレると name-floor() の結果が実際のレイアウトと食い違い、MainWindow.compact-name-col-min-width
+// の見積りが不正確になる）。
+global CompactNameCol {
+    out property <length> text-size: 11px; // NameTemplate.text-size（font-scale倍は呼び出し側）
+    out property <length> icon-box: 16px;  // NameTemplate.icon-box（同上）
+    out property <length> icon-gap: 5px;   // クラスアイコン直後の gap-before(NamePartView仕様。font-scale倍なし)
+    // NamePartView(名前パーツ)の min-width フロアと同じ式(text-size*3＝全角2文字+省略記号ぶん)。
+    // NamePartView.name-floor（本ファイル内）と必ず同じにする。片方だけ変えない。
+    public pure function name-floor(text-size: length) -> length {
+        return text-size * 3;
+    }
+}
+
 // 設定パネルのトグル表示状態（Rust が cfg から set）
 struct SettingsUi {
     show-crit: bool,
@@ -532,8 +547,9 @@ component NamePartView inherits Rectangle {
     // イマジンを別パーツに切り出した時点で余計な隙間が入るため、パーツ側で持たせる）。
     in property <length> gap-before: 0px;
     // 名前を含むパーツの下限幅。全角2文字＋省略記号ぶんを残し、「ああ…」までは読めるようにする
-    // （名前自体がこれより短ければその自然幅が下限）。
-    property <length> name-floor: root.text-size * 3;
+    // （名前自体がこれより短ければその自然幅が下限）。式は CompactNameCol.name-floor と共有
+    // （MainWindow.compact-name-col-min-width も同じ関数で算出し、値を食い違わせない）。
+    property <length> name-floor: CompactNameCol.name-floor(root.text-size);
     // 幅が足りないときに削られる順序。Slint の box layout は不足分を stretch 比で配分し、
     // stretch=0 の要素は他に縮み代がある限り縮まない（i-slint-core layout.rs の Shrink）。
     // これでロールスキル→イマジン→本体の順に省略される。
@@ -1044,8 +1060,10 @@ component CompactRowItem inherits Rectangle {
                 class-icon-id: root.entry.class-icon-id;
                 class-role-color: root.entry.class-role-color;
                 font-scale: root.font-scale;
-                text-size: 11px * root.font-scale;
-                icon-box: 16px * root.font-scale;
+                // CompactNameCol の値を使う（MainWindow.compact-name-col-min-width の
+                // 算出元と同じ数値にするため、ここに直接リテラルを書き直さない）。
+                text-size: CompactNameCol.text-size * root.font-scale;
+                icon-box: CompactNameCol.icon-box * root.font-scale;
             }
         }
         Text { text: root.entry.dmg-text; color: #e6e6f0; font-size: 11px * root.font-scale; width: 56px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
@@ -3278,6 +3296,27 @@ export component MainWindow inherits Window {
     // CompactRowItem の height と配置の刻みを必ずこの1箇所から導出する。フォントサイズに
     // 追随させないと、font-scale>1 で日本語の行高が行に収まらず名前列が描画されなくなる。
     property <length> compact-row-h: 18px * root.font-scale;
+    // 軽量分割表示の名前セクション min-width の単一ソース。見出しの「プレイヤー」Textと
+    // CompactRowItemの名前セクション(クラス色バー→spacing→NameTemplate)の両方がこの値を
+    // 参照する。内訳はCompactRowItemの実構成(クラス色バー2px→spacing 4px→NameTemplateの
+    // 内部フロア=アイコン+gap+name-floor)と1対1に対応させる。一覧のname-col-min-widthと同じ
+    // 理由で、値が実構成より小さいと狭幅で名前セクションが隣のダメージ/DPS列と重なる
+    // （実際に発生した不具合。NameTemplateにclip:trueを保険として残しているため重なり自体は
+    // 起きなくなったが、見出しと行の列位置は揃わなくなる）。
+    property <length> compact-name-col-min-width: 2px /* CompactRowItemのクラス色バー幅 */
+        + 4px /* 同, name-wrapper内 spacing */
+        + CompactNameCol.icon-box * root.font-scale
+        + CompactNameCol.icon-gap
+        + CompactNameCol.name-floor(CompactNameCol.text-size * root.font-scale);
+    // 軽量分割表示 1カラムの min-width の単一ソース。見出し行・CompactRowItemのHorizontalLayout
+    // (padding-left/right 6px・spacing 5px×2・ダメージ56px・DPS50px、ダメージ/DPS幅はfont-scale倍。
+    // いずれも見出し側と CompactRowItem 側の固定値と一致させる) + 名前セクションの合計。
+    // 左右カラムのVerticalLayout.min-widthへそのまま渡し、窓の最小幅(layout-min-width)へ伝える。
+    property <length> compact-col-min-width: 12px /* padding-left+right */
+        + 10px /* spacing×2 (名前|ダメージ, ダメージ|DPS) */
+        + 56px * root.font-scale /* ダメージ列 */
+        + 50px * root.font-scale /* DPS列 */
+        + root.compact-name-col-min-width;
     // 設定パネルの列数（窓幅でレスポンシブに 1/2/3）。短ラベルが多いので幅があれば3列まで。
     property <int> set-cols: root.width >= 660px ? 3 : (root.width >= 440px ? 2 : 1);
     // HSVピッカーをドラッグ中か。true の間は設定パネル Flickable の interactive を切り、
@@ -3697,6 +3736,11 @@ export component MainWindow inherits Window {
             Flickable {
                 vertical-stretch: 1;
                 max-height: 100000px;
+                // Flickable はスクロール前提のため、既定では中身(csbox)の幅要求を自分の
+                // min-width へ伝播しない（実測で確認：2カラムのVerticalLayout.min-widthを
+                // どれだけ大きくしても、このFlickableに明示min-widthを与えないと窓の最小幅
+                // (layout-min-width)は変わらなかった）。2カラム分の実測要をここで明示する。
+                min-width: 2 * root.compact-col-min-width + 4px /* csbox内 HorizontalLayout の spacing */;
                 viewport-height: csbox.preferred-height;
                 csbox := VerticalLayout {
                     // 一覧ビューと同じ理由で、専用モード中は2カラム側にも案内と解除導線を出す
@@ -3710,7 +3754,11 @@ export component MainWindow inherits Window {
                         // 左カラム（前半）
                         VerticalLayout {
                             horizontal-stretch: 1;
-                            min-width: 0px;
+                            // root.compact-col-min-width が窓の最小幅(layout-min-width)へ伝わる
+                            // 唯一の経路。CompactRowItemは絶対配置+width:100%で子側に固有のmin/preferred
+                            // を持たないため、ここを0のままにすると値をいくら大きくしても窓は縮んだまま
+                            // （名前が隣のダメージ/DPS列と重なる。#名前重なり修正のコミット参照）。
+                            min-width: root.compact-col-min-width;
                             preferred-width: 0px;
                             alignment: start;
                             Rectangle {
@@ -3723,11 +3771,10 @@ export component MainWindow inherits Window {
                                     padding-left: 6px;
                                     padding-right: 6px;
                                     spacing: 5px;
-                                    // min-width:0: CompactRowItem の名前セクション(NameTemplate min-text-width既定0)は
-                                    // 幅0まで縮められるが、この見出しTextは指定が無いと文字列の自然幅が下限になり、
-                                    // 列が狭い時に見出し側だけそれを下回れず行送りの列(ダメージ/DPS)とズレる。
-                                    // overflow:elideで狭い時は「プレイ…」に省略する。
-                                    Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; min-width: 0px; overflow: elide; vertical-alignment: center; }
+                                    // root.compact-name-col-min-widthはCompactRowItemの名前セクションの
+                                    // 実構成(NameTemplateの内部フロア込み)と一致させてあるので、通常この
+                                    // Textは省略なしで収まる。overflow:elideはフォント計測誤差等への保険。
+                                    Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; min-width: root.compact-name-col-min-width; overflow: elide; vertical-alignment: center; }
                                     Text { text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ")); color: #888; font-size: 10px * root.font-scale; width: 56px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
                                     Text { text: root.tab == 1 ? @tr("HPS") : (root.tab == 2 ? @tr("被DPS") : @tr("DPS")); color: #888; font-size: 10px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
                                 }
@@ -3757,7 +3804,8 @@ export component MainWindow inherits Window {
                         // 右カラム（後半）
                         VerticalLayout {
                             horizontal-stretch: 1;
-                            min-width: 0px;
+                            // 左カラムと同じ理由（コメント参照）で compact-col-min-width を渡す。
+                            min-width: root.compact-col-min-width;
                             preferred-width: 0px;
                             alignment: start;
                             Rectangle {
@@ -3767,8 +3815,8 @@ export component MainWindow inherits Window {
                                     padding-left: 6px;
                                     padding-right: 6px;
                                     spacing: 5px;
-                                    // 左カラムの見出しと同じ理由（コメント参照）で min-width:0 + overflow:elide。
-                                    Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; min-width: 0px; overflow: elide; vertical-alignment: center; }
+                                    // 左カラムの見出しと同じ理由（コメント参照）で compact-name-col-min-width + overflow:elide。
+                                    Text { text: @tr("プレイヤー"); color: #888; font-size: 10px * root.font-scale; horizontal-stretch: 1; min-width: root.compact-name-col-min-width; overflow: elide; vertical-alignment: center; }
                                     Text { text: root.tab == 1 ? @tr("回復") : (root.tab == 2 ? @tr("被ダメ") : @tr("ダメージ")); color: #888; font-size: 10px * root.font-scale; width: 56px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
                                     Text { text: root.tab == 1 ? @tr("HPS") : (root.tab == 2 ? @tr("被DPS") : @tr("DPS")); color: #888; font-size: 10px * root.font-scale; width: 50px * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
                                 }

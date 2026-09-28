@@ -1,0 +1,2383 @@
+{
+  "1": {
+    "en": "login"
+  },
+  "7": {
+    "en": "Asteria Plains",
+    "ja": "アステリア平原"
+  },
+  "8": {
+    "en": "Asterleeds",
+    "ja": "アステルリーズ"
+  },
+  "9": {
+    "en": "Bahamar Highlands",
+    "ja": "バハマール高原"
+  },
+  "10": {
+    "en": "Montegnor Valley",
+    "ja": "モンテノール渓谷"
+  },
+  "11": {
+    "en": "Starland"
+  },
+  "71": {
+    "en": "Duskdye Woods",
+    "ja": "花明かりの森"
+  },
+  "72": {
+    "en": "Everfall Forest",
+    "ja": "雨止まぬ森"
+  },
+  "73": {
+    "en": "Windhowl Canyon",
+    "ja": "風鳴りの峡谷"
+  },
+  "74": {
+    "en": "Underground District",
+    "ja": "地下集落"
+  },
+  "75": {
+    "en": "Skimmer's Lair",
+    "ja": "黒藍の深窟"
+  },
+  "76": {
+    "en": "Land of Crimson Illusion",
+    "ja": "幻の花の咲き乱れる地"
+  },
+  "91": {
+    "en": "Sunken Corridor",
+    "ja": "フィエル回廊"
+  },
+  "92": {
+    "en": "Gloomy Depths",
+    "ja": "暗闇の底"
+  },
+  "93": {
+    "en": "Moonshadow Wilds",
+    "ja": "月影の野"
+  },
+  "94": {
+    "en": "Stray Starway",
+    "ja": "迷星の径"
+  },
+  "95": {
+    "en": "Sunset Wilds",
+    "ja": "落日古道"
+  },
+  "1001": {
+    "en": "Tina's Mindrealm"
+  },
+  "1002": {
+    "en": "Tina's Mindrealm"
+  },
+  "1011": {
+    "en": "Unstable - Tina's Mindrealm",
+    "ja": "不安定な空間・ティナ・精神領域"
+  },
+  "1021": {
+    "en": "Unstable - Tina's Mindrealm",
+    "ja": "不安定な空間・ティナ・精神領域"
+  },
+  "1031": {
+    "en": "Chaotic - Tina's Mindrealm Normal",
+    "ja": "極限空間・ティナ・精神領域 ノーマル難易度"
+  },
+  "1032": {
+    "en": "Chaotic - Tina's Mindrealm Hard",
+    "ja": "極限空間・ティナ・精神領域 ハード難易度"
+  },
+  "1033": {
+    "en": "Tina's Mindrealm Master 1"
+  },
+  "1101": {
+    "en": "Towering Ruin",
+    "ja": "巨塔の遺跡"
+  },
+  "1102": {
+    "en": "Towering Ruin",
+    "ja": "巨塔の遺跡"
+  },
+  "1111": {
+    "en": "Unstable - Towering Ruin",
+    "ja": "不安定な空間・巨塔の遺跡"
+  },
+  "1112": {
+    "en": "Unstable - Towering Ruin",
+    "ja": "不安定な空間・巨塔の遺跡"
+  },
+  "1121": {
+    "en": "Chaotic - Towering Ruin Normal",
+    "ja": "極限空間・巨塔の遺跡 ノーマル難易度"
+  },
+  "1122": {
+    "en": "Chaotic - Towering Ruin Hard",
+    "ja": "極限空間・巨塔の遺跡 ハード難易度"
+  },
+  "1123": {
+    "en": "Towering Ruin Master 1",
+    "ja": "巨塔の遺跡 マスター難易度1"
+  },
+  "1150": {
+    "en": "Void - Towering Ruin Master 1",
+    "ja": "蝕・巨塔の遺跡 マスター難易度1"
+  },
+  "1151": {
+    "en": "Chaotic - Towering Ruin Hard",
+    "ja": "極限空間・巨塔の遺跡 ハード難易度"
+  },
+  "1152": {
+    "en": "Chaotic - Towering Ruin Normal",
+    "ja": "極限空間・巨塔の遺跡 ノーマル難易度"
+  },
+  "1153": {
+    "en": "Unstable - Towering Ruin",
+    "ja": "不安定な空間・巨塔の遺跡"
+  },
+  "1154": {
+    "en": "Unstable - Towering Ruin",
+    "ja": "不安定な空間・蝕・巨塔の遺跡"
+  },
+  "1201": {
+    "en": "Dragon Claw Valley",
+    "ja": "巨竜の爪痕"
+  },
+  "1202": {
+    "en": "Dragon Claw Valley",
+    "ja": "巨竜の爪痕"
+  },
+  "1211": {
+    "en": "Unstable - Dragon Claw Valley",
+    "ja": "不安定な空間・巨竜の爪痕"
+  },
+  "1212": {
+    "en": "Unstable - Dragon Claw Valley",
+    "ja": "不安定な空間・巨竜の爪痕"
+  },
+  "1221": {
+    "en": "Chaotic - Dragon Claw Valley Normal",
+    "ja": "極限空間・巨竜の爪痕 ノーマル難易度"
+  },
+  "1222": {
+    "en": "Chaotic - Dragon Claw Valley Hard",
+    "ja": "極限空間・巨竜の爪痕 ハード難易度"
+  },
+  "1223": {
+    "en": "Dragon Claw Valley Master 1",
+    "ja": "巨竜の爪痕 マスター難易度1"
+  },
+  "1231": {
+    "en": "Unstable - Dragon Claw Valley",
+    "ja": "不安定な空間・巨竜の爪痕"
+  },
+  "1232": {
+    "en": "Unstable - Dragon Claw Valley",
+    "ja": "不安定な空間・巨竜の爪痕"
+  },
+  "1233": {
+    "en": "Chaotic - Dragon Claw Valley Normal",
+    "ja": "極限空間・巨竜の爪痕 ノーマル難易度"
+  },
+  "1234": {
+    "en": "Chaotic - Dragon Claw Valley Hard",
+    "ja": "極限空間・巨竜の爪痕 ハード難易度"
+  },
+  "1235": {
+    "en": "Dragon Claw Valley Master 1",
+    "ja": "巨竜の爪痕 マスター難易度1"
+  },
+  "1301": {
+    "en": "Dark Mist Fortress",
+    "ja": "暗霧要塞"
+  },
+  "1302": {
+    "en": "Dark Mist Fortress",
+    "ja": "暗霧要塞"
+  },
+  "1311": {
+    "en": "Unstable - Dark Mist Fortress",
+    "ja": "不安定な空間・暗霧要塞"
+  },
+  "1321": {
+    "en": "Unstable - Dark Mist Fortress",
+    "ja": "不安定な空間・暗霧要塞"
+  },
+  "1331": {
+    "en": "Chaotic - Dark Mist Fortress Normal",
+    "ja": "極限空間・暗霧要塞 ノーマル難易度"
+  },
+  "1332": {
+    "en": "Chaotic - Dark Mist Fortress Hard",
+    "ja": "極限空間・暗霧要塞 ハード難易度"
+  },
+  "1333": {
+    "en": "Dark Mist Fortress Master 1",
+    "ja": "暗霧要塞 マスター難易度1"
+  },
+  "1399": {
+    "en": "Level quest test",
+    "ja": "ステージクエストテスト"
+  },
+  "1401": {
+    "en": "Illusory Moonveil Wilds",
+    "ja": "幻華流月の野"
+  },
+  "1402": {
+    "en": "Illusory Moonveil Wilds",
+    "ja": "幻華流月の野"
+  },
+  "1403": {
+    "en": "Illusory Moonveil Wilds",
+    "ja": "幻華流月の野"
+  },
+  "1411": {
+    "en": "Unstable - Illusory Moonveil Wilds",
+    "ja": "不安定な空間・幻華流月の野"
+  },
+  "1412": {
+    "en": "Unstable - Illusory Moonveil Wilds",
+    "ja": "不安定な空間・幻華流月の野"
+  },
+  "1421": {
+    "en": "Chaotic - Illusory Moonveil Wilds Normal",
+    "ja": "極限空間・幻華流月の野 ノーマル難易度"
+  },
+  "1422": {
+    "en": "Chaotic - Illusory Moonveil Wilds Hard",
+    "ja": "極限空間・幻華流月の野 ハード難易度"
+  },
+  "1423": {
+    "en": "Illusory Moonveil Wilds Master 1",
+    "ja": "幻華流月の野 マスター難易度1"
+  },
+  "1501": {
+    "en": "Rock Serpent Lair",
+    "ja": "ロックスネークの巣"
+  },
+  "1502": {
+    "en": "Rock Serpent Lair",
+    "ja": "ロックスネークの巣"
+  },
+  "1511": {
+    "en": "Unstable - Rock Serpent Lair",
+    "ja": "不安定な空間・ロックスネークの巣"
+  },
+  "1521": {
+    "en": "Unstable - Rock Serpent Lair",
+    "ja": "不安定な空間・ロックスネークの巣"
+  },
+  "1531": {
+    "en": "Chaotic - Rock Serpent Lair Normal",
+    "ja": "極限空間・ロックスネークの巣 ノーマル難易度"
+  },
+  "1532": {
+    "en": "Chaotic - Rock Serpent Lair Hard",
+    "ja": "極限空間・ロックスネークの巣 ハード難易度"
+  },
+  "1533": {
+    "en": "Rock Serpent Lair Master 1",
+    "ja": "ロックスネークの巣 マスター難易度1"
+  },
+  "1611": {
+    "en": "Unstable - Tina's Mindrealm",
+    "ja": "不安定な空間・ティナ・精神領域"
+  },
+  "1621": {
+    "en": "Unstable - Tina's Mindrealm",
+    "ja": "不安定な空間・ティナ・精神領域"
+  },
+  "1631": {
+    "en": "Chaotic - Tina's Mindrealm",
+    "ja": "極限空間・ティナ・精神領域"
+  },
+  "1632": {
+    "en": "Chaotic - Tina's Mindrealm",
+    "ja": "極限空間・ティナ・精神領域"
+  },
+  "1633": {
+    "en": "Void - Tina's Mindrealm Master 1",
+    "ja": "蝕・ティナの精神領域 マスター難易度1"
+  },
+  "5000": {
+    "en": "Content mechanism test scene",
+    "ja": "コンテンツメカニズムテストシーン"
+  },
+  "5002": {
+    "en": "Sea of Origin"
+  },
+  "5033": {
+    "en": "Tower Ruins",
+    "ja": "塔の遺跡"
+  },
+  "5200": {
+    "en": "Lamond's Office",
+    "ja": "ラモンドの執務室"
+  },
+  "5206": {
+    "en": "Asterleeds",
+    "ja": "アステルリーズ"
+  },
+  "5211": {
+    "en": "Lamond's Office",
+    "ja": "ラモンドの執務室"
+  },
+  "5220": {
+    "en": "Sea Cruise",
+    "ja": "海上クルーズ"
+  },
+  "5401": {
+    "en": "Kanamia Forest",
+    "ja": "カナミアの森"
+  },
+  "5403": {
+    "en": "Kanamia Brave Trial",
+    "ja": "ナダニの試練"
+  },
+  "5501": {
+    "en": "Dragon Claw Valley",
+    "ja": "巨竜の爪痕"
+  },
+  "5602": {
+    "en": "Fafala's Home",
+    "ja": "ファルファラの家"
+  },
+  "5603": {
+    "en": "Fafala's Home",
+    "ja": "ファルファラの家"
+  },
+  "5604": {
+    "en": "Fafala's Home",
+    "ja": "ファルファラの家"
+  },
+  "5811": {
+    "en": "Smelting Furnace Pipes",
+    "ja": "精錬炉のパイプライン"
+  },
+  "5812": {
+    "en": "Frostjade Staff"
+  },
+  "5813": {
+    "en": "Ruins Deep Within the Mine",
+    "ja": "鉱山深部の遺跡"
+  },
+  "5900": {
+    "en": "Sea-Ringed Reef",
+    "ja": "珊瑚岩の谷"
+  },
+  "5901": {
+    "en": "Mistveil Hunting Ground",
+    "ja": "霧海の猟場"
+  },
+  "5910": {
+    "en": "Cursed Radiant Tomb",
+    "ja": "呪われし煌墓"
+  },
+  "6001": {
+    "en": "Hero Instance Test Scenario"
+  },
+  "6005": {
+    "en": "Unstable - Goblin Lair",
+    "ja": "不安定な空間・ゴブリンの巣窟"
+  },
+  "6006": {
+    "en": "Unstable - Goblin Lair",
+    "ja": "不安定な空間・ゴブリンの巣窟"
+  },
+  "6007": {
+    "en": "Chaotic - Goblin Lair Normal",
+    "ja": "極限空間・ゴブリンの巣窟 ノーマル難易度"
+  },
+  "6008": {
+    "en": "Chaotic - Goblin Lair Hard",
+    "ja": "極限空間・ゴブリンの巣窟 ハード難易度"
+  },
+  "6009": {
+    "en": "Goblin Lair Master 1",
+    "ja": "ゴブリンの巣窟 マスター難易度1"
+  },
+  "6011": {
+    "en": "Unstable - Kanamia Trial",
+    "ja": "不安定な空間・カナミアの試練"
+  },
+  "6012": {
+    "en": "Unstable - Kanamia Trial",
+    "ja": "不安定な空間・カナミアの試練"
+  },
+  "6021": {
+    "en": "Chaotic - Kanamia Trial Normal"
+  },
+  "6022": {
+    "en": "Chaotic - Kanamia Trial Hard"
+  },
+  "6023": {
+    "en": "Kanamia Trial Master 1"
+  },
+  "6031": {
+    "en": "Unstable - Kanamia Trial",
+    "ja": "不安定な空間・カナミアの試練"
+  },
+  "6032": {
+    "en": "Unstable - Kanamia Trial",
+    "ja": "不安定な空間・カナミアの試練"
+  },
+  "6040": {
+    "en": "Verdant Embrace of Soundless City",
+    "ja": "群青に覆われた音無き都"
+  },
+  "6041": {
+    "en": "Unstable - Soundless City",
+    "ja": "不安定な空間・音無き都"
+  },
+  "6042": {
+    "en": "Unstable - Soundless City",
+    "ja": "不安定な空間・音無き都"
+  },
+  "6043": {
+    "en": "Chaotic - Soundless City Normal",
+    "ja": "極限空間・音無き都 ノーマル難易度"
+  },
+  "6044": {
+    "en": "Chaotic - Soundless City Hard",
+    "ja": "極限空間・音無き都 ハード難易度"
+  },
+  "6045": {
+    "en": "Soundless City Master 1",
+    "ja": "音無き都 マスター難易度1"
+  },
+  "6111": {
+    "en": "Unstable - Wraith Shrine",
+    "ja": "不安定な空間・荒魂の祭殿"
+  },
+  "6112": {
+    "en": "Unstable - Wraith Shrine",
+    "ja": "不安定な空間・荒魂の祭殿"
+  },
+  "6121": {
+    "en": "Chaotic - Wraith Shrine Normal",
+    "ja": "極限空間・荒魂の祭殿 ノーマル難易度"
+  },
+  "6122": {
+    "en": "Chaotic - Wraith Shrine Hard",
+    "ja": "極限空間・荒魂の祭殿 ハード難易度"
+  },
+  "6123": {
+    "en": "Wraith Shrine Master 1",
+    "ja": "荒魂の祭殿 マスター難易度1"
+  },
+  "6211": {
+    "en": "Unstable - Depths of Decay",
+    "ja": "不安定な空間・衰亡の深淵"
+  },
+  "6212": {
+    "en": "Unstable - Depths of Decay",
+    "ja": "不安定な空間・衰亡の深淵"
+  },
+  "6221": {
+    "en": "Chaotic - Depths of Decay Normal",
+    "ja": "極限空間・衰亡の深淵 ノーマル難易度"
+  },
+  "6222": {
+    "en": "Chaotic - Depths of Decay Hard",
+    "ja": "極限空間・衰亡の深淵 ハード難易度"
+  },
+  "6223": {
+    "en": "Depths of Decay Master 1",
+    "ja": "衰亡の深淵 マスター難易度1"
+  },
+  "6311": {
+    "en": "Unstable - Devourer Cage",
+    "ja": "不安定な空間・光亡き牢"
+  },
+  "6321": {
+    "en": "Unstable - Devourer Cage",
+    "ja": "不安定な空間・光亡き牢"
+  },
+  "6331": {
+    "en": "Chaotic - Devourer Cage Normal",
+    "ja": "極限空間・光亡き牢 ノーマル難易度"
+  },
+  "6332": {
+    "en": "Chaotic - Devourer Cage Hard",
+    "ja": "極限空間・光亡き牢 ハード難易度"
+  },
+  "6333": {
+    "en": "Devourer Cage Master 1",
+    "ja": "光亡き牢 マスター難易度1"
+  },
+  "6411": {
+    "en": "Unstable - Soundless City",
+    "ja": "不安定な空間・音無き都"
+  },
+  "6412": {
+    "en": "Unstable - Soundless City",
+    "ja": "不安定な空間・音無き都"
+  },
+  "6421": {
+    "en": "Chaotic - Soundless City Normal",
+    "ja": "極限空間・音無き都 ノーマル難易度"
+  },
+  "6422": {
+    "en": "Chaotic - Soundless City Hard",
+    "ja": "極限空間・音無き都 ハード難易度"
+  },
+  "6423": {
+    "en": "Soundless City Master 1",
+    "ja": "音無き都 マスター難易度1"
+  },
+  "6511": {
+    "en": "Unstable Space - Cursed Radiant Tomb",
+    "ja": "不安定な空間・呪われし煌墓"
+  },
+  "6512": {
+    "en": "Unstable Space - Cursed Radiant Tomb",
+    "ja": "不安定な空間・呪われし煌墓"
+  },
+  "6513": {
+    "en": "Cursed Radiant Tomb Normal",
+    "ja": "呪われし煌墓 ノーマル難易度"
+  },
+  "6514": {
+    "en": "Cursed Radiant Tomb Hard",
+    "ja": "呪われし煌墓 ハード難易度"
+  },
+  "6515": {
+    "en": "Cursed Radiant Tomb Master 1",
+    "ja": "呪われし煌墓 マスター難易度1"
+  },
+  "6521": {
+    "en": "Chaotic - Mech Facility",
+    "ja": "極限空間・機械化工場"
+  },
+  "6522": {
+    "en": "Chaotic - Mech Facility",
+    "ja": "極限空間・機械化工場"
+  },
+  "6523": {
+    "en": "Chaotic - Mech Facility Normal",
+    "ja": "極限空間・機械化工場 ノーマル難易度"
+  },
+  "6524": {
+    "en": "Chaotic - Mech Facility Hard",
+    "ja": "極限空間・機械化工場 ハード難易度"
+  },
+  "6525": {
+    "en": "Mech Facility Master 1",
+    "ja": "機械化工場 マスター難易度1"
+  },
+  "6541": {
+    "en": "Unstable Space - Mistveil Hunting Ground",
+    "ja": "不安定な空間・霧海の猟場"
+  },
+  "6542": {
+    "en": "Unstable Space - Mistveil Hunting Ground",
+    "ja": "不安定な空間・霧海の猟場"
+  },
+  "6543": {
+    "en": "Chaotic - Mistveil Hunting Ground Normal",
+    "ja": "極限空間・霧海の猟場 ノーマル難易度"
+  },
+  "6544": {
+    "en": "Chaotic - Mistveil Hunting Ground Hard",
+    "ja": "極限空間・霧海の猟場 ハード難易度"
+  },
+  "6545": {
+    "en": "Mistveil Hunting Ground Master 1",
+    "ja": "霧海の猟場 マスター難易度1"
+  },
+  "6561": {
+    "en": "Unstable Space - Sea-Ringed Reef",
+    "ja": "不安定な空間・珊瑚岩の谷"
+  },
+  "6562": {
+    "en": "Unstable Space - Sea-Ringed Reef",
+    "ja": "不安定な空間・珊瑚岩の谷"
+  },
+  "6563": {
+    "en": "Chaotic - Sea-Ringed Reef Normal",
+    "ja": "極限空間・珊瑚岩の谷 ノーマル難易度"
+  },
+  "6564": {
+    "en": "Chaotic - Sea-Ringed Reef Hard",
+    "ja": "極限空間・珊瑚岩の谷 ハード難易度"
+  },
+  "6565": {
+    "en": "Sea-Ringed Reef Master 1",
+    "ja": "珊瑚岩の谷 マスター難易度1"
+  },
+  "7001": {
+    "en": "Parkour",
+    "ja": "マルチパルクール"
+  },
+  "7002": {
+    "en": "Parkour",
+    "ja": "マルチパルクール"
+  },
+  "7003": {
+    "en": "Wasteland Race",
+    "ja": "廃都障害レース"
+  },
+  "7004": {
+    "en": "City Rally",
+    "ja": "マウントレース"
+  },
+  "7050": {
+    "en": "Goblin Rampage",
+    "ja": "ゴブリン大暴走"
+  },
+  "7051": {
+    "en": "Goblin Rampage",
+    "ja": "ゴブリン大暴走"
+  },
+  "7052": {
+    "en": "Goblin Rampage",
+    "ja": "ゴブリン大暴走"
+  },
+  "7053": {
+    "en": "Goblin Rampage",
+    "ja": "ゴブリン大暴走"
+  },
+  "7054": {
+    "en": "Goblin Rampage",
+    "ja": "ゴブリン大暴走"
+  },
+  "7055": {
+    "en": "Defeat the Goblin Mage",
+    "ja": "エルダーゴブリン討伐"
+  },
+  "7056": {
+    "en": "Defeat the Goblin Mage",
+    "ja": "エルダーゴブリン討伐"
+  },
+  "7057": {
+    "en": "Defeat the Goblin Mage",
+    "ja": "エルダーゴブリン討伐"
+  },
+  "7058": {
+    "en": "Defeat the Goblin Mage",
+    "ja": "エルダーゴブリン討伐"
+  },
+  "7060": {
+    "en": "Canyon Battle",
+    "ja": "アンドラ峡谷防衛戦"
+  },
+  "7061": {
+    "en": "Canyon Battle",
+    "ja": "アンドラ峡谷防衛戦"
+  },
+  "7065": {
+    "en": "Urgent Delivery",
+    "ja": "緊急輸送"
+  },
+  "7070": {
+    "en": "Light Bridge",
+    "ja": "光の足場の調査"
+  },
+  "7071": {
+    "en": "Light Bridge",
+    "ja": "光の足場の調査"
+  },
+  "7072": {
+    "en": "Light Bridge",
+    "ja": "光の足場の調査"
+  },
+  "7073": {
+    "en": "Light Bridge",
+    "ja": "光の足場の調査"
+  },
+  "7075": {
+    "en": "Demi-Human Q&A",
+    "ja": "亜人生態クイズ"
+  },
+  "7076": {
+    "en": "Demi-Human Q&A",
+    "ja": "亜人生態クイズ"
+  },
+  "7077": {
+    "en": "Demi-Human Q&A",
+    "ja": "亜人生態クイズ"
+  },
+  "7080": {
+    "en": "Wind Turbulence",
+    "ja": "風属性乱流"
+  },
+  "7085": {
+    "en": "Boars Run",
+    "ja": "走れウリボ"
+  },
+  "7090": {
+    "en": "Suppress the Eruption",
+    "ja": "虚蝕噴出の抑制"
+  },
+  "7095": {
+    "en": "Spider Mine",
+    "ja": "サンダースパイダー回避チャレンジ"
+  },
+  "7101": {
+    "en": "Aerial Patrol"
+  },
+  "7102": {
+    "en": "Aerial Patrol"
+  },
+  "7103": {
+    "en": "Aerial Patrol"
+  },
+  "7150": {
+    "en": "World Dominator",
+    "ja": "世界の支配者"
+  },
+  "7151": {
+    "en": "World Dominator",
+    "ja": "世界の支配者"
+  },
+  "7152": {
+    "en": "World Dominator",
+    "ja": "世界の支配者"
+  },
+  "8001": {
+    "en": "Village Defense Battle",
+    "ja": "村防衛戦"
+  },
+  "8002": {
+    "en": "Golem Arena",
+    "ja": "ゴーレムリング"
+  },
+  "8005": {
+    "en": "Urgent Delivery",
+    "ja": "緊急輸送"
+  },
+  "8006": {
+    "en": "Urgent Delivery",
+    "ja": "緊急輸送"
+  },
+  "8020": {
+    "en": "Demi-Human Duel",
+    "ja": "亜人対決"
+  },
+  "8021": {
+    "en": "Demi-Human Duel",
+    "ja": "亜人対決"
+  },
+  "8051": {
+    "en": "Toxic Mire Breach",
+    "ja": "毒沼の間隙"
+  },
+  "8052": {
+    "en": "Rift of Chaos",
+    "ja": "錯乱の隙を突け"
+  },
+  "8053": {
+    "en": "Wasteland"
+  },
+  "8054": {
+    "en": "Wasteland"
+  },
+  "9000": {
+    "en": "Spider Mine",
+    "ja": "サンダースパイダー回避チャレンジ"
+  },
+  "9001": {
+    "en": "Balloon Capture",
+    "ja": "バルーン大作戦"
+  },
+  "9002": {
+    "en": "Defeat the Year Demon",
+    "ja": "歳魔撃退"
+  },
+  "9200": {
+    "en": "Dragon Shackles: Adept's Trial",
+    "ja": "神竜の枷：適格者試練"
+  },
+  "9201": {
+    "en": "Loom of Dreams​"
+  },
+  "9202": {
+    "en": "Slumberdream Valley",
+    "ja": "夢沈みの森谷"
+  },
+  "9203": {
+    "en": "Slumberdream Valley",
+    "ja": "夢沈みの森谷"
+  },
+  "9204": {
+    "en": "Slumberdream Valley",
+    "ja": "夢沈みの森谷"
+  },
+  "9205": {
+    "en": "Illusion-Shroud Woods",
+    "ja": "迷妄の森"
+  },
+  "9206": {
+    "en": "Illusion-Shroud Woods",
+    "ja": "迷妄の森"
+  },
+  "9207": {
+    "en": "Illusion-Shroud Woods",
+    "ja": "迷妄の森"
+  },
+  "10001": {
+    "en": "Square Practice Field 1",
+    "ja": "四角い練習場1"
+  },
+  "10002": {
+    "en": "Square Practice Field 2",
+    "ja": "四角い練習場2"
+  },
+  "10003": {
+    "en": "Test Dynamic Scene 1 (Copy)",
+    "ja": "テスト動的マップ1（ダンジョン）"
+  },
+  "10004": {
+    "en": "Test Dynamic Scene 2 (Copy)",
+    "ja": "テスト動的マップ2（ダンジョン）"
+  },
+  "10005": {
+    "en": "Test Logic Special Copy",
+    "ja": "ロジックテスト専用ダンジョン"
+  },
+  "10010": {
+    "en": "3C Test Scene",
+    "ja": "3Cテストマップ"
+  },
+  "10020": {
+    "en": "Performance Test Scene 1",
+    "ja": "パフォーマンス用テストシーン1"
+  },
+  "10021": {
+    "en": "Performance Test Scene 2",
+    "ja": "パフォーマンス用テストシーン2"
+  },
+  "10030": {
+    "en": "Zone Test Scene",
+    "ja": "ゾーンテストフィールド"
+  },
+  "11001": {
+    "en": "Wondrous Tag"
+  },
+  "12000": {
+    "en": "Guild Center",
+    "ja": "ギルド活動所"
+  },
+  "12011": {
+    "en": "Guild Hunt - Hard",
+    "ja": "ギルドハント・ハード"
+  },
+  "12012": {
+    "en": "Guild Hunt - Normal",
+    "ja": "ギルドハント・ノーマル"
+  },
+  "12013": {
+    "en": "Guild Hunt - Easy",
+    "ja": "ギルドハント・イージー"
+  },
+  "12014": {
+    "en": "Guild Hunt - Normal",
+    "ja": "ギルドハント・ノーマル"
+  },
+  "12015": {
+    "en": "Guild Hunt - Hard",
+    "ja": "ギルドハント・ハード"
+  },
+  "12016": {
+    "en": "Devourer Cage Sharing",
+    "ja": "光亡き牢-共有"
+  },
+  "12017": {
+    "en": "Devourer Cage Sharing",
+    "ja": "光亡き牢-共有"
+  },
+  "12018": {
+    "en": "Guild Hunt - Normal",
+    "ja": "ギルドハント・ノーマル"
+  },
+  "12019": {
+    "en": "Guild Hunt - Hard",
+    "ja": "ギルドハント・ハード"
+  },
+  "12022": {
+    "en": "Guild Hunt - Normal",
+    "ja": "ギルドハント・ノーマル"
+  },
+  "12023": {
+    "en": "Guild Hunt - Hard",
+    "ja": "ギルドハント・ハード"
+  },
+  "12030": {
+    "en": "Ee-chan's Story",
+    "ja": "イーの物語"
+  },
+  "12040": {
+    "en": "Guild Party",
+    "ja": "ギルドパーティー"
+  },
+  "12050": {
+    "en": "Giant Golem Crusade",
+    "ja": "巨大ゴーレム討伐戦"
+  },
+  "12051": {
+    "en": "Giant Golem Crusade",
+    "ja": "巨大ゴーレム討伐戦"
+  },
+  "12052": {
+    "en": "Giant Golem Crusade",
+    "ja": "巨大ゴーレム討伐戦"
+  },
+  "12100": {
+    "en": "Echoing Dungeon",
+    "ja": "エコーダンジョン"
+  },
+  "13001": {
+    "en": "Clash! Floating Island - Dragon Shackles",
+    "ja": "激闘！虚空の浮島・神竜の枷"
+  },
+  "13002": {
+    "en": "Brutal! Floating Island - Dragon Shackles",
+    "ja": "血戦！虚空の浮島・神竜の枷"
+  },
+  "13003": {
+    "en": "Purge! Floating Island - Dragon Shackles",
+    "ja": "決戦！虚空の浮島・神竜の枷"
+  },
+  "13011": {
+    "en": "Clash! Dreambloom Ruins",
+    "ja": "激闘！幻花沈む地"
+  },
+  "13012": {
+    "en": "Brutal! Dreambloom Ruins",
+    "ja": "血戦！幻花沈む地"
+  },
+  "13013": {
+    "en": "Purge! Dreambloom Ruins",
+    "ja": "決戦！幻花沈む地"
+  },
+  "13021": {
+    "en": "Clash! Field of Forgotten Illusions",
+    "ja": "激闘！忘られし幻夢の野"
+  },
+  "13022": {
+    "en": "Brutal! Field of Forgotten Illusions",
+    "ja": "血戦！忘られし幻夢の野"
+  },
+  "13023": {
+    "en": "Purge! Field of Forgotten Illusions",
+    "ja": "決戦！忘られし幻夢の野"
+  },
+  "15001": {
+    "en": "Memory 1",
+    "ja": "記憶1：暗い討伐の記憶"
+  },
+  "15002": {
+    "en": "Memory 13",
+    "ja": "記憶13：明るい討伐の記憶"
+  },
+  "15003": {
+    "en": "Memory 9",
+    "ja": "記憶9：暗い討伐の記憶"
+  },
+  "15004": {
+    "en": "Memory 7",
+    "ja": "記憶7：暗い討伐の記憶"
+  },
+  "15005": {
+    "en": "Memory 31",
+    "ja": "記憶31：暗い討伐の記憶"
+  },
+  "15006": {
+    "en": "Memory 32",
+    "ja": "記憶32：暗い討伐の記憶"
+  },
+  "15007": {
+    "en": "Memory 18",
+    "ja": "記憶18：暗い討伐の記憶"
+  },
+  "15008": {
+    "en": "Memory 22",
+    "ja": "記憶22：暗い討伐の記憶"
+  },
+  "15009": {
+    "en": "Memory 24",
+    "ja": "記憶24：暗い討伐の記憶"
+  },
+  "15010": {
+    "en": "Memory 48",
+    "ja": "記憶48：暗い討伐の記憶"
+  },
+  "15011": {
+    "en": "Memory 16",
+    "ja": "記憶16：暗い討伐の記憶"
+  },
+  "15012": {
+    "en": "Memory 42",
+    "ja": "記憶42：暗い討伐の記憶"
+  },
+  "15501": {
+    "en": "Memory 3",
+    "ja": "記憶3：明るい対决の記憶"
+  },
+  "15502": {
+    "en": "Memory 49",
+    "ja": "記憶49：明るい対决の記憶"
+  },
+  "15503": {
+    "en": "Memory 23",
+    "ja": "記憶23：暗い対决の記憶"
+  },
+  "15504": {
+    "en": "Memory 15",
+    "ja": "記憶15：強烈な対决の記憶"
+  },
+  "15505": {
+    "en": "Memory 50",
+    "ja": "記憶50：強烈な対决の記憶"
+  },
+  "15506": {
+    "en": "Memory 30",
+    "ja": "記憶30：強烈な対决の記憶"
+  },
+  "15507": {
+    "en": "Memory 45",
+    "ja": "記憶45：暗い対决の記憶"
+  },
+  "15508": {
+    "en": "Memory 40",
+    "ja": "記憶40：強烈な対决の記憶"
+  },
+  "16001": {
+    "en": "Memory 2",
+    "ja": "記憶2：暗いサバイバルの記憶"
+  },
+  "16002": {
+    "en": "Memory 14",
+    "ja": "明るいサバイバルの記憶"
+  },
+  "16003": {
+    "en": "Memory 20",
+    "ja": "記憶20：暗いサバイバルの記憶"
+  },
+  "16004": {
+    "en": "Memory 36",
+    "ja": "記憶36：暗いサバイバルの記憶"
+  },
+  "16005": {
+    "en": "Great Dungeon Survival Verification Template",
+    "ja": "大秘境生存検証テンプレート"
+  },
+  "16006": {
+    "en": "Great Dungeon Survival Verification Template",
+    "ja": "大秘境生存検証テンプレート"
+  },
+  "16501": {
+    "en": "Memory 4",
+    "ja": "記憶4：暗い浄化の記憶"
+  },
+  "16502": {
+    "en": "Memory 34",
+    "ja": "記憶34：暗い浄化の記憶"
+  },
+  "16503": {
+    "en": "Memory 41",
+    "ja": "記憶41：暗い浄化の記憶"
+  },
+  "16504": {
+    "en": "Memory 28",
+    "ja": "記憶28：明るい浄化の記憶"
+  },
+  "17001": {
+    "en": "Memory 38",
+    "ja": "記憶38：暗い遠征の記憶"
+  },
+  "17002": {
+    "en": "Memory 46",
+    "ja": "記憶46：明るい遠征の記憶"
+  },
+  "17003": {
+    "en": "Memory 11",
+    "ja": "記憶11：暗い遠征の記憶"
+  },
+  "17004": {
+    "en": "Memory 17",
+    "ja": "記憶17：暗い遠征の記憶"
+  },
+  "17501": {
+    "en": "Memory 35",
+    "ja": "記憶35：暗い探索の記憶"
+  },
+  "17502": {
+    "en": "Memory 26",
+    "ja": "記憶26：明るい探索の記憶"
+  },
+  "17503": {
+    "en": "Memory 47",
+    "ja": "記憶47：暗い探索の記憶"
+  },
+  "17504": {
+    "en": "Memory 10",
+    "ja": "記憶10：暗い探索の記憶"
+  },
+  "17505": {
+    "en": "Memory 19",
+    "ja": "記憶19：暗い探索の記憶"
+  },
+  "18001": {
+    "en": "Memory 6",
+    "ja": "記憶6：暗い防衛の記憶"
+  },
+  "18002": {
+    "en": "Memory 21",
+    "ja": "記憶21：暗い防衛の記憶"
+  },
+  "18003": {
+    "en": "Memory 44",
+    "ja": "記憶44：暗い防衛の記憶"
+  },
+  "18004": {
+    "en": "Memory 39",
+    "ja": "記憶39：明るい防衛の記憶"
+  },
+  "18501": {
+    "en": "Memory 8",
+    "ja": "記憶8：暗い治癒の記憶"
+  },
+  "18502": {
+    "en": "Memory 27",
+    "ja": "記憶27：暗い治癒の記憶"
+  },
+  "18503": {
+    "en": "Memory 43",
+    "ja": "記憶43：暗い治癒の記憶"
+  },
+  "18504": {
+    "en": "Memory 37",
+    "ja": "記憶37：明るい治癒の記憶"
+  },
+  "19001": {
+    "en": "Memory 5",
+    "ja": "記憶5：暗いチャレンジの記憶"
+  },
+  "19002": {
+    "en": "Memory 12",
+    "ja": "記憶12：暗いチャレンジの記憶"
+  },
+  "19003": {
+    "en": "Memory 25",
+    "ja": "記憶25：暗いチャレンジの記憶"
+  },
+  "19004": {
+    "en": "Memory 29",
+    "ja": "記憶29：明るいチャレンジの記憶"
+  },
+  "19005": {
+    "en": "Memory 33",
+    "ja": "記憶33：暗いチャレンジの記憶"
+  },
+  "20043": {
+    "en": "Support 4",
+    "ja": "支援の道4：パーティ回復"
+  },
+  "20101": {
+    "en": "Guardian 1",
+    "ja": "防御の道1：パーティ防衛"
+  },
+  "20102": {
+    "en": "Guardian 10",
+    "ja": "防御の道10：パーティ防衛"
+  },
+  "20201": {
+    "en": "Guardian 2",
+    "ja": "防御の道2：パーティ防衛"
+  },
+  "20202": {
+    "en": "Guardian 22",
+    "ja": "防御の道22：パーティ防衛"
+  },
+  "20301": {
+    "en": "Guardian 4",
+    "ja": "防御の道4：パーティ防衛"
+  },
+  "20302": {
+    "en": "Guardian 13",
+    "ja": "防御の道13：パーティ防衛"
+  },
+  "20303": {
+    "en": "Guardian 25",
+    "ja": "防御の道25：パーティ防衛"
+  },
+  "20401": {
+    "en": "Guardian 5"
+  },
+  "20402": {
+    "en": "Guardian 16"
+  },
+  "20501": {
+    "en": "Guardian 7",
+    "ja": "防御の道7：パーティ防衛"
+  },
+  "20502": {
+    "en": "Guardian 19",
+    "ja": "防御の道19：パーティ防衛"
+  },
+  "20701": {
+    "en": "Guardian 14",
+    "ja": "防御の道14：パーティ防衛"
+  },
+  "20702": {
+    "en": "Guardian 20",
+    "ja": "防御の道20：パーティ防衛"
+  },
+  "20801": {
+    "en": "Guardian 8",
+    "ja": "防御の道8：パーティ防衛"
+  },
+  "20802": {
+    "en": "Guardian 17",
+    "ja": "防御の道17：パーティ防衛"
+  },
+  "20803": {
+    "en": "Guardian 26",
+    "ja": "防御の道26：パーティ防衛"
+  },
+  "21201": {
+    "en": "Guardian 23",
+    "ja": "防御の道23：パーティ防衛"
+  },
+  "21202": {
+    "en": "Guardian 29",
+    "ja": "防御の道29：パーティ防衛"
+  },
+  "21301": {
+    "en": "Guardian 6"
+  },
+  "21302": {
+    "en": "Guardian 12"
+  },
+  "21303": {
+    "en": "Guardian 18"
+  },
+  "21304": {
+    "en": "Guardian 24"
+  },
+  "21305": {
+    "en": "Guardian 30"
+  },
+  "21306": {
+    "en": "Guardian 3"
+  },
+  "21307": {
+    "en": "Guardian 9"
+  },
+  "21308": {
+    "en": "Guardian 15"
+  },
+  "21309": {
+    "en": "Guardian 21"
+  },
+  "21310": {
+    "en": "Guardian 27"
+  },
+  "21401": {
+    "en": "Guardian 11"
+  },
+  "21402": {
+    "en": "Guardian 28"
+  },
+  "22101": {
+    "en": "Attack 17",
+    "ja": "力の道17：モンスター討伐"
+  },
+  "22201": {
+    "en": "Attack 10",
+    "ja": "力の道10：モンスター討伐"
+  },
+  "22202": {
+    "en": "Attack 23",
+    "ja": "力の道23：モンスター討伐"
+  },
+  "22301": {
+    "en": "Attack 11",
+    "ja": "力の道11：モンスター討伐"
+  },
+  "22401": {
+    "en": "Attack 13"
+  },
+  "22402": {
+    "en": "Attack 19"
+  },
+  "22501": {
+    "en": "Attack 6",
+    "ja": "力の道6：モンスター討伐"
+  },
+  "22502": {
+    "en": "Attack 12",
+    "ja": "力の道12：モンスター討伐"
+  },
+  "22503": {
+    "en": "Attack 18",
+    "ja": "力の道18：モンスター討伐"
+  },
+  "22504": {
+    "en": "Attack 24",
+    "ja": "力の道24：モンスター討伐"
+  },
+  "22505": {
+    "en": "Attack 30",
+    "ja": "力の道30：モンスター討伐"
+  },
+  "22601": {
+    "en": "Attack 7",
+    "ja": "力の道7：モンスター討伐"
+  },
+  "22602": {
+    "en": "Attack 14",
+    "ja": "力の道14：モンスター討伐"
+  },
+  "22701": {
+    "en": "Attack 8",
+    "ja": "力の道8：モンスター討伐"
+  },
+  "22702": {
+    "en": "Attack 26",
+    "ja": "力の道26：モンスター討伐"
+  },
+  "23101": {
+    "en": "Attack 3"
+  },
+  "23102": {
+    "en": "Attack 9"
+  },
+  "23103": {
+    "en": "Attack 15"
+  },
+  "23104": {
+    "en": "Attack 21"
+  },
+  "23105": {
+    "en": "Attack 27"
+  },
+  "23201": {
+    "en": "Attack 4",
+    "ja": "力の道4：モンスター討伐"
+  },
+  "23301": {
+    "en": "Attack 1",
+    "ja": "力の道1：モンスター討伐"
+  },
+  "23302": {
+    "en": "Attack 20",
+    "ja": "力の道20：モンスター討伐"
+  },
+  "23401": {
+    "en": "Attack 2",
+    "ja": "力の道2：モンスター討伐"
+  },
+  "23501": {
+    "en": "Attack 5",
+    "ja": "力の道5：モンスター討伐"
+  },
+  "23502": {
+    "en": "Attack 25",
+    "ja": "力の道25：モンスター討伐"
+  },
+  "23601": {
+    "en": "Attack 16",
+    "ja": "力の道16：モンスター討伐"
+  },
+  "23602": {
+    "en": "Attack 28",
+    "ja": "力の道28：モンスター討伐"
+  },
+  "23701": {
+    "en": "Attack 22",
+    "ja": "力の道22：モンスター討伐"
+  },
+  "23702": {
+    "en": "Attack 29",
+    "ja": "力の道29：モンスター討伐"
+  },
+  "24101": {
+    "en": "Support 3",
+    "ja": "支援の道3：パーティ回復"
+  },
+  "24102": {
+    "en": "Support 6",
+    "ja": "支援の道6：パーティ回復"
+  },
+  "24103": {
+    "en": "Support 9",
+    "ja": "支援の道9：パーティ回復"
+  },
+  "24104": {
+    "en": "Support 12",
+    "ja": "支援の道12：パーティ回復"
+  },
+  "24105": {
+    "en": "Support 15",
+    "ja": "支援の道15：パーティ回復"
+  },
+  "24106": {
+    "en": "Support 18",
+    "ja": "支援の道18：パーティ回復"
+  },
+  "24107": {
+    "en": "Support 21",
+    "ja": "支援の道21：パーティ回復"
+  },
+  "24108": {
+    "en": "Support 24",
+    "ja": "支援の道24：パーティ回復"
+  },
+  "24109": {
+    "en": "Support 27",
+    "ja": "支援の道27：パーティ回復"
+  },
+  "24110": {
+    "en": "Support 30",
+    "ja": "支援の道30：パーティ回復"
+  },
+  "24201": {
+    "en": "Support 2",
+    "ja": "支援の道2：パーティ回復"
+  },
+  "24202": {
+    "en": "Support 10",
+    "ja": "支援の道10：パーティ回復"
+  },
+  "24203": {
+    "en": "Support 17",
+    "ja": "支援の道17：パーティ回復"
+  },
+  "24204": {
+    "en": "Support 25",
+    "ja": "支援の道25：パーティ回復"
+  },
+  "24301": {
+    "en": "Support 5",
+    "ja": "支援の道5：パーティ回復"
+  },
+  "24302": {
+    "en": "Support 14",
+    "ja": "支援の道14：パーティ回復"
+  },
+  "24303": {
+    "en": "Support 20",
+    "ja": "支援の道20：パーティ回復"
+  },
+  "24304": {
+    "en": "Support 29",
+    "ja": "支援の道29：パーティ回復"
+  },
+  "24401": {
+    "en": "Support 4",
+    "ja": "支援の道4：パーティ回復"
+  },
+  "24402": {
+    "en": "Support 11",
+    "ja": "支援の道11：パーティ回復"
+  },
+  "24403": {
+    "en": "Support 19",
+    "ja": "支援の道19：パーティ回復"
+  },
+  "24404": {
+    "en": "Support 23",
+    "ja": "支援の道23：パーティ回復"
+  },
+  "24501": {
+    "en": "Support 7",
+    "ja": "支援の道7：パーティ回復"
+  },
+  "24502": {
+    "en": "Support 16",
+    "ja": "支援の道16：パーティ回復"
+  },
+  "24503": {
+    "en": "Support 22",
+    "ja": "支援の道22：パーティ回復"
+  },
+  "24504": {
+    "en": "Support 28",
+    "ja": "支援の道28：パーティ回復"
+  },
+  "24601": {
+    "en": "Support 1",
+    "ja": "支援の道1：パーティ回復"
+  },
+  "24602": {
+    "en": "Support 8",
+    "ja": "支援の道8：パーティ回復"
+  },
+  "24603": {
+    "en": "Support 13",
+    "ja": "支援の道13：パーティ回復"
+  },
+  "24604": {
+    "en": "Support 26",
+    "ja": "支援の道26：パーティ回復"
+  },
+  "24650": {
+    "en": "Guardian 31",
+    "ja": "防御の道31：訓練用ダミー試練"
+  },
+  "24651": {
+    "en": "Attack 31",
+    "ja": "力の道31：訓練用ダミー試練"
+  },
+  "24652": {
+    "en": "Support 31",
+    "ja": "支援の道31：訓練用ダミー試練"
+  },
+  "30001": {
+    "en": "Homestead Courtyard",
+    "ja": "ホームガーデン"
+  },
+  "30101": {
+    "en": "Stimen Vaults Floor 1",
+    "ja": "レグディニス遺跡1層"
+  },
+  "30102": {
+    "en": "Stimen Vaults Floor 2",
+    "ja": "レグディニス遺跡2層"
+  },
+  "30103": {
+    "en": "Stimen Vaults Floor 3",
+    "ja": "レグディニス遺跡3層"
+  },
+  "30104": {
+    "en": "Stimen Vaults Floor 4",
+    "ja": "レグディニス遺跡4層"
+  },
+  "30105": {
+    "en": "Stimen Vaults Floor 5",
+    "ja": "レグディニス遺跡5層"
+  },
+  "30106": {
+    "en": "Stimen Vaults Floor 6",
+    "ja": "レグディニス遺跡6層"
+  },
+  "30107": {
+    "en": "Stimen Vaults Floor 7",
+    "ja": "レグディニス遺跡7層"
+  },
+  "30108": {
+    "en": "Stimen Vaults Floor 8",
+    "ja": "レグディニス遺跡8層"
+  },
+  "30109": {
+    "en": "Stimen Vaults Floor 9",
+    "ja": "レグディニス遺跡9層"
+  },
+  "30110": {
+    "en": "Stimen Vaults Floor 10",
+    "ja": "レグディニス遺跡10層"
+  },
+  "30111": {
+    "en": "Stimen Vaults Floor 11",
+    "ja": "レグディニス遺跡11層"
+  },
+  "30112": {
+    "en": "Stimen Vaults Floor 12",
+    "ja": "レグディニス遺跡12層"
+  },
+  "30113": {
+    "en": "Stimen Vaults Floor 13",
+    "ja": "レグディニス遺跡13層"
+  },
+  "30114": {
+    "en": "Stimen Vaults Floor 14",
+    "ja": "レグディニス遺跡14層"
+  },
+  "30115": {
+    "en": "Stimen Vaults Floor 15",
+    "ja": "レグディニス遺跡15層"
+  },
+  "30116": {
+    "en": "Stimen Vaults Floor 16",
+    "ja": "レグディニス遺跡16層"
+  },
+  "30117": {
+    "en": "Stimen Vaults Floor 17",
+    "ja": "レグディニス遺跡17層"
+  },
+  "30118": {
+    "en": "Stimen Vaults Floor 18",
+    "ja": "レグディニス遺跡18層"
+  },
+  "30119": {
+    "en": "Stimen Vaults Floor 19",
+    "ja": "レグディニス遺跡19層"
+  },
+  "30120": {
+    "en": "Stimen Vaults Floor 20",
+    "ja": "レグディニス遺跡20層"
+  },
+  "30121": {
+    "en": "Stimen Vaults Floor 21",
+    "ja": "レグディニス遺跡21層"
+  },
+  "30122": {
+    "en": "Stimen Vaults Floor 22",
+    "ja": "レグディニス遺跡22層"
+  },
+  "30123": {
+    "en": "Stimen Vaults Floor 23",
+    "ja": "レグディニス遺跡23層"
+  },
+  "30124": {
+    "en": "Stimen Vaults Floor 24",
+    "ja": "レグディニス遺跡24層"
+  },
+  "30125": {
+    "en": "Stimen Vaults Floor 25",
+    "ja": "レグディニス遺跡25層"
+  },
+  "30126": {
+    "en": "Stimen Vaults Floor 26",
+    "ja": "レグディニス遺跡26層"
+  },
+  "30127": {
+    "en": "Stimen Vaults Floor 27",
+    "ja": "レグディニス遺跡27層"
+  },
+  "30128": {
+    "en": "Stimen Vaults Floor 28",
+    "ja": "レグディニス遺跡28層"
+  },
+  "30129": {
+    "en": "Stimen Vaults Floor 29",
+    "ja": "レグディニス遺跡29層"
+  },
+  "30130": {
+    "en": "Stimen Vaults Floor 30",
+    "ja": "レグディニス遺跡30層"
+  },
+  "30131": {
+    "en": "Stimen Vaults Floor 31",
+    "ja": "レグディニス遺跡31層"
+  },
+  "30132": {
+    "en": "Stimen Vaults Floor 32",
+    "ja": "レグディニス遺跡32層"
+  },
+  "30133": {
+    "en": "Stimen Vaults Floor 33",
+    "ja": "レグディニス遺跡33層"
+  },
+  "30134": {
+    "en": "Stimen Vaults Floor 34",
+    "ja": "レグディニス遺跡34層"
+  },
+  "30135": {
+    "en": "Stimen Vaults Floor 35",
+    "ja": "レグディニス遺跡35層"
+  },
+  "30136": {
+    "en": "Stimen Vaults Floor 36",
+    "ja": "レグディニス遺跡36層"
+  },
+  "30137": {
+    "en": "Stimen Vaults Floor 37",
+    "ja": "レグディニス遺跡37層"
+  },
+  "30138": {
+    "en": "Stimen Vaults Floor 38",
+    "ja": "レグディニス遺跡38層"
+  },
+  "30139": {
+    "en": "Stimen Vaults Floor 39",
+    "ja": "レグディニス遺跡39層"
+  },
+  "30140": {
+    "en": "Stimen Vaults Floor 40",
+    "ja": "レグディニス遺跡40層"
+  },
+  "30141": {
+    "en": "Stimen Vaults Floor 41",
+    "ja": "レグディニス遺跡41層"
+  },
+  "30142": {
+    "en": "Stimen Vaults Floor 42",
+    "ja": "レグディニス遺跡42層"
+  },
+  "30143": {
+    "en": "Stimen Vaults Floor 43",
+    "ja": "レグディニス遺跡43層"
+  },
+  "30144": {
+    "en": "Stimen Vaults Floor 44",
+    "ja": "レグディニス遺跡44層"
+  },
+  "30145": {
+    "en": "Stimen Vaults Floor 45",
+    "ja": "レグディニス遺跡45層"
+  },
+  "30146": {
+    "en": "Stimen Vaults Floor 46",
+    "ja": "レグディニス遺跡46層"
+  },
+  "30147": {
+    "en": "Stimen Vaults Floor 47",
+    "ja": "レグディニス遺跡47層"
+  },
+  "30148": {
+    "en": "Stimen Vaults Floor 48",
+    "ja": "レグディニス遺跡48層"
+  },
+  "30149": {
+    "en": "Stimen Vaults Floor 49",
+    "ja": "レグディニス遺跡49層"
+  },
+  "30150": {
+    "en": "Stimen Vaults Floor 50",
+    "ja": "レグディニス遺跡50層"
+  },
+  "30151": {
+    "en": "Stimen Vaults Floor 51",
+    "ja": "レグディニス遺跡51層"
+  },
+  "30152": {
+    "en": "Stimen Vaults Floor 52",
+    "ja": "レグディニス遺跡52層"
+  },
+  "30153": {
+    "en": "Stimen Vaults Floor 53",
+    "ja": "レグディニス遺跡53層"
+  },
+  "30154": {
+    "en": "Stimen Vaults Floor 54",
+    "ja": "レグディニス遺跡54層"
+  },
+  "30155": {
+    "en": "Stimen Vaults Floor 55",
+    "ja": "レグディニス遺跡55層"
+  },
+  "30156": {
+    "en": "Stimen Vaults Floor 56",
+    "ja": "レグディニス遺跡56層"
+  },
+  "30157": {
+    "en": "Stimen Vaults Floor 57",
+    "ja": "レグディニス遺跡57層"
+  },
+  "30158": {
+    "en": "Stimen Vaults Floor 58",
+    "ja": "レグディニス遺跡58層"
+  },
+  "30159": {
+    "en": "Stimen Vaults Floor 59",
+    "ja": "レグディニス遺跡59層"
+  },
+  "30160": {
+    "en": "Stimen Vaults Floor 60",
+    "ja": "レグディニス遺跡60層"
+  },
+  "30161": {
+    "en": "Stimen Vaults Floor 61",
+    "ja": "レグディニス遺跡61層"
+  },
+  "30162": {
+    "en": "Stimen Vaults Floor 62",
+    "ja": "レグディニス遺跡62層"
+  },
+  "30163": {
+    "en": "Stimen Vaults Floor 63",
+    "ja": "レグディニス遺跡63層"
+  },
+  "30164": {
+    "en": "Stimen Vaults Floor 64",
+    "ja": "レグディニス遺跡64層"
+  },
+  "30165": {
+    "en": "Stimen Vaults Floor 65",
+    "ja": "レグディニス遺跡65層"
+  },
+  "30166": {
+    "en": "Stimen Vaults Floor 66",
+    "ja": "レグディニス遺跡66層"
+  },
+  "30167": {
+    "en": "Stimen Vaults Floor 67",
+    "ja": "レグディニス遺跡67層"
+  },
+  "30168": {
+    "en": "Stimen Vaults Floor 68",
+    "ja": "レグディニス遺跡68層"
+  },
+  "30169": {
+    "en": "Stimen Vaults Floor 69",
+    "ja": "レグディニス遺跡69層"
+  },
+  "30170": {
+    "en": "Stimen Vaults Floor 70",
+    "ja": "レグディニス遺跡70層"
+  },
+  "30171": {
+    "en": "Stimen Vaults Floor 71",
+    "ja": "レグディニス遺跡71層"
+  },
+  "30172": {
+    "en": "Stimen Vaults Floor 72",
+    "ja": "レグディニス遺跡72層"
+  },
+  "30173": {
+    "en": "Stimen Vaults Floor 73",
+    "ja": "レグディニス遺跡73層"
+  },
+  "30174": {
+    "en": "Stimen Vaults Floor 74",
+    "ja": "レグディニス遺跡74層"
+  },
+  "30175": {
+    "en": "Stimen Vaults Floor 75",
+    "ja": "レグディニス遺跡75層"
+  },
+  "30200": {
+    "en": "Stimen Vaults Floor 75",
+    "ja": "レグディニス遺跡75層"
+  },
+  "31101": {
+    "en": "Stimen Vaults Floor 1",
+    "ja": "レグディニス遺跡1層"
+  },
+  "31102": {
+    "en": "Stimen Vaults Floor 2",
+    "ja": "レグディニス遺跡2層"
+  },
+  "31103": {
+    "en": "Stimen Vaults Floor 3",
+    "ja": "レグディニス遺跡3層"
+  },
+  "31104": {
+    "en": "Stimen Vaults Floor 4",
+    "ja": "レグディニス遺跡4層"
+  },
+  "31105": {
+    "en": "Stimen Vaults Floor 5",
+    "ja": "レグディニス遺跡5層"
+  },
+  "31106": {
+    "en": "Stimen Vaults Floor 6",
+    "ja": "レグディニス遺跡6層"
+  },
+  "31107": {
+    "en": "Stimen Vaults Floor 7",
+    "ja": "レグディニス遺跡7層"
+  },
+  "31108": {
+    "en": "Stimen Vaults Floor 8",
+    "ja": "レグディニス遺跡8層"
+  },
+  "31109": {
+    "en": "Stimen Vaults Floor 9",
+    "ja": "レグディニス遺跡9層"
+  },
+  "31110": {
+    "en": "Stimen Vaults Floor 10",
+    "ja": "レグディニス遺跡10層"
+  },
+  "31111": {
+    "en": "Stimen Vaults Floor 11",
+    "ja": "レグディニス遺跡11層"
+  },
+  "31112": {
+    "en": "Stimen Vaults Floor 12",
+    "ja": "レグディニス遺跡12層"
+  },
+  "31113": {
+    "en": "Stimen Vaults Floor 13",
+    "ja": "レグディニス遺跡13層"
+  },
+  "31114": {
+    "en": "Stimen Vaults Floor 14",
+    "ja": "レグディニス遺跡14層"
+  },
+  "31115": {
+    "en": "Stimen Vaults Floor 15",
+    "ja": "レグディニス遺跡15層"
+  },
+  "31116": {
+    "en": "Stimen Vaults Floor 16",
+    "ja": "レグディニス遺跡16層"
+  },
+  "31117": {
+    "en": "Stimen Vaults Floor 17",
+    "ja": "レグディニス遺跡17層"
+  },
+  "31118": {
+    "en": "Stimen Vaults Floor 18",
+    "ja": "レグディニス遺跡18層"
+  },
+  "31119": {
+    "en": "Stimen Vaults Floor 19",
+    "ja": "レグディニス遺跡19層"
+  },
+  "31120": {
+    "en": "Stimen Vaults Floor 20",
+    "ja": "レグディニス遺跡20層"
+  },
+  "31121": {
+    "en": "Stimen Vaults Floor 21",
+    "ja": "レグディニス遺跡21層"
+  },
+  "31122": {
+    "en": "Stimen Vaults Floor 22",
+    "ja": "レグディニス遺跡22層"
+  },
+  "31123": {
+    "en": "Stimen Vaults Floor 23",
+    "ja": "レグディニス遺跡23層"
+  },
+  "31124": {
+    "en": "Stimen Vaults Floor 24",
+    "ja": "レグディニス遺跡24層"
+  },
+  "31125": {
+    "en": "Stimen Vaults Floor 25",
+    "ja": "レグディニス遺跡25層"
+  },
+  "31126": {
+    "en": "Stimen Vaults Floor 26",
+    "ja": "レグディニス遺跡26層"
+  },
+  "31127": {
+    "en": "Stimen Vaults Floor 27",
+    "ja": "レグディニス遺跡27層"
+  },
+  "31128": {
+    "en": "Stimen Vaults Floor 28",
+    "ja": "レグディニス遺跡28層"
+  },
+  "31129": {
+    "en": "Stimen Vaults Floor 29",
+    "ja": "レグディニス遺跡29層"
+  },
+  "31130": {
+    "en": "Stimen Vaults Floor 30",
+    "ja": "レグディニス遺跡30層"
+  },
+  "31131": {
+    "en": "Stimen Vaults Floor 31",
+    "ja": "レグディニス遺跡31層"
+  },
+  "31132": {
+    "en": "Stimen Vaults Floor 32",
+    "ja": "レグディニス遺跡32層"
+  },
+  "31133": {
+    "en": "Stimen Vaults Floor 33",
+    "ja": "レグディニス遺跡33層"
+  },
+  "31134": {
+    "en": "Stimen Vaults Floor 34",
+    "ja": "レグディニス遺跡34層"
+  },
+  "31135": {
+    "en": "Stimen Vaults Floor 35",
+    "ja": "レグディニス遺跡35層"
+  },
+  "31136": {
+    "en": "Stimen Vaults Floor 36",
+    "ja": "レグディニス遺跡36層"
+  },
+  "31137": {
+    "en": "Stimen Vaults Floor 37",
+    "ja": "レグディニス遺跡37層"
+  },
+  "31138": {
+    "en": "Stimen Vaults Floor 38",
+    "ja": "レグディニス遺跡38層"
+  },
+  "31139": {
+    "en": "Stimen Vaults Floor 39",
+    "ja": "レグディニス遺跡39層"
+  },
+  "31140": {
+    "en": "Stimen Vaults Floor 40",
+    "ja": "レグディニス遺跡40層"
+  },
+  "31141": {
+    "en": "Stimen Vaults Floor 41",
+    "ja": "レグディニス遺跡41層"
+  },
+  "31142": {
+    "en": "Stimen Vaults Floor 42",
+    "ja": "レグディニス遺跡42層"
+  },
+  "31143": {
+    "en": "Stimen Vaults Floor 43",
+    "ja": "レグディニス遺跡43層"
+  },
+  "31144": {
+    "en": "Stimen Vaults Floor 44",
+    "ja": "レグディニス遺跡44層"
+  },
+  "31145": {
+    "en": "Stimen Vaults Floor 45",
+    "ja": "レグディニス遺跡45層"
+  },
+  "31146": {
+    "en": "Stimen Vaults Floor 46",
+    "ja": "レグディニス遺跡46層"
+  },
+  "31147": {
+    "en": "Stimen Vaults Floor 47",
+    "ja": "レグディニス遺跡47層"
+  },
+  "31148": {
+    "en": "Stimen Vaults Floor 48",
+    "ja": "レグディニス遺跡48層"
+  },
+  "31149": {
+    "en": "Stimen Vaults Floor 49",
+    "ja": "レグディニス遺跡49層"
+  },
+  "31150": {
+    "en": "Stimen Vaults Floor 50",
+    "ja": "レグディニス遺跡50層"
+  },
+  "31151": {
+    "en": "Stimen Vaults Floor 51",
+    "ja": "レグディニス遺跡51層"
+  },
+  "31152": {
+    "en": "Stimen Vaults Floor 52",
+    "ja": "レグディニス遺跡52層"
+  },
+  "31153": {
+    "en": "Stimen Vaults Floor 53",
+    "ja": "レグディニス遺跡53層"
+  },
+  "31154": {
+    "en": "Stimen Vaults Floor 54",
+    "ja": "レグディニス遺跡54層"
+  },
+  "31155": {
+    "en": "Stimen Vaults Floor 55",
+    "ja": "レグディニス遺跡55層"
+  },
+  "31156": {
+    "en": "Stimen Vaults Floor 56",
+    "ja": "レグディニス遺跡56層"
+  },
+  "31157": {
+    "en": "Stimen Vaults Floor 57",
+    "ja": "レグディニス遺跡57層"
+  },
+  "31158": {
+    "en": "Stimen Vaults Floor 58",
+    "ja": "レグディニス遺跡58層"
+  },
+  "31159": {
+    "en": "Stimen Vaults Floor 59",
+    "ja": "レグディニス遺跡59層"
+  },
+  "31160": {
+    "en": "Stimen Vaults Floor 60",
+    "ja": "レグディニス遺跡60層"
+  },
+  "31161": {
+    "en": "Stimen Vaults Floor 61",
+    "ja": "レグディニス遺跡61層"
+  },
+  "31162": {
+    "en": "Stimen Vaults Floor 62",
+    "ja": "レグディニス遺跡62層"
+  },
+  "31163": {
+    "en": "Stimen Vaults Floor 63",
+    "ja": "レグディニス遺跡63層"
+  },
+  "31164": {
+    "en": "Stimen Vaults Floor 64",
+    "ja": "レグディニス遺跡64層"
+  },
+  "31165": {
+    "en": "Stimen Vaults Floor 65",
+    "ja": "レグディニス遺跡65層"
+  },
+  "31166": {
+    "en": "Stimen Vaults Floor 66",
+    "ja": "レグディニス遺跡66層"
+  },
+  "31167": {
+    "en": "Stimen Vaults Floor 67",
+    "ja": "レグディニス遺跡67層"
+  },
+  "31168": {
+    "en": "Stimen Vaults Floor 68",
+    "ja": "レグディニス遺跡68層"
+  },
+  "31169": {
+    "en": "Stimen Vaults Floor 69",
+    "ja": "レグディニス遺跡69層"
+  },
+  "31170": {
+    "en": "Stimen Vaults Floor 70",
+    "ja": "レグディニス遺跡70層"
+  },
+  "31171": {
+    "en": "Stimen Vaults Floor 71",
+    "ja": "レグディニス遺跡71層"
+  },
+  "31172": {
+    "en": "Stimen Vaults Floor 72",
+    "ja": "レグディニス遺跡72層"
+  },
+  "31173": {
+    "en": "Stimen Vaults Floor 73",
+    "ja": "レグディニス遺跡73層"
+  },
+  "31174": {
+    "en": "Stimen Vaults Floor 74",
+    "ja": "レグディニス遺跡74層"
+  },
+  "31175": {
+    "en": "Stimen Vaults Floor 75",
+    "ja": "レグディニス遺跡75層"
+  },
+  "32101": {
+    "en": "Floor 1",
+    "ja": "レグディニス遺跡1層"
+  },
+  "32102": {
+    "en": "Floor 2",
+    "ja": "レグディニス遺跡2層"
+  },
+  "32103": {
+    "en": "Floor 3",
+    "ja": "レグディニス遺跡3層"
+  },
+  "32104": {
+    "en": "Floor 4",
+    "ja": "レグディニス遺跡4層"
+  },
+  "32105": {
+    "en": "Floor 5",
+    "ja": "レグディニス遺跡5層"
+  },
+  "32106": {
+    "en": "Floor 6",
+    "ja": "レグディニス遺跡6層"
+  },
+  "32107": {
+    "en": "Floor 7",
+    "ja": "レグディニス遺跡7層"
+  },
+  "32108": {
+    "en": "Floor 8",
+    "ja": "レグディニス遺跡8層"
+  },
+  "32109": {
+    "en": "Floor 9",
+    "ja": "レグディニス遺跡9層"
+  },
+  "32110": {
+    "en": "Floor 10",
+    "ja": "レグディニス遺跡10層"
+  },
+  "32111": {
+    "en": "Floor 11",
+    "ja": "レグディニス遺跡11層"
+  },
+  "32112": {
+    "en": "Floor 12",
+    "ja": "レグディニス遺跡12層"
+  },
+  "32113": {
+    "en": "Floor 13",
+    "ja": "レグディニス遺跡13層"
+  },
+  "32114": {
+    "en": "Floor 14",
+    "ja": "レグディニス遺跡14層"
+  },
+  "32115": {
+    "en": "Floor 15",
+    "ja": "レグディニス遺跡15層"
+  },
+  "32116": {
+    "en": "Floor 16",
+    "ja": "レグディニス遺跡16層"
+  },
+  "32117": {
+    "en": "Floor 17",
+    "ja": "レグディニス遺跡17層"
+  },
+  "32118": {
+    "en": "Floor 18",
+    "ja": "レグディニス遺跡18層"
+  },
+  "32119": {
+    "en": "Floor 19",
+    "ja": "レグディニス遺跡19層"
+  },
+  "32120": {
+    "en": "Floor 20",
+    "ja": "レグディニス遺跡20層"
+  },
+  "32121": {
+    "en": "Floor 21",
+    "ja": "レグディニス遺跡21層"
+  },
+  "32122": {
+    "en": "Floor 22",
+    "ja": "レグディニス遺跡22層"
+  },
+  "32123": {
+    "en": "Floor 23",
+    "ja": "レグディニス遺跡23層"
+  },
+  "32124": {
+    "en": "Floor 24",
+    "ja": "レグディニス遺跡24層"
+  },
+  "32125": {
+    "en": "Floor 25",
+    "ja": "レグディニス遺跡25層"
+  },
+  "32126": {
+    "en": "Floor 26",
+    "ja": "レグディニス遺跡26層"
+  },
+  "32127": {
+    "en": "Floor 27",
+    "ja": "レグディニス遺跡27層"
+  },
+  "32128": {
+    "en": "Floor 28",
+    "ja": "レグディニス遺跡28層"
+  },
+  "32129": {
+    "en": "Floor 29",
+    "ja": "レグディニス遺跡29層"
+  },
+  "32130": {
+    "en": "Floor 30",
+    "ja": "レグディニス遺跡30層"
+  },
+  "32131": {
+    "en": "Floor 31",
+    "ja": "レグディニス遺跡31層"
+  },
+  "32132": {
+    "en": "Floor 32",
+    "ja": "レグディニス遺跡32層"
+  },
+  "32133": {
+    "en": "Floor 33",
+    "ja": "レグディニス遺跡33層"
+  },
+  "32134": {
+    "en": "Floor 34",
+    "ja": "レグディニス遺跡34層"
+  },
+  "32135": {
+    "en": "Floor 35",
+    "ja": "レグディニス遺跡35層"
+  },
+  "32136": {
+    "en": "Floor 36",
+    "ja": "レグディニス遺跡36層"
+  },
+  "32137": {
+    "en": "Floor 37",
+    "ja": "レグディニス遺跡37層"
+  },
+  "32138": {
+    "en": "Floor 38",
+    "ja": "レグディニス遺跡38層"
+  },
+  "32139": {
+    "en": "Floor 39",
+    "ja": "レグディニス遺跡39層"
+  },
+  "32140": {
+    "en": "Floor 40",
+    "ja": "レグディニス遺跡40層"
+  },
+  "32141": {
+    "en": "Floor 41",
+    "ja": "レグディニス遺跡41層"
+  },
+  "32142": {
+    "en": "Floor 42",
+    "ja": "レグディニス遺跡42層"
+  },
+  "32143": {
+    "en": "Floor 43",
+    "ja": "レグディニス遺跡43層"
+  },
+  "32144": {
+    "en": "Floor 44",
+    "ja": "レグディニス遺跡44層"
+  },
+  "32145": {
+    "en": "Floor 45",
+    "ja": "レグディニス遺跡45層"
+  },
+  "32146": {
+    "en": "Floor 46",
+    "ja": "レグディニス遺跡46層"
+  },
+  "32147": {
+    "en": "Floor 47",
+    "ja": "レグディニス遺跡47層"
+  },
+  "32148": {
+    "en": "Floor 48",
+    "ja": "レグディニス遺跡48層"
+  },
+  "32149": {
+    "en": "Floor 49",
+    "ja": "レグディニス遺跡49層"
+  },
+  "32150": {
+    "en": "Floor 50",
+    "ja": "レグディニス遺跡50層"
+  },
+  "32151": {
+    "en": "Floor 51",
+    "ja": "レグディニス遺跡51層"
+  },
+  "32152": {
+    "en": "Floor 52",
+    "ja": "レグディニス遺跡52層"
+  },
+  "32153": {
+    "en": "Floor 53",
+    "ja": "レグディニス遺跡53層"
+  },
+  "32154": {
+    "en": "Floor 54",
+    "ja": "レグディニス遺跡54層"
+  },
+  "32155": {
+    "en": "Floor 55",
+    "ja": "レグディニス遺跡55層"
+  },
+  "32156": {
+    "en": "Floor 56",
+    "ja": "レグディニス遺跡56層"
+  },
+  "32157": {
+    "en": "Floor 57",
+    "ja": "レグディニス遺跡57層"
+  },
+  "32158": {
+    "en": "Floor 58",
+    "ja": "レグディニス遺跡58層"
+  },
+  "32159": {
+    "en": "Floor 59",
+    "ja": "レグディニス遺跡59層"
+  },
+  "32160": {
+    "en": "Floor 60",
+    "ja": "レグディニス遺跡60層"
+  },
+  "40001": {
+    "en": "Homestead House",
+    "ja": "ホームハウス"
+  },
+  "171001": {
+    "en": "Isolated Island",
+    "ja": "孤島"
+  }
+}

@@ -1272,9 +1272,16 @@ pub fn set_selected_uid(enc: &EncounterMutex, uid: Option<f64>) {
     let uid_i64 = uid.map(|v| v as i64);
     selected_uid::set(uid_i64);
     with_lock_or(enc, "set_selected_uid", (), |encounter| {
+        let new_uid = uid_i64.unwrap_or(0);
+        // シーン(current_level_map_id)はキャラ単位。前キャラのシーンを新キャラの最初の
+        // 戦闘記録に引き継がないよう、自キャラが実際に切り替わるときだけクリアする
+        // （同じ UID を再指定しただけなら、既に持っている値を失わせない）。
+        if encounter.local_player_uid != new_uid {
+            encounter.current_level_map_id = 0;
+        }
         encounter.clear_combat_stats();
         encounter.active_connection = None;
-        encounter.local_player_uid = uid_i64.unwrap_or(0);
+        encounter.local_player_uid = new_uid;
         // PT構成はキャラ単位。別キャラへの切替・再ログインで前キャラの PT を引き継がない
         // （processor.rs 側の自動検出は Encounter::set_local_player_uid が条件付きでクリア
         // するが、ここは明示的な手動切替のため無条件でクリアする）。
@@ -2381,6 +2388,58 @@ mod tests {
         assert_eq!(snap.duration_ms, 180_000.0);
         assert_eq!(snap.total_dps, 0.0);
         assert!(snap.total_dps.is_finite());
+    }
+
+    // build_encounter_snapshot は fight_level_map_id（戦闘開始の瞬間のシーン）を保存する。
+    // current_level_map_id（その後シーンが変わっているかもしれない現在値）は使わない。
+    #[test]
+    fn build_encounter_snapshot_uses_fight_level_map_id_not_current() {
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
+        let enc = Encounter {
+            fight_level_map_id: 6545,
+            current_level_map_id: 8,
+            ..Default::default()
+        };
+        let snap = build_encounter_snapshot(&enc, 0);
+        assert_eq!(snap.level_map_id, 6545);
+    }
+
+    // set_selected_uid で自キャラが実際に切り替わったときは current_level_map_id をクリアする
+    // （前キャラのシーンを新キャラの最初の戦闘記録に引き継がないため。team と同じ理由）。
+    #[test]
+    fn set_selected_uid_clears_current_level_map_id_on_character_switch() {
+        let _guard = selected_uid::lock_for_test();
+        let enc: EncounterMutex = std::sync::Mutex::new(Encounter {
+            local_player_uid: 100,
+            current_level_map_id: 6545,
+            ..Default::default()
+        });
+
+        set_selected_uid(&enc, Some(200.0));
+
+        assert_eq!(enc.lock().unwrap().current_level_map_id, 0, "自キャラの切替でクリアする");
+        selected_uid::set(None);
+    }
+
+    // 同じ uid を再指定しただけ（切替ではない）なら current_level_map_id は保持される。
+    #[test]
+    fn set_selected_uid_keeps_current_level_map_id_when_uid_unchanged() {
+        let _guard = selected_uid::lock_for_test();
+        let enc: EncounterMutex = std::sync::Mutex::new(Encounter {
+            local_player_uid: 100,
+            current_level_map_id: 6545,
+            ..Default::default()
+        });
+
+        set_selected_uid(&enc, Some(100.0));
+
+        assert_eq!(
+            enc.lock().unwrap().current_level_map_id,
+            6545,
+            "同一 uid の再指定では値を失わない"
+        );
+        selected_uid::set(None);
     }
 
     // capture_3min_result_skills は finalize（build_encounter_snapshot）と同じ分母

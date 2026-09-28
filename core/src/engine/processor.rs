@@ -17,7 +17,7 @@ use log::{debug, info, warn};
 use prost::Message;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Cursor;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -28,6 +28,12 @@ static IMAGINE_DETECTION_SEQ: AtomicU64 = AtomicU64::new(0);
 fn next_imagine_seq() -> u64 {
     IMAGINE_DETECTION_SEQ.fetch_add(1, Ordering::Relaxed)
 }
+
+/// SocialEnvelope の char_id 不一致（他キャラの通知が届いた）を、プロセス生存中1回だけ
+/// info で記録済みかどうか。level_map_id 追跡は実機未確認の推定実装（pb.proto 参照）なので、
+/// 実機で char_id の値そのものが観測できているかを切り分けるための最小限のログ。
+/// 2回目以降は debug に留め、人が多い場所で毎回ログが連発しないようにする。
+static SOCIAL_ENVELOPE_MISMATCH_LOGGED: AtomicBool = AtomicBool::new(false);
 
 /// `pending_imagine` が単独昇格（自己修復）するまでに要求する再検知回数
 /// （rule4 の初回検知=1 を含む）。休眠イマジン（召喚報告ID未登録で相方が rule5 を
@@ -726,9 +732,12 @@ fn log_team_change(encounter: &mut Encounter, f: impl FnOnce(&mut crate::engine:
     }
 }
 
-/// 0x2B(WorldSyncServerTime) / Team系5アームは should_accept を意図的に経由しないため
-/// （どちらもキャラ選択と無関係にアプリ全体で使う値。is_paused でも止めない）、他クライアント
-/// 由来のパケットを弾く判定をこの1箇所に集約する。
+/// 0x2B(WorldSyncServerTime) / Team系5アーム / SocialEnvelope は should_accept を
+/// 意図的に経由しないため、他クライアント由来のパケットを弾く判定をこの1箇所に集約する。
+/// WorldSyncServerTime/Team系はキャラ選択と無関係にアプリ全体で使う値（is_paused でも
+/// 止めない）。SocialEnvelope は自キャラのシーン追跡そのものなのでキャラ選択と関係するが、
+/// conn_to_uid へ書き込まない（学習経路ではない）ため、conn 単体では自他を判定できず、
+/// 呼び出し側で char_id による判定と組み合わせて絞り込む。
 /// conn が学習済み（`conn_to_uid` に載っている）で、その uid が追跡中キャラ
 /// （`encounter.local_player_uid`）と異なるときだけ true。
 /// 未学習 conn は常に false（通す）: 起動直後の精度と、Team 通知が別 TCP リンクで
@@ -748,12 +757,14 @@ fn conn_is_other_client(encounter: &Encounter, conn: Option<Server>) -> bool {
 }
 
 fn should_accept(encounter: &mut Encounter, conn: Option<Server>, op: &Pkt) -> bool {
-    // ServerHandover / SocialEnvelope は接続状態そのものの通知。
-    // 以下は conn ↔ char_id の学習経路なので、身元不明の conn でも必ず通す（ここで弾くと
-    // 学習が永久に起きず、UID 指定時に何も表示されなくなる）。他クライアント由来かどうかは
-    // 各 process_* が learn_connection で判定し破棄する。
-    // LocalDeltaBatch は入場時以外にも継続的に届くため、戦闘途中でアプリを起動しても
-    // 短時間で対象クライアントを特定できる主経路になる。
+    // ServerHandover は接続状態そのものの通知。SocialEnvelope は conn_is_other_client と
+    // char_id 判定を自前で行うため、ここでの粗い conn 判定は不要（二重に弾くと自キャラ
+    // 未確定時の暫定受理ができなくなる）。
+    // WorldEnterSnapshot/WorldEnterScene/LocalDeltaBatch は conn ↔ char_id の学習経路なので、
+    // 身元不明の conn でも必ず通す（ここで弾くと学習が永久に起きず、UID 指定時に何も
+    // 表示されなくなる）。他クライアント由来かどうかは各 process_* が learn_connection で
+    // 判定し破棄する。LocalDeltaBatch は入場時以外にも継続的に届くため、戦闘途中でアプリを
+    // 起動しても短時間で対象クライアントを特定できる主経路になる。
     if matches!(
         op,
         Pkt::ServerHandover
@@ -847,14 +858,22 @@ pub fn process_opcode(enc: &EncounterMutex, env: PktEnvelope) -> AppResult<()> {
             }
 
             // char_id が判明していて自キャラも確定済みなら、一致する時だけ受理する
-            // （自キャラ未確定時は暫定受理: この経路自体が conn↔uid の学習に寄与するため）。
+            // （自キャラ未確定時は暫定受理: SocialEnvelope はシーン遷移要求時にしか届かない
+            // ため、ここで捨てると次の遷移が起きるまで level_map_id が不明なままになる）。
             if body.char_id != 0 {
                 if let Some(self_uid) = encounter.self_player_uid() {
                     if body.char_id != self_uid {
-                        debug!(
-                            "[SocialEnvelope] discarded: char_id={} self_uid={}",
-                            body.char_id, self_uid
-                        );
+                        if SOCIAL_ENVELOPE_MISMATCH_LOGGED.swap(true, Ordering::Relaxed) {
+                            debug!(
+                                "[SocialEnvelope] discarded: char_id={} self_uid={}",
+                                body.char_id, self_uid
+                            );
+                        } else {
+                            info!(
+                                "[SocialEnvelope] discarded (first occurrence, logged once): char_id={} self_uid={}",
+                                body.char_id, self_uid
+                            );
+                        }
                         return Ok(());
                     }
                 }
@@ -2711,8 +2730,35 @@ mod tests {
         assert_eq!(enc.lock().unwrap().current_level_map_id, 0, "他キャラの char_id は破棄する");
     }
 
+    /// self_player_uid() は selected_uid（手動指定）を優先する。local_player_uid が
+    /// 未確定(0)でも、selected_uid と char_id が不一致なら「未確定」扱いにせず破棄する。
+    #[test]
+    fn social_envelope_rejects_other_char_id_when_selected_uid_overrides_unconfirmed_local() {
+        let _guard = lock_selected_uid();
+        let self_uid = 100_i64;
+        let other_uid = 200_i64;
+        selected_uid::set(Some(self_uid));
+        let enc = EncounterMutex::default();
+        assert_eq!(enc.lock().unwrap().local_player_uid, 0, "テスト前提: local_player_uid 未確定");
+
+        process_opcode(
+            &enc,
+            envelope(Pkt::SocialEnvelope, social_envelope_bytes(other_uid, 6545), conn(40105)),
+        )
+        .unwrap();
+
+        assert_eq!(
+            enc.lock().unwrap().current_level_map_id,
+            0,
+            "selected_uid と不一致の char_id は破棄する"
+        );
+
+        selected_uid::set(None);
+    }
+
     /// 自キャラ未確定(local_player_uid==0 かつ selected_uid なし)なら char_id 不一致でも
-    /// 暫定受理する（この経路自体が conn↔uid の学習に寄与するため）。
+    /// 暫定受理する（SocialEnvelope はシーン遷移要求時にしか届かないため、ここで捨てると
+    /// 次の遷移が起きるまで level_map_id が不明なままになってしまう）。
     #[test]
     fn social_envelope_provisionally_accepts_when_self_uid_unconfirmed() {
         let _guard = lock_selected_uid();

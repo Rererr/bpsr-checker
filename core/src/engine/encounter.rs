@@ -84,8 +84,10 @@ pub struct Encounter {
     /// （戦闘リセットのたびに PT情報が消えると「PTメンバーのみ食事行表示」フィルタが
     /// リセット直後だけ全員非表示になってしまう）。
     pub team: crate::engine::team::TeamState,
-    /// 自キャラの最新シーン(level_map_id)。consumables/team と同様、戦闘状態と無関係に
-    /// アプリ全体で使うため clear_combat_stats・ServerHandover を跨いで保持する。
+    /// 自キャラの最新シーン(level_map_id)。team と同様に自キャラ単位の値なので、
+    /// 戦闘状態とは無関係に clear_combat_stats・ServerHandover は跨いで保持しつつ、
+    /// 自キャラの切替（`set_local_player_uid` の X→Y 分岐 / `compute::set_selected_uid`）
+    /// では 0 にクリアする（前キャラのシーンを新キャラの最初の戦闘記録に引き継がないため）。
     pub current_level_map_id: u32,
     /// 戦闘開始の瞬間に `current_level_map_id` を写した値。「この計測がどこで行われたか」
     /// の記録用で、戦闘中にシーンが変わっても遡って書き換えない。`clear_combat_stats` で
@@ -97,13 +99,16 @@ impl Encounter {
     /// `local_player_uid` を更新する。processor.rs 側の自動検出経路（should_accept /
     /// learn_connection / process_world_enter_snapshot / process_enter_scene）はすべて
     /// このメソッドを経由すること（同じ判定を複数箇所に書かない）。
-    /// 旧値が非0で、かつ異なる非0の新値へ切り替わるときだけ team をクリアする
-    /// （PT構成はキャラ単位。別キャラへの切替・再ログインで前キャラの PT を引き継がない）。
-    /// 0→X（初回確定）・X→0 はここでいう「切替」ではないため対象外
-    /// （明示的な手動切替は compute::set_selected_uid が別途無条件でクリアする）。
+    /// 旧値が非0で、かつ異なる非0の新値へ切り替わるときだけ team と current_level_map_id を
+    /// クリアする（PT構成・シーンはキャラ単位。別キャラへの切替・再ログインで前キャラの
+    /// 情報を引き継がない）。0→X（初回確定）・X→0 はここでいう「切替」ではないため対象外
+    /// （明示的な手動切替は compute::set_selected_uid が別途行う。team は無条件クリア、
+    /// current_level_map_id は新旧の自キャラが異なるときだけクリアする）。
     pub fn set_local_player_uid(&mut self, uid: i64) {
         if self.local_player_uid != 0 && uid != 0 && self.local_player_uid != uid {
             self.team = crate::engine::team::TeamState::default();
+            // 前キャラのシーンを新キャラの最初の戦闘記録へ引き継がない（team と同じ理由）。
+            self.current_level_map_id = 0;
         }
         self.local_player_uid = uid;
     }
@@ -229,6 +234,29 @@ mod tests {
     fn is_combat_active_with_timeout_false_when_never_fought() {
         let enc = Encounter::default();
         assert!(!enc.is_combat_active_with_timeout(999_999, 8_000));
+    }
+
+    // 自キャラが X→Y へ切り替わると current_level_map_id は 0 に戻る（team と同じ扱い）。
+    // 前キャラのシーンを新キャラの最初の戦闘記録に引き継がないため。
+    #[test]
+    fn set_local_player_uid_clears_current_level_map_id_on_character_switch() {
+        let mut enc = Encounter { current_level_map_id: 6545, ..Default::default() };
+        enc.set_local_player_uid(100);
+        assert_eq!(enc.current_level_map_id, 6545, "0→X の初回確定は「切替」ではない");
+
+        enc.set_local_player_uid(200);
+        assert_eq!(enc.current_level_map_id, 0, "X→Y の切替でクリアする");
+    }
+
+    // 同じ uid を再指定しただけ（切替ではない）なら current_level_map_id は保持される。
+    #[test]
+    fn set_local_player_uid_keeps_current_level_map_id_when_uid_unchanged() {
+        let mut enc = Encounter { current_level_map_id: 6545, ..Default::default() };
+        enc.set_local_player_uid(100);
+        enc.current_level_map_id = 8;
+
+        enc.set_local_player_uid(100);
+        assert_eq!(enc.current_level_map_id, 8, "同一 uid の再指定では値を失わない");
     }
 
     // 境界は processor.rs の旧ロールオーバー判定 `diff > timeout_ms` と一致させるため `<=`。

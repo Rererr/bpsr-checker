@@ -1001,6 +1001,7 @@ pub fn build_encounter_snapshot(encounter: &Encounter, now: u128) -> EncounterSn
             .iter()
             .map(|&v| v as f64)
             .collect(),
+        level_map_id: encounter.fight_level_map_id,
     }
 }
 
@@ -2159,6 +2160,7 @@ mod tests {
             snap.measure_scope,
             crate::engine::encounter::MeasureScope::default()
         );
+        assert_eq!(snap.level_map_id, 0, "旧 history.json は level_map_id 不明として 0 で読める");
     }
 
     /// 与ダメージ0でも自分の行は残る。回復専業や被ダメージ計測では dmg_stats が0のまま

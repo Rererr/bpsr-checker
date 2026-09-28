@@ -105,6 +105,10 @@ pub struct EncounterSnapshot {
     /// 履歴・透かし・自己ベストのキーはすべてここから導く（採取タイミングに依存しない）。
     /// 旧 history.json には無いフィールドで、default は絞り込み無し。
     pub measure_scope: crate::engine::encounter::MeasureScope,
+    /// この計測が行われたコンテンツ(シーン)の id。`Encounter::fight_level_map_id` の保存値。
+    /// 名前の文字列は保存せず id だけを保存する（表示は content_names.rs を都度引く）。
+    /// 旧 history.json には無いフィールドで、default は 0（コンテンツ不明）。
+    pub level_map_id: u32,
 }
 
 #[derive(serde::Serialize, Clone, Debug)]

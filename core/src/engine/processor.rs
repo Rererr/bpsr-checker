@@ -831,19 +831,43 @@ pub fn process_opcode(enc: &EncounterMutex, env: PktEnvelope) -> AppResult<()> {
             let Some(notify) = decode_packet::<pb::SocialEnvelope>(data, "SocialEnvelope") else {
                 return Ok(());
             };
+            let Some(body) = notify.v_request.and_then(|r| r.data) else {
+                return Ok(());
+            };
 
-            let scene_data = notify
-                .v_request
-                .as_ref()
-                .and_then(|r| r.data.as_ref())
-                .and_then(|s| s.scene_data.as_ref());
+            let mut encounter = enc.lock().map_err(|e| AppError::LockPoisoned(e.to_string()))?;
 
-            if let Some(scene) = scene_data {
-                if scene.line_id != 0 {
+            // 他クライアントの conn 由来なら破棄（conn が未学習/自キャラ未確定なら通す）。
+            if conn_is_other_client(&encounter, conn) {
+                debug!(
+                    "[SocialEnvelope] discarded: other client conn char_id={}",
+                    body.char_id
+                );
+                return Ok(());
+            }
+
+            // char_id が判明していて自キャラも確定済みなら、一致する時だけ受理する
+            // （自キャラ未確定時は暫定受理: この経路自体が conn↔uid の学習に寄与するため）。
+            if body.char_id != 0 {
+                if let Some(self_uid) = encounter.self_player_uid() {
+                    if body.char_id != self_uid {
+                        debug!(
+                            "[SocialEnvelope] discarded: char_id={} self_uid={}",
+                            body.char_id, self_uid
+                        );
+                        return Ok(());
+                    }
+                }
+            }
+
+            if let Some(scene) = body.scene_data {
+                if scene.level_map_id != 0 && scene.level_map_id != encounter.current_level_map_id
+                {
                     info!(
-                        "[SocialEnvelope] scene changed: line_id={} level_map_id={} (encounter retained)",
-                        scene.line_id, scene.level_map_id
+                        "[SocialEnvelope] scene changed: char_id={} line_id={} level_map_id={} (encounter retained)",
+                        body.char_id, scene.line_id, scene.level_map_id
                     );
+                    encounter.current_level_map_id = scene.level_map_id;
                 }
             }
         }
@@ -1203,6 +1227,14 @@ fn process_world_enter_snapshot(
         _ => {
             // 他クライアント由来: エンティティ作成・name_cache 更新をスキップ
             return;
+        }
+    }
+
+    // ここまで到達すれば自キャラ確定済み（上の match で他クライアントは return 済み）なので、
+    // conn/char_id によるフィルタは不要。
+    if let Some(scene) = &v_data.scene_data {
+        if scene.level_map_id != 0 {
+            encounter.current_level_map_id = scene.level_map_id;
         }
     }
 
@@ -1859,6 +1891,7 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
     let ts = now_ms();
     if encounter.time_fight_start_ms == 0 {
         encounter.time_fight_start_ms = ts;
+        encounter.fight_level_map_id = encounter.current_level_map_id;
         // M6/M9計測: 戦闘時計の起点となったデルタが damages を含んでいたか（false なら
         // 自己バフ・詠唱等で分母が実ダメージ開始より早く進み始めている）と、そのダメージが
         // 自分のものだったか（false なら他人の与ダメージや自分の被弾で計測窓が回り始めている）。
@@ -2627,6 +2660,103 @@ mod tests {
         assert!(team.is_member(2));
         assert!(team.is_member(3));
         assert!(!team.is_member(99));
+    }
+
+    fn social_envelope_bytes(char_id: i64, level_map_id: u32) -> Vec<u8> {
+        pb::SocialEnvelope {
+            v_request: Some(pb::SocialRequest {
+                data: Some(pb::SocialBody {
+                    char_id,
+                    scene_data: Some(pb::WorldLocation { level_map_id, line_id: 1 }),
+                }),
+            }),
+        }
+        .encode_to_vec()
+    }
+
+    /// char_id が自キャラ(local_player_uid)と一致すれば current_level_map_id を更新する。
+    #[test]
+    fn social_envelope_accepts_matching_char_id() {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+        let my_uid = 100_i64;
+        let enc = EncounterMutex::default();
+        enc.lock().unwrap().local_player_uid = my_uid;
+
+        process_opcode(
+            &enc,
+            envelope(Pkt::SocialEnvelope, social_envelope_bytes(my_uid, 6545), conn(40101)),
+        )
+        .unwrap();
+
+        assert_eq!(enc.lock().unwrap().current_level_map_id, 6545);
+    }
+
+    /// char_id が自キャラと異なれば破棄する（current_level_map_id は変わらない）。
+    #[test]
+    fn social_envelope_rejects_other_char_id() {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+        let my_uid = 100_i64;
+        let other_uid = 200_i64;
+        let enc = EncounterMutex::default();
+        enc.lock().unwrap().local_player_uid = my_uid;
+
+        process_opcode(
+            &enc,
+            envelope(Pkt::SocialEnvelope, social_envelope_bytes(other_uid, 6545), conn(40102)),
+        )
+        .unwrap();
+
+        assert_eq!(enc.lock().unwrap().current_level_map_id, 0, "他キャラの char_id は破棄する");
+    }
+
+    /// 自キャラ未確定(local_player_uid==0 かつ selected_uid なし)なら char_id 不一致でも
+    /// 暫定受理する（この経路自体が conn↔uid の学習に寄与するため）。
+    #[test]
+    fn social_envelope_provisionally_accepts_when_self_uid_unconfirmed() {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+        let enc = EncounterMutex::default();
+        assert_eq!(enc.lock().unwrap().local_player_uid, 0, "テスト前提: 自キャラ未確定");
+
+        process_opcode(
+            &enc,
+            envelope(Pkt::SocialEnvelope, social_envelope_bytes(999, 6545), conn(40103)),
+        )
+        .unwrap();
+
+        assert_eq!(enc.lock().unwrap().current_level_map_id, 6545);
+    }
+
+    /// char_id==0 のときは char_id 自体の一致判定を行わず、conn によるフィルタだけが効く
+    /// （他クライアントの conn だと学習済みなら破棄する）。
+    #[test]
+    fn social_envelope_zero_char_id_still_filters_by_conn() {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+        let my_uid = 100_i64;
+        let other_uid = 200_i64;
+        let other_conn = conn(40104);
+        let enc = EncounterMutex::default();
+        {
+            let mut e = enc.lock().unwrap();
+            e.local_player_uid = my_uid;
+            // other_conn は他キャラのものと学習済み
+            e.conn_to_uid.insert(other_conn, other_uid);
+        }
+
+        process_opcode(
+            &enc,
+            envelope(Pkt::SocialEnvelope, social_envelope_bytes(0, 6545), other_conn),
+        )
+        .unwrap();
+
+        assert_eq!(
+            enc.lock().unwrap().current_level_map_id,
+            0,
+            "char_id=0 でも他クライアントの conn は破棄する"
+        );
     }
 
     /// 値を bare varint(LEB128) で符号化する（attr raw_data の形式）。
@@ -4186,6 +4316,33 @@ mod tests {
             }),
             ..Default::default()
         }
+    }
+
+    /// fight_level_map_id は戦闘開始の瞬間に current_level_map_id を写す。戦闘中にシーンが
+    /// 変わっても遡って書き換えず、clear_combat_stats を挟んだ次の戦闘で新しい値になる。
+    #[test]
+    fn fight_level_map_id_captured_at_fight_start_and_reset_by_clear_combat_stats() {
+        let my_uid = 555_i64;
+        let boss_uuid = monster_uuid_for(9001);
+
+        let mut enc = Encounter::default();
+        enc.set_local_player_uid(my_uid);
+        enc.current_level_map_id = 6545;
+
+        process_scene_delta(&mut enc, damage_delta(boss_uuid, player_uuid_for(my_uid), 500));
+        assert_eq!(enc.fight_level_map_id, 6545, "戦闘開始の瞬間のシーンを記録する");
+
+        // 戦闘中にシーンが切り替わっても、進行中の計測の起点は遡って書き換えない。
+        enc.current_level_map_id = 9999;
+        process_scene_delta(&mut enc, damage_delta(boss_uuid, player_uuid_for(my_uid), 500));
+        assert_eq!(enc.fight_level_map_id, 6545, "戦闘中のシーン変化で書き換わってはいけない");
+
+        enc.clear_combat_stats();
+        assert_eq!(enc.fight_level_map_id, 0, "リセットで戻る");
+
+        // 次の戦闘は、その時点の current_level_map_id を新たに記録する。
+        process_scene_delta(&mut enc, damage_delta(boss_uuid, player_uuid_for(my_uid), 500));
+        assert_eq!(enc.fight_level_map_id, 9999, "次の戦闘は新しいシーンを記録する");
     }
 
     /// モンスター→プレイヤーのダメージ（反撃）は総ダメージに積まれず、被ダメ側にのみ残る。

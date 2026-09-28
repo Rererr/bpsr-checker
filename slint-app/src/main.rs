@@ -2752,8 +2752,9 @@ fn poll_hotkey_events(m: &MainWindow, hotkeys_holder: &RefCell<Option<hotkey::Ho
 }
 
 /// メイン窓の復元が完了し、settle 期間（起動直後の再アサート対策で毎tick 復元サイズを
-/// 強制適用する期間）も終わったか。poll_window_settle が「まだ強制中」を判定する条件の
-/// 否定に等しく、settle 完了後にしか安全に行えない処理（自動保存・grow_to_min）はこれで揃える。
+/// 強制適用する期間）も終わったか。poll_window_settle の「まだ強制中」も
+/// `setup_done && !main_settled` で導出し、settle 完了後にしか安全に行えない処理
+/// （自動保存・grow_to_min）と判定を1か所に揃える。
 fn main_settled(st: &PollState) -> bool {
     st.setup_done && st.tick >= st.setup_tick + SETTLE_TICKS
 }
@@ -2767,7 +2768,7 @@ fn poll_window_settle(
     buff_overlay_w: &slint::Weak<BuffOverlay>,
     stats_overlay_w: &slint::Weak<StatsOverlay>,
 ) {
-    if st.setup_done && st.tick < st.setup_tick + SETTLE_TICKS {
+    if st.setup_done && !main_settled(st) {
         if let Some(r) = &st.restored_main {
             window_state::enforce_size(m.window(), r);
         }
@@ -4968,8 +4969,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // （自動保存ガードより手前で実施）。
         poll_window_settle(&m, &st, &self_overlay_w, &buff_overlay_w, &stats_overlay_w);
 
-        // settle 完了後、実行中の設定変更（食事表示ON・文字サイズ変更等）で最小窓幅が
-        // 広がっていれば底上げする（settle 中は poll_window_settle と競合するため対象外）。
+        // settle 完了後、窓幅が最小幅を下回っていれば底上げする。主目的は settle が Slint の
+        // 制約を経由せず適用した保存幅（最小幅未満）の補正。実行中の設定変更で最小幅が広がった
+        // 場合も拾う（settle 中は poll_window_settle と競合するため対象外）。
         if main_settled(&st) {
             let sf = m.window().scale_factor();
             let min_w = (m.get_layout_min_width() * sf).round() as u32;

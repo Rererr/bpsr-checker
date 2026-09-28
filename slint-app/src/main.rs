@@ -456,6 +456,13 @@ fn refresh_header(m: &MainWindow, enc: &EncounterMutex, tab: i32) {
     m.set_total_text(format::format_dps(header.total_dps).into());
     m.set_elapsed_text(format::format_elapsed(header.elapsed_ms).into());
     m.set_total_dmg_text(format::format_number(header.total_dmg).into());
+    m.set_content_name(
+        engine::content_names::content_label(
+            header.fight_level_map_id,
+            engine::runtime_settings::display_lang(),
+        )
+        .into(),
+    );
 }
 
 /// グラフ列(DPS推移)を出すか。graph設定が有効で、被ダメ(tab=2)以外。
@@ -700,6 +707,31 @@ fn build_skill_rows(sw: &bpsr_core::models::SkillsWindow) -> Vec<SkillRowUi> {
         .collect()
 }
 
+/// 日時表示の書式（履歴見出し・シェア画像の透かしで共有）。
+const DATETIME_DISPLAY_FORMAT: &str = "%Y-%m-%d %H:%M";
+
+/// 履歴見出しのタイトル: "{YYYY-MM-DD HH:MM} {コンテンツ名}"（issue #9 PR2b）。
+/// 旧 history.json（levelMapId フィールド自体が無く0扱い）は content_name が空になるため
+/// 日付のみになる。start-ms が 0（実際には起きない想定外値への防御）なら日付を省き
+/// content_name のみ、両方欠けていれば空文字。
+fn build_history_title(start_ms: f64, content_name: &str) -> String {
+    use chrono::TimeZone;
+    let date = if start_ms > 0.0 {
+        chrono::Local
+            .timestamp_millis_opt(start_ms as i64)
+            .single()
+            .map(|dt| dt.format(DATETIME_DISPLAY_FORMAT).to_string())
+    } else {
+        None
+    };
+    match (date, content_name.is_empty()) {
+        (Some(d), true) => d,
+        (Some(d), false) => format!("{d} {content_name}"),
+        (None, true) => String::new(),
+        (None, false) => content_name.to_string(),
+    }
+}
+
 /// 履歴ビューのフラット行を構築（見出し → プレイヤー → スキル）。
 fn build_history_rows(
     hist: &[bpsr_core::models::EncounterSnapshot],
@@ -734,6 +766,14 @@ fn build_history_rows(
             dmg_text: format::format_number(snap.total_dmg).into(),
             count_text: format!("{}", snap.player_rows.len()).into(),
             name: player_names.into(),
+            title: build_history_title(
+                snap.start_ms,
+                &engine::content_names::content_label(
+                    snap.level_map_id,
+                    engine::runtime_settings::display_lang(),
+                ),
+            )
+            .into(),
             // 条件付きの計測は通常の計測と直接比較できない。一覧の時点でそれが分かるようにする。
             scope_text: measure_scope_label(snap.measure_scope).into(),
             ..Default::default()
@@ -1340,7 +1380,7 @@ fn build_result_watermark(
     snap: &bpsr_core::models::EncounterSnapshot,
 ) -> String {
     let scope = snap.measure_scope;
-    let now = chrono::Local::now().format("%Y-%m-%d %H:%M");
+    let now = chrono::Local::now().format(DATETIME_DISPLAY_FORMAT);
     let dur = format::format_elapsed(snap.duration_ms);
     let ja = is_ja();
     let mut base = if ja {
@@ -5252,6 +5292,43 @@ mod tests {
         let buff_tracked: Vec<i64> = (1..=(watchlist::MAX as i64 + 10)).collect();
         let roster = timer_roster(&wl, true, false, true, &[], &buff_tracked, 0);
         assert_eq!(roster.len(), watchlist::MAX);
+    }
+
+    // --- 履歴見出しタイトル（issue #9 PR2b）関連のユニットテスト ---
+
+    // 期待値は build_history_title と同じ変換（chrono::Local.timestamp_millis_opt(..).single()）
+    // から組み立てる。実行環境のローカルタイムゾーンに依存する値なので固定文字列と比較しない。
+    fn expected_date_str(start_ms: f64) -> String {
+        use chrono::TimeZone;
+        chrono::Local
+            .timestamp_millis_opt(start_ms as i64)
+            .single()
+            .expect("valid timestamp")
+            .format(DATETIME_DISPLAY_FORMAT)
+            .to_string()
+    }
+
+    #[test]
+    fn build_history_title_combines_date_and_content_name() {
+        let start_ms = 1_704_164_645_000.0;
+        let title = build_history_title(start_ms, "霧海の猟場 マスター難易度1");
+        assert_eq!(title, format!("{} 霧海の猟場 マスター難易度1", expected_date_str(start_ms)));
+    }
+
+    #[test]
+    fn build_history_title_start_ms_zero_omits_date() {
+        assert_eq!(build_history_title(0.0, "霧海の猟場 マスター難易度1"), "霧海の猟場 マスター難易度1");
+    }
+
+    #[test]
+    fn build_history_title_empty_content_name_keeps_date_only() {
+        let start_ms = 1_704_164_645_000.0;
+        assert_eq!(build_history_title(start_ms, ""), expected_date_str(start_ms));
+    }
+
+    #[test]
+    fn build_history_title_both_missing_is_empty() {
+        assert_eq!(build_history_title(0.0, ""), "");
     }
 
     // --- オーバーレイ秒境界同期（S1）関連のユニットテスト ---

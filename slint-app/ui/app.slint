@@ -245,13 +245,17 @@ struct SkillRowUi {
 // 展開はネスト配列を避け、Rust 側で展開中のみプレイヤー行を差し込む。
 struct HistoryRowUi {
     is-header: bool,
-    // 計測に効いていた絞り込み条件（空文字＝条件なし。見出し行の名前へ前置する）。
+    // 計測に効いていた絞り込み条件（空文字＝条件なし。見出し行のタイトルへ前置する）。
     // 専用の列にすると、条件付きの行だけ以降の列の開始位置がずれて一覧の桁が揃わない。
     scope-text: string,
     is-skill: bool,
     snap-id: string,
     toggle-key: string,
     expanded: bool,
+    // "{YYYY-MM-DD HH:MM} {コンテンツ名}"（issue #9 PR2b）。旧history.json（levelMapIdフィールド
+    // 自体が無く0扱い）はコンテンツ名が空になるため日付のみになる。start-msが0（実際には
+    // 起きない想定外値への防御）なら日付を省きコンテンツ名のみ、両方無ければ空文字。
+    title: string,
     duration-text: string,
     dps-text: string,
     dmg-text: string,
@@ -1222,7 +1226,12 @@ component HistoryRowItem inherits Rectangle {
         spacing: 8px;
         // ── 見出し ──
         if root.e.is-header && root.e.scope-text != "": Text { text: "[" + root.e.scope-text + "] "; color: Theme.accent; font-size: 10px * root.font-scale; vertical-alignment: center; }
-        if root.e.is-header: Text { text: root.e.name; color: #e6e6f0; font-size: 11px * root.font-scale; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
+        // タイトル(日時＋コンテンツ名)。stretchは持たせず、狭いときはまずプレイヤー列挙(name)側
+        // (horizontal-stretch:1)が縮む。それでも収まらない幅ではここも末尾から省略する
+        // （stretchが無いテキストは自然幅を最小要求してしまい、histboxの幅を超えると右側の
+        // 人数/▼/%列が見切れるため、overflow:elide + min-width:0で最小要求を外す）。
+        if root.e.is-header: Text { text: root.e.title; color: #e6e6f0; font-size: 11px * root.font-scale; overflow: elide; min-width: 0px; vertical-alignment: center; }
+        if root.e.is-header: Text { text: root.e.name; color: #888; font-size: 10px * root.font-scale; overflow: elide; horizontal-stretch: 1; min-width: 0px; vertical-alignment: center; }
         if root.e.is-header: Text { text: root.e.duration-text; color: #888; font-size: 10px * root.font-scale; width: 40px; vertical-alignment: center; }
         if root.e.is-header: Text { text: root.e.dps-text + " DPS"; color: Theme.accent; font-size: 11px * root.font-scale; width: 90px; vertical-alignment: center; }
         if root.e.is-header: Text { text: root.e.dmg-text; color: #aaa; font-size: 10px * root.font-scale; width: 60px; vertical-alignment: center; }
@@ -3762,6 +3771,16 @@ export component MainWindow inherits Window {
                 HorizontalLayout {
                     alignment: center;
                     spacing: 14px;
+                    // コンテンツ名（issue #9 PR2b）。狭いときはここから先に縮む（経過/総ダメ/合計DPSは自然幅を守る）。
+                    if root.content-name != "": Text {
+                        text: root.content-name;
+                        color: #888;
+                        font-size: 10px * root.font-scale;
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        overflow: elide;
+                        vertical-alignment: center;
+                    }
                     HorizontalLayout {
                         spacing: 4px;
                         Text { text: @tr("経過"); color: #888; font-size: 10px * root.font-scale; min-width: 0px; overflow: elide; vertical-alignment: center; }

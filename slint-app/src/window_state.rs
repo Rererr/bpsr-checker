@@ -143,17 +143,19 @@ pub fn restore(
 /// 強制再適用しており、その経路（winit `request_inner_size`）は Slint のレイアウト制約を
 /// 経由しないため、settle 完了までは狭すぎるサイズが残りうる。settle 完了後に呼び、
 /// 最終的に正しい幅へ底上げする（呼び出し側で settle 完了を判定する）。
-/// ユーザーが広げたサイズを縮める方向には関与しない。
+/// 最小サイズを満たすために縮めることはしない（モニタに収まらない分だけはモニタ内へ縮める）。
 ///
-/// 最小化中は何もしない（位置が (-32000,-32000) を返し、モニタ内へ補正した
-/// SetWindowPos を最小化中の窓へ出してしまうため）。
+/// 最小化中・最大化中は何もしない。最小化中は位置が (-32000,-32000) を返し、モニタ内へ
+/// 補正した SetWindowPos を最小化中の窓へ出してしまう。最大化中は位置が枠の分だけ負になり、
+/// set_position/request_inner_size が最大化を解除してしまう。
 pub fn grow_to_min(window: &slint::Window, min_w: u32, min_h: u32) {
     let cur = window.size();
     if cur.width >= min_w && cur.height >= min_h {
         return;
     }
-    // アプリは ShowWindow(SW_MINIMIZE) で直接最小化するため、Slint の状態でなく winit(IsIconic) に問う。
-    if window.with_winit_window(|w| w.is_minimized()).flatten() == Some(true) {
+    // アプリは ShowWindow(SW_MINIMIZE) で直接最小化するため、Slint の状態でなく winit に問う。
+    let min_or_max = window.with_winit_window(|w| w.is_minimized() == Some(true) || w.is_maximized());
+    if min_or_max == Some(true) {
         return;
     }
     let pos = window.position();

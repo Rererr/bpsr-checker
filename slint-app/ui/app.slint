@@ -102,10 +102,13 @@ struct ColumnFlags {
     eff-dps: bool, // 有効DPS（実働時間ベース）
 }
 
-// 一覧ビュー（列見出し・合計行・PlayerRowItem）の固定列幅の単一ソース。値はいずれも
-// font-scale=1.0基準のpx。呼び出し側が自分のfont-scaleを掛ける（このglobal自体はfont-scaleを
-// 持たない）。ここを変えれば3箇所（列見出しHorizontalLayout・合計行・PlayerRowItem）すべてに
-// 効く。推移列(graph)とウォッチピン用スペーサー(pin)は既存挙動どおりfont-scale倍しない。
+// 一覧・スキル内訳の列寸法の単一ソース（値はfont-scale=1.0基準のpx。このglobal自体はfont-scaleを持たない）。
+// 利用箇所: 一覧（列見出し・合計行・PlayerRowItem）、スキル内訳（見出し・SkillRowItem）、
+// MainWindow.name-col-min-width、ConsumableBadge。
+// font-scale を掛けるもの: dmg/dps/pct/opt/name-min-text-w/consumable-badge-w。
+// 固定px（掛けない）: graph/pin/pad-x/gap/name-bar-w/name-gap。
+// 掛けるかどうかは定数ごとに固定し、使用側すべてで揃える（片側だけ掛けると
+// name-col-min-width の式と行の実構成がズレ、名前セクションが隣の列へはみ出す）。
 global ListCol {
     out property <length> graph-w: 60px;  // 推移(スパークライン)列
     out property <length> dmg-w: 64px;    // ダメージ/回復/被ダメ列
@@ -114,7 +117,7 @@ global ListCol {
     out property <length> opt-w: 50px;    // 会心率/会心ダメ率/幸運率/幸運ダメ率/ヒット数/毎分ヒット数/戦力（共通幅）
     out property <length> pin-w: 14px;    // 末尾ウォッチピン用スペーサー
     // 列見出し行・合計行・PlayerRowItem/SkillRowItem の HorizontalLayout が共有する外枠余白/列間隔。
-    out property <length> pad-x: 8px;   // padding-left/right
+    out property <length> pad-x: 8px;   // padding-left/right（左余白は自キャラマーカー〉の描画領域も兼ねる。scale1.5で約7.7px使用）
     out property <length> gap: 6px;     // spacing
     // 名前セクションの内訳（MainWindow.name-col-min-width の算出根拠。PlayerRowItem本体の
     // クラス色バー・内側spacing・NameTemplateのmin-text-width・ConsumableBadgeの幅と一致させる）。
@@ -3240,8 +3243,9 @@ export component MainWindow inherits Window {
     // (in property name-col-min-width 経由で明示 min-width として渡す)の両方がこの値を参照する。
     // 内訳は PlayerRowItem 名前セクションの実際の構成（クラス色バー→spacing→NameTemplate→
     // [spacing→ConsumableBadge]×表示中のバッジ数）と1対1に対応させ、ListCol の定数から導出する。
-    // 子要素合計の暗黙値に任せると、見出し=単純な90px*scale・行=実構成の合計、という二重管理に
-    // なり、定数側だけ変えると狭幅で床がズレて見出しと行のx位置が食い違う（実際に発生した不具合）。
+    // 以前は見出し=単純な90px*scale・行=実構成の合計と下限が食い違い、狭幅で見出しと行のx位置が
+    // ずれた（実際に発生した不具合）。今は明示 min-width を両方へ渡すので、この式が実構成より
+    // 小さいと、狭幅で名前セクションの中身（名前/バッジ）が隣の列へはみ出して重なる（Slint のソースからの推論・未実測）。
     // この値は一覧表示中の窓の最小幅も決める（Slintのレイアウト最小幅としてOS側の
     // 最小ウィンドウサイズ制約にも伝播するため、変更するとユーザーが縮小できる限界も変わる）。
     property <length> name-col-min-width: ListCol.name-min-text-w * root.font-scale
@@ -3520,7 +3524,7 @@ export component MainWindow inherits Window {
                 }
             }
             // ── 合計行（列見出し直下・固定表示。issue #9 PR1）──
-            // 幅・spacing は ListCol（列見出し行/PlayerRowItem と共有する単一ソース）を使い、
+            // 外枠の padding/spacing と列幅は ListCol（列見出し行/PlayerRowItem と共有する単一ソース）を使い、
             // 罫線が縦に通るようにする。オプション列は表示中でも値を出さず空欄。
             if root.total-row-visible: Rectangle {
                 height: 16px * root.font-scale;

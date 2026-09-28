@@ -1228,8 +1228,9 @@ component HistoryRowItem inherits Rectangle {
         if root.e.is-header && root.e.scope-text != "": Text { text: "[" + root.e.scope-text + "] "; color: Theme.accent; font-size: 10px * root.font-scale; vertical-alignment: center; }
         // タイトル(日時＋コンテンツ名)。stretchは持たせず、狭いときはまずプレイヤー列挙(name)側
         // (horizontal-stretch:1)が縮む。それでも収まらない幅ではここも末尾から省略する
-        // （stretchが無いテキストは自然幅を最小要求してしまい、histboxの幅を超えると右側の
-        // 人数/▼/%列が見切れるため、overflow:elide + min-width:0で最小要求を外す）。
+        // （overflow 既定の clip だとテキストは自然幅を最小要求し、それが Flickable の幅を超えると
+        // histbox(viewport)が広がって右側の人数/▼/%列が見切れるため、overflow:elide + min-width:0
+        // で最小要求を外す）。
         if root.e.is-header: Text { text: root.e.title; color: #e6e6f0; font-size: 11px * root.font-scale; overflow: elide; min-width: 0px; vertical-alignment: center; }
         if root.e.is-header: Text { text: root.e.name; color: #888; font-size: 10px * root.font-scale; overflow: elide; horizontal-stretch: 1; min-width: 0px; vertical-alignment: center; }
         if root.e.is-header: Text { text: root.e.duration-text; color: #888; font-size: 10px * root.font-scale; width: 40px; vertical-alignment: center; }

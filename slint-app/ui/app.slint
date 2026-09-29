@@ -871,7 +871,9 @@ component RowPctBar inherits Rectangle {
     }
 }
 
-// 一覧行の数値列（ダメージ・DPS・%＋設定で足すオプション列）。列の表示条件をここに集約する。
+// データ行の数値列（ダメージ・DPS・%＋設定で足すオプション列）の並び・幅・色をここに集約する。
+// 表示可否は MainWindow の effective-cols が単一ソース。列見出し行と合計行の空欄は同じ並びを
+// 別に持つので、列を足すときはこの3か所を揃える。
 // 推移列・ウォッチピンは含めない（行ごとに要否が違うため呼び出し側が並べる）。
 // 外側の名前列(stretch 1)と伸び方を張り合わないよう stretch は 0 を明示し、既定値に依存しない。
 component RowStatColumns inherits HorizontalLayout {

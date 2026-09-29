@@ -1251,14 +1251,14 @@ component HistoryRowItem inherits Rectangle {
         // 見出し行の最小幅が Flickable の幅を超え、histbox(viewport)が広がって右側の
         // 人数/▼/%列が見切れる。title/name と同じ理由）。
         if root.e.is-header && root.e.scope-text != "": Text { text: "[" + root.e.scope-text + "] "; color: Theme.accent; font-size: 10px * root.font-scale; overflow: elide; min-width: 0px; vertical-alignment: center; }
-        // タイトル(日時＋コンテンツ名)。縮む順は name → title → scope（stretch 比 1000:1:0）。
+        // タイトル(日時＋コンテンツ名)。縮む順は name → title → scope（stretch 比 100000:1:0。name が縮める段階で title が削られないよう比を大きく取る）。
         // stretch 0 同士は同じ量ずつ縮むため、title を 0 のままにすると短い scope が先に消える。
         // 条件付き計測の印(scope)は通常計測と比較できないことを示すので最後まで残す
         // （overflow 既定の clip だとテキストは自然幅を最小要求し、それが Flickable の幅を超えると
         // histbox(viewport)が広がって右側の人数/▼/%列が見切れるため、overflow:elide + min-width:0
         // で最小要求を外す）。
         if root.e.is-header: Text { text: root.e.title; color: #e6e6f0; font-size: 11px * root.font-scale; overflow: elide; horizontal-stretch: 1; min-width: 0px; vertical-alignment: center; }
-        if root.e.is-header: Text { text: root.e.name; color: #888; font-size: 10px * root.font-scale; overflow: elide; horizontal-stretch: 1000; min-width: 0px; vertical-alignment: center; }
+        if root.e.is-header: Text { text: root.e.name; color: #888; font-size: 10px * root.font-scale; overflow: elide; horizontal-stretch: 100000; min-width: 0px; vertical-alignment: center; }
         if root.e.is-header: Text { text: root.e.duration-text; color: #888; font-size: 10px * root.font-scale; width: HistCol.header-duration-w * root.font-scale; vertical-alignment: center; }
         if root.e.is-header: Text { text: root.e.dps-text + " DPS"; color: Theme.accent; font-size: 11px * root.font-scale; width: HistCol.header-dps-w * root.font-scale; vertical-alignment: center; }
         if root.e.is-header: Text { text: root.e.dmg-text; color: #aaa; font-size: 10px * root.font-scale; width: HistCol.header-dmg-w * root.font-scale; vertical-alignment: center; }

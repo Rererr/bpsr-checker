@@ -112,6 +112,9 @@ pub struct EncounterSnapshot {
     /// 名前の文字列は保存せず id だけを保存する（表示は content_names.rs を都度引く）。
     /// 旧 history.json には無いフィールドで、default は 0（コンテンツ不明）。
     pub level_map_id: u32,
+    /// 記録時点の自キャラ uid。履歴の展開行を一覧と同じ組み立て（自分基準のバー等）で描くために
+    /// 保存する。旧 history.json には無いフィールドで、default は 0（自分不明）。
+    pub local_player_uid: f64,
 }
 
 #[derive(serde::Serialize, Clone, Debug)]

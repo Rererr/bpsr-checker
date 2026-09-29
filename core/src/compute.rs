@@ -984,6 +984,7 @@ pub fn build_encounter_snapshot(encounter: &Encounter, now: u128) -> EncounterSn
 
     EncounterSnapshot {
         id: 0.0,
+        local_player_uid: window.local_player_uid,
         start_ms: encounter.time_fight_start_ms as f64,
         end_ms: encounter.time_last_combat_packet_ms as f64,
         duration_ms: elapsed_ms as f64,
@@ -2404,6 +2405,19 @@ mod tests {
         };
         let snap = build_encounter_snapshot(&enc, 0);
         assert_eq!(snap.level_map_id, 6545);
+    }
+
+    // build_encounter_snapshot は記録時点の自キャラ uid（一覧と同じ window.local_player_uid）を保存する。
+    #[test]
+    fn build_encounter_snapshot_stores_local_player_uid() {
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
+        let enc = Encounter {
+            local_player_uid: 777,
+            ..Default::default()
+        };
+        let snap = build_encounter_snapshot(&enc, 0);
+        assert_eq!(snap.local_player_uid, 777.0);
     }
 
     // set_selected_uid で自キャラが実際に切り替わったときは current_level_map_id をクリアする

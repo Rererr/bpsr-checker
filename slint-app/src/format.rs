@@ -408,24 +408,50 @@ pub fn format_row_name(
 /// 先頭パーツの前・末尾パーツの後の空白を落とす → 空パーツを落とす。中間のパーツ
 /// （`{imagine}` の "-…" や `{roleSkill}` の " (R:…)"）の空白は触らない。結果が空なら
 /// `fallback_name`（表示名）だけの本体1パーツにする。
+/// アイコンの跡で両側が空白で終わらない/始まらないときは、語がつながらないよう空白を1つ入れる
+/// （本体パーツ側に入れる。両方が非本体なら前側の末尾）。
 /// 区切りに空白以外の文字を使うテンプレートでは、その文字は残る。
 pub fn strip_icon_parts(parts: Vec<NamePart>, fallback_name: &str) -> Vec<NamePart> {
     let mut out: Vec<NamePart> = Vec::with_capacity(parts.len());
-    for part in parts.into_iter().filter(|p| !p.class_icon) {
-        match out.last_mut() {
-            Some(prev)
-                if prev.shrink_rank == SHRINK_RANK_BODY && part.shrink_rank == SHRINK_RANK_BODY =>
-            {
-                let tail = if prev.text.ends_with(char::is_whitespace) {
-                    part.text.trim_start()
-                } else {
-                    part.text.as_str()
-                };
-                prev.text.push_str(tail);
-                prev.has_name |= part.has_name;
-            }
-            _ => out.push(part),
+    let mut icon_removed = false;
+    for mut part in parts {
+        if part.class_icon {
+            icon_removed = true;
+            continue;
         }
+        let seam = std::mem::take(&mut icon_removed);
+        let Some(prev) = out.last_mut() else {
+            out.push(part);
+            continue;
+        };
+        let needs_space = seam
+            && !prev.text.is_empty()
+            && !part.text.is_empty()
+            && !prev.text.ends_with(char::is_whitespace)
+            && !part.text.starts_with(char::is_whitespace);
+        let both_body =
+            prev.shrink_rank == SHRINK_RANK_BODY && part.shrink_rank == SHRINK_RANK_BODY;
+        if both_body {
+            if needs_space {
+                prev.text.push(' ');
+            }
+            let tail = if prev.text.ends_with(char::is_whitespace) {
+                part.text.trim_start()
+            } else {
+                part.text.as_str()
+            };
+            prev.text.push_str(tail);
+            prev.has_name |= part.has_name;
+            continue;
+        }
+        if needs_space {
+            if part.shrink_rank == SHRINK_RANK_BODY {
+                part.text.insert(0, ' ');
+            } else {
+                prev.text.push(' ');
+            }
+        }
+        out.push(part);
     }
     if let Some(first) = out.first_mut() {
         first.text = first.text.trim_start().to_string();
@@ -769,6 +795,41 @@ mod tests {
     #[test]
     fn strip_icon_does_not_double_space_at_seam() {
         assert_eq!(stripped("", "", "{name} {classIcon} {spec}"), vec![body("ソラ 雷刃型", true)]);
+    }
+
+    // 空白の無い継ぎ目にアイコンがあった場合は、語がつながらないよう空白を1つ入れる。
+    #[test]
+    fn strip_icon_inserts_space_between_bodies_without_seam_space() {
+        assert_eq!(stripped("", "", "{name}{classIcon}{spec}"), vec![body("ソラ 雷刃型", true)]);
+    }
+
+    // 非本体(イマジン)と本体の境界も同じ。空白は本体側に入れ、イマジンの順位は保つ。
+    #[test]
+    fn strip_icon_inserts_space_between_imagine_and_body() {
+        let got = stripped("-ティナ", "", "{imagine}{classIcon}{name}");
+        assert_eq!(texts(&got), vec!["-ティナ", " ソラ"]);
+        let got = stripped("-ティナ", "", "{name}{classIcon}{imagine}");
+        assert_eq!(texts(&got), vec!["ソラ ", "-ティナ"]);
+        assert_eq!(got.iter().filter(|p| p.has_name).count(), 1);
+    }
+
+    // 片側に空白があれば足さない。アイコンが端にあるときも足さない。連続アイコンでも1つだけ。
+    #[test]
+    fn strip_icon_space_insertion_is_minimal() {
+        assert_eq!(stripped("", "", "{name} {classIcon}{spec}"), vec![body("ソラ 雷刃型", true)]);
+        assert_eq!(stripped("", "", "{name}{classIcon} {spec}"), vec![body("ソラ 雷刃型", true)]);
+        assert_eq!(stripped("", "", "{name}{classIcon}"), vec![body("ソラ", true)]);
+        assert_eq!(stripped("", "", "{classIcon}{name}"), vec![body("ソラ", true)]);
+        assert_eq!(
+            stripped("", "", "{name}{classIcon}{classIcon}{spec}"),
+            vec![body("ソラ 雷刃型", true)]
+        );
+    }
+
+    // アイコンが無い継ぎ目には空白を足さない（テンプレートの並びどおり）。
+    #[test]
+    fn strip_icon_does_not_space_seams_without_icon() {
+        assert_eq!(stripped("", "", "{name}{spec}"), vec![body("ソラ雷刃型", true)]);
     }
 
     #[test]

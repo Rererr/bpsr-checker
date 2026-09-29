@@ -3798,7 +3798,7 @@ export component MainWindow inherits Window {
                 HorizontalLayout {
                     alignment: center;
                     spacing: 14px;
-                    // コンテンツ名（issue #9 PR2b）。狭いときはここから先に縮む（経過/総ダメ/合計DPSは自然幅を守る）。
+                    // コンテンツ名（issue #9 PR2b）。狭いときはここから先に縮む（総ダメ/合計DPS/経過は自然幅を守る）。
                     if root.content-name != "": Text {
                         text: root.content-name;
                         color: #888;
@@ -3808,11 +3808,8 @@ export component MainWindow inherits Window {
                         overflow: elide;
                         vertical-alignment: center;
                     }
-                    HorizontalLayout {
-                        spacing: 4px;
-                        Text { text: @tr("経過"); color: #888; font-size: 10px * root.font-scale; min-width: 0px; overflow: elide; vertical-alignment: center; }
-                        Text { text: root.elapsed-text; color: #cfcfe0; font-size: 10px * root.font-scale; min-width: 0px; overflow: elide; vertical-alignment: center; }
-                    }
+                    // 並びは一覧の合計行（総ダメ→合計DPS→経過）とヘッダー右の退避表示（合計DPS→経過）に
+                    // 揃え、経過を右端に置く。
                     HorizontalLayout {
                         spacing: 4px;
                         Text { text: root.total-value-label(); color: #888; font-size: 10px * root.font-scale; min-width: 0px; overflow: elide; vertical-alignment: center; }
@@ -3824,6 +3821,11 @@ export component MainWindow inherits Window {
                         Text { text: root.total-rate-label(); color: #888; font-size: 10px * root.font-scale; min-width: 0px; overflow: elide; vertical-alignment: center; }
                         // 一覧の合計行のDPS列と同じ Theme.accent。単色 #888 のままだと合計DPSが埋没していた。
                         Text { text: root.total-text; color: Theme.accent; font-size: 10px * root.font-scale; min-width: 0px; overflow: elide; vertical-alignment: center; }
+                    }
+                    HorizontalLayout {
+                        spacing: 4px;
+                        Text { text: @tr("経過"); color: #888; font-size: 10px * root.font-scale; min-width: 0px; overflow: elide; vertical-alignment: center; }
+                        Text { text: root.elapsed-text; color: #cfcfe0; font-size: 10px * root.font-scale; min-width: 0px; overflow: elide; vertical-alignment: center; }
                     }
                 }
             }

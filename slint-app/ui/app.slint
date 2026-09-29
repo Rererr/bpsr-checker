@@ -190,7 +190,7 @@ global HistCol {
     out property <length> header-dps-w: 90px;      // DPS
     out property <length> header-dmg-w: 60px;      // ダメージ
     out property <length> header-count-w: 28px;    // 人数（ja「N人」用の幅。en訳は短縮して収める）
-    out property <length> header-toggle-w: 9px;    // ▲/▼（font-size 9px の1字ぶんの概算）
+    out property <length> header-toggle-w: 12px;   // ▲/▼（font-size 9px の1字が収まる幅）
     // プレイヤー行のみ
     out property <length> player-toggle-w: 12px; // ▶/▼
     out property <length> player-rank-w: 18px;   // 順位
@@ -199,9 +199,10 @@ global HistCol {
 
     // 各行の最小幅（履歴 Flickable.min-width の算出根拠。Flickable は中身の幅要求を
     // 窓の最小幅へ伝えないため、行の実構成と1対1に対応させてここから導出する）。
-    // 見出しは title/name/scope が min-width:0 の elide なので固定部分のみ（要素7個=spacing 6箇所）。
+    // 見出しは title/name/scope が min-width:0 の elide なので固定部分のみ。要素は最大8個
+    // （絞り込み条件のラベル付き=spacing 7箇所）で数える。
     public pure function header-min-width(scale: float) -> length {
-        return HistCol.pad-left-header + HistCol.pad-right + 6 * HistCol.gap
+        return HistCol.pad-left-header + HistCol.pad-right + 7 * HistCol.gap
             + (HistCol.header-duration-w + HistCol.header-dps-w + HistCol.header-dmg-w
                 + HistCol.header-count-w + HistCol.header-toggle-w) * scale;
     }
@@ -929,7 +930,8 @@ component RowPctBar inherits Rectangle {
 
 // データ行の数値列（ダメージ・DPS・%＋設定で足すオプション列）の並び・幅・色をここに集約する。
 // 表示可否は MainWindow の effective-cols が単一ソース。列見出し行と合計行の空欄は同じ並びを
-// 別に持つので、列を足すときはこの3か所を揃える。
+// 別に持つ。履歴の行の最小幅も ListCol.opt-cols-count / opt-cols-width から導出するので、
+// 列を足すときはこの4か所を揃える。
 // 推移列・ウォッチピンは含めない（行ごとに要否が違うため呼び出し側が並べる）。
 // 外側の名前列(stretch 1)と伸び方を張り合わないよう stretch は 0 を明示し、既定値に依存しない。
 component RowStatColumns inherits HorizontalLayout {
@@ -1340,7 +1342,7 @@ component HistoryRowItem inherits Rectangle {
         if root.e.is-header: Text { text: root.e.dps-text + " DPS"; color: Theme.accent; font-size: 11px * root.font-scale; width: HistCol.header-dps-w * root.font-scale; vertical-alignment: center; }
         if root.e.is-header: Text { text: root.e.dmg-text; color: #aaa; font-size: 10px * root.font-scale; width: HistCol.header-dmg-w * root.font-scale; vertical-alignment: center; }
         if root.e.is-header: Text { text: @tr("{}人", root.e.count-text); color: #666; font-size: 10px * root.font-scale; width: HistCol.header-count-w * root.font-scale; vertical-alignment: center; }
-        if root.e.is-header: Text { text: root.e.expanded ? "▲" : "▼"; color: #555; font-size: 9px * root.font-scale; vertical-alignment: center; }
+        if root.e.is-header: Text { text: root.e.expanded ? "▲" : "▼"; color: #555; font-size: 9px * root.font-scale; width: HistCol.header-toggle-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
         // ── プレイヤー行 ──
         if !root.e.is-header && !root.e.is-skill: Text { text: root.e.toggle-key == "" ? "" : (root.e.expanded ? "▼" : "▶"); color: #666; font-size: 9px * root.font-scale; width: HistCol.player-toggle-w * root.font-scale; vertical-alignment: center; }
         if !root.e.is-header && !root.e.is-skill: Text { text: root.e.rank-text; color: #8a8a99; font-size: 10px * root.font-scale; width: HistCol.player-rank-w * root.font-scale; vertical-alignment: center; }
@@ -3510,8 +3512,9 @@ export component MainWindow inherits Window {
         + CompactCol.dps-w * root.font-scale
         + root.compact-name-col-min-width;
     // 履歴ビューの行の最小幅（見出し/プレイヤー行/スキル行の最大）。履歴 Flickable.min-width の
-    // 単一ソース。表示中のオプション列(effective-cols)に応じて伸びるが、col-level が窓幅から
-    // 値として決まるため、窓幅と互いを押し上げ合うことはない。
+    // 単一ソース。表示中のオプション列(effective-cols)に応じて伸びる。col-level は窓幅から決まる
+    // ので、最小幅と窓幅は段階的に押し上げ合う（実測: 全8列・倍率1.0で 474px から履歴タブを開くと
+    // 524 から段階的に上がり、col-level が最大になった 756px で止まる）。
     property <length> history-row-min-width: HistCol.row-min-width(root.effective-cols, root.font-scale);
     // 履歴ビューの内容高（最終行の下端。行が無いときは空状態の案内ぶん）。
     property <length> history-content-height: root.history-rows.length > 0

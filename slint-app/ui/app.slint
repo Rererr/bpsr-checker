@@ -3513,8 +3513,8 @@ export component MainWindow inherits Window {
         + root.compact-name-col-min-width;
     // 履歴ビューの行の最小幅（見出し/プレイヤー行/スキル行の最大）。履歴 Flickable.min-width の
     // 単一ソース。表示中のオプション列(effective-cols)に応じて伸びる。col-level は窓幅から決まる
-    // ので、最小幅と窓幅は段階的に押し上げ合う（実測: 全8列・倍率1.0で 474px から履歴タブを開くと
-    // 524 から段階的に上がり、col-level が最大になった 756px で止まる）。
+    // ので、最小幅と窓幅は段階的に押し上げ合う（最小幅が col-level の閾値を超えるたびに列が1段
+    // 増えて最小幅がさらに上がり、col-level が最大になったところで止まる。発散はしない）。
     property <length> history-row-min-width: HistCol.row-min-width(root.effective-cols, root.font-scale);
     // 履歴ビューの内容高（最終行の下端。行が無いときは空状態の案内ぶん）。
     property <length> history-content-height: root.history-rows.length > 0

@@ -871,6 +871,30 @@ component RowPctBar inherits Rectangle {
     }
 }
 
+// 一覧行の数値列（ダメージ・DPS・%＋設定で足すオプション列）。列の表示条件をここに集約する。
+// 推移列・ウォッチピンは含めない（行ごとに要否が違うため呼び出し側が並べる）。
+// 外側の名前列(stretch 1)と伸び方を張り合わないよう stretch は 0 を明示し、既定値に依存しない。
+component RowStatColumns inherits HorizontalLayout {
+    in property <Row> entry;
+    in property <ColumnFlags> cols;
+    in property <float> font-scale: 1.0;
+    horizontal-stretch: 0;
+    spacing: ListCol.gap;
+    Text { text: root.entry.dmg-text; color: #e6e6f0; font-size: 12px * root.font-scale; width: ListCol.dmg-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+    Text { text: root.entry.dps-text; color: Theme.accent; font-size: 12px * root.font-scale; width: ListCol.dps-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+    Text { text: root.entry.pct-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: ListCol.pct-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+    if root.cols.crit: Text { text: root.entry.crit-text; color: #f39c12; font-size: 11px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+    if root.cols.crit-value: Text { text: root.entry.crit-value-text; color: #f39c12; font-size: 11px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+    if root.cols.lucky: Text { text: root.entry.lucky-text; color: #2ecc71; font-size: 11px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+    if root.cols.lucky-value: Text { text: root.entry.lucky-value-text; color: #2ecc71; font-size: 11px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+    if root.cols.hits: Text { text: root.entry.hits-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+    if root.cols.hpm: Text { text: root.entry.hpm-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+    if root.cols.score: Text { text: root.entry.score-text; color: #99aa99; font-size: 11px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+    // 通常DPS列(Theme.accent、既定は青系だがユーザーが任意hexへ変更可能)と並んでも
+    // 判別できるよう、隣接しない色相(紫)を固定で使う（アクセント色に連動させない）。
+    if root.cols.eff-dps: Text { text: root.entry.eff-dps-text; color: #b39ddb; font-size: 11px * root.font-scale; width: ListCol.dps-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+}
+
 component PlayerRowItem inherits Rectangle {
     in property <Row> entry;
     in property <bool> highlight-local;
@@ -981,19 +1005,7 @@ component PlayerRowItem inherits Rectangle {
                 fill: transparent;
             }
         }
-        Text { text: root.entry.dmg-text; color: #e6e6f0; font-size: 12px * root.font-scale; width: ListCol.dmg-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-        Text { text: root.entry.dps-text; color: Theme.accent; font-size: 12px * root.font-scale; width: ListCol.dps-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-        Text { text: root.entry.pct-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: ListCol.pct-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.crit: Text { text: root.entry.crit-text; color: #f39c12; font-size: 11px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.crit-value: Text { text: root.entry.crit-value-text; color: #f39c12; font-size: 11px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.lucky: Text { text: root.entry.lucky-text; color: #2ecc71; font-size: 11px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.lucky-value: Text { text: root.entry.lucky-value-text; color: #2ecc71; font-size: 11px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.hits: Text { text: root.entry.hits-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.hpm: Text { text: root.entry.hpm-text; color: #cfcfe0; font-size: 11px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-        if root.cols.score: Text { text: root.entry.score-text; color: #99aa99; font-size: 11px * root.font-scale; width: ListCol.opt-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-        // 通常DPS列(Theme.accent、既定は青系だがユーザーが任意hexへ変更可能)と並んでも
-        // 判別できるよう、隣接しない色相(紫)を固定で使う（アクセント色に連動させない）。
-        if root.cols.eff-dps: Text { text: root.entry.eff-dps-text; color: #b39ddb; font-size: 11px * root.font-scale; width: ListCol.dps-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        RowStatColumns { entry: root.entry; cols: root.cols; font-scale: root.font-scale; }
         watch := TouchArea {
             width: ListCol.pin-w;
             clicked => { root.toggle-watch(root.entry.uid-str); }
@@ -3325,12 +3337,14 @@ export component MainWindow inherits Window {
     // 幅による強制非表示の対象外（設定トグルのみで制御）。ヘッダ行と PlayerRowItem の
     // 両方がこれを参照する。
     //
-    // 有効DPSは DPS タブ限定（root.tab==0）。分子(entity_stats)は core::compute 側で
+    // 有効DPSは与ダメ(Dmg)を数えるタブ限定（stat-is-dmg）。分子(entity_stats)は core::compute 側で
     // タブ(StatType)ごとに切り替わるが、分母(active_dmg_ms)は現状「与ダメイベントの実働時間」
     // しか無く、回復・被ダメでは「回復量÷与ダメ実働時間」のような定義の無い値になってしまう
     // （core::compute::make_player_row のコメント参照）。回復/被ダメ向けの ActiveTime を
     // Entity に新設し分母も一緒に切り替える恒久対応は今回のスコープ外のため、この列自体を
-    // DPS タブに閉じて誤表示を避けている。将来この列を他タブへ広げるときは分母の対応が必須。
+    // 与ダメのタブに閉じて誤表示を避けている。将来この列を回復/被ダメへ広げるときは分母の対応が必須。
+    // 履歴(tab==3)は Dmg のみの記録なので有効DPSを出せる。
+    property <bool> stat-is-dmg: root.tab == 0 || root.tab == 3;
     property <ColumnFlags> effective-cols: {
         crit: root.cols.crit,
         crit-value: root.cols.crit-value && root.col-level >= 4,
@@ -3339,7 +3353,7 @@ export component MainWindow inherits Window {
         hits: root.cols.hits && root.col-level >= 3,
         hpm: root.cols.hpm && root.col-level >= 2,
         score: root.cols.score,
-        eff-dps: root.cols.eff-dps && root.tab == 0 && root.col-level >= 6,
+        eff-dps: root.cols.eff-dps && root.stat-is-dmg && root.col-level >= 6,
     };
     property <bool> effective-show-graph-col: root.show-graph-col && root.col-level >= 1;
     // 名前列 min-width の単一ソース。見出し(下記 Text)と PlayerRowItem の名前セクション

@@ -211,6 +211,26 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    // localPlayerUid を持たない旧 history.json は 0（自分不明）で読め、履歴は消えない。
+    // 新しい値は書き出し→読み込みで保たれる。
+    #[test]
+    fn load_old_json_without_local_player_uid_defaults_to_zero() {
+        let path = unique_temp_path("no-local-uid");
+        std::fs::write(&path, r#"{"version":1,"encounters":[{"id":7.0,"totalDmg":100.0}]}"#).expect("write old fixture");
+
+        let loaded = load_from_path(&path, 20);
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].id, 7.0);
+        assert_eq!(loaded[0].local_player_uid, 0.0);
+
+        let with_uid = EncounterSnapshot { local_player_uid: 4242.0, ..snapshot(8.0) };
+        save_to_path(Some(&path), &[with_uid]);
+        let reloaded = load_from_path(&path, 20);
+        assert_eq!(reloaded[0].local_player_uid, 4242.0);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
     // limit を超える件数は古い順(先頭)から切り詰められ、新しい方が残る。
     #[test]
     fn load_prunes_to_limit_keeping_newest() {

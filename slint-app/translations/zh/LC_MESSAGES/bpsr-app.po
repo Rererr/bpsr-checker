@@ -285,8 +285,8 @@ msgstr "清空历史"
 msgid "履歴なし"
 msgstr "无历史"
 
-msgid "人"
-msgstr "人"
+msgid "{}人"
+msgstr "{}人"
 
 msgid "推移"
 msgstr "趋势"

@@ -3798,7 +3798,7 @@ export component MainWindow inherits Window {
                 HorizontalLayout {
                     alignment: center;
                     spacing: 14px;
-                    // コンテンツ名（issue #9 PR2b）。狭いときはここから先に縮む（総ダメ/合計DPS/経過は自然幅を守る）。
+                    // コンテンツ名（issue #9 PR2b）。狭いときはここから先に縮む（コンテンツ名が縮み切るまでは総ダメ/合計DPS/経過の自然幅を保つ）。
                     if root.content-name != "": Text {
                         text: root.content-name;
                         color: #888;

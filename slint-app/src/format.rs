@@ -401,6 +401,50 @@ pub fn format_row_name(
     .collect()
 }
 
+/// 展開済みの名前パーツから職アイコンを取り除き、跡に空白を残さない形へ整える。
+/// アイコンを出さない履歴の展開行が、一覧と同じテンプレートを使うために使う。
+///
+/// 手順: アイコンを除く → 隣り合った本体パーツを結合（継ぎ目の空白は重ねない）→
+/// 先頭パーツの前・末尾パーツの後の空白を落とす → 空パーツを落とす。中間のパーツ
+/// （`{imagine}` の "-…" や `{roleSkill}` の " (R:…)"）の空白は触らない。結果が空なら
+/// `fallback_name`（表示名）だけの本体1パーツにする。
+/// 区切りに空白以外の文字を使うテンプレートでは、その文字は残る。
+pub fn strip_icon_parts(parts: Vec<NamePart>, fallback_name: &str) -> Vec<NamePart> {
+    let mut out: Vec<NamePart> = Vec::with_capacity(parts.len());
+    for part in parts.into_iter().filter(|p| !p.class_icon) {
+        match out.last_mut() {
+            Some(prev)
+                if prev.shrink_rank == SHRINK_RANK_BODY && part.shrink_rank == SHRINK_RANK_BODY =>
+            {
+                let tail = if prev.text.ends_with(char::is_whitespace) {
+                    part.text.trim_start()
+                } else {
+                    part.text.as_str()
+                };
+                prev.text.push_str(tail);
+                prev.has_name |= part.has_name;
+            }
+            _ => out.push(part),
+        }
+    }
+    if let Some(first) = out.first_mut() {
+        first.text = first.text.trim_start().to_string();
+    }
+    if let Some(last) = out.last_mut() {
+        last.text = last.text.trim_end().to_string();
+    }
+    out.retain(|p| !p.text.is_empty());
+    if out.is_empty() {
+        out.push(NamePart {
+            text: fallback_name.to_string(),
+            class_icon: false,
+            shrink_rank: SHRINK_RANK_BODY,
+            has_name: true,
+        });
+    }
+    out
+}
+
 /// コピー用テンプレートの全キーを展開する元データ（utils.ts formatRowAsText 相当）。
 /// S5 のクリップボードコピーでも実プレイヤー行から組み立てて再利用する。
 pub struct CopyRowData<'a> {
@@ -492,7 +536,7 @@ pub fn format_row_template(d: &CopyRowData, template: &str, abbreviate: bool) ->
 mod tests {
     use super::{
         class_icon_id, class_role_color, format_consumable_remaining, format_remaining,
-        format_row_name, format_row_name_parts, next_text_change_ms, ALL_CLASSES,
+        format_row_name, format_row_name_parts, next_text_change_ms, strip_icon_parts, ALL_CLASSES,
     };
     use bpsr_core::engine::class::{Class, Role};
 
@@ -691,6 +735,67 @@ mod tests {
         let parts = parts_of("-ティナ", "", "{classIcon}{class} {name}{imagine}");
         assert_eq!(parts.iter().filter(|p| p.has_name).count(), 1);
         assert!(parts.iter().find(|p| p.has_name).unwrap().text.contains("ソラ"));
+    }
+
+    fn stripped(imagine: &str, role_skill: &str, template: &str) -> Vec<super::NamePart> {
+        strip_icon_parts(parts_of(imagine, role_skill, template), "FALLBACK")
+    }
+
+    fn texts(parts: &[super::NamePart]) -> Vec<&str> {
+        parts.iter().map(|p| p.text.as_str()).collect()
+    }
+
+    // 既定テンプレートでは先頭のアイコンだけが消え、本体・イマジン・ロールスキルは残る。
+    #[test]
+    fn strip_icon_default_template_removes_only_leading_icon() {
+        let full = parts_of("-ティナ", " (R:ファルファラ)", crate::settings::DEFAULT_NAME_TEMPLATE);
+        assert!(full[0].class_icon);
+        let got = stripped("-ティナ", " (R:ファルファラ)", crate::settings::DEFAULT_NAME_TEMPLATE);
+        assert_eq!(got, full[1..].to_vec());
+    }
+
+    #[test]
+    fn strip_icon_trims_space_left_by_leading_icon() {
+        assert_eq!(stripped("", "", "{classIcon} {name}"), vec![body("ソラ", true)]);
+    }
+
+    // 名前とアイコンの間に空白が無ければ、結合して本体1個になる。
+    #[test]
+    fn strip_icon_merges_bodies_around_icon() {
+        assert_eq!(stripped("", "", "{name}{classIcon} {spec}"), vec![body("ソラ 雷刃型", true)]);
+    }
+
+    // 両側の空白が継ぎ目で二重にならない。
+    #[test]
+    fn strip_icon_does_not_double_space_at_seam() {
+        assert_eq!(stripped("", "", "{name} {classIcon} {spec}"), vec![body("ソラ 雷刃型", true)]);
+    }
+
+    #[test]
+    fn strip_icon_is_identity_without_icon() {
+        let template = "{name} {spec}({score}){imagine}{roleSkill}";
+        let full = parts_of("-ティナ", " (R:ファルファラ)", template);
+        assert_eq!(stripped("-ティナ", " (R:ファルファラ)", template), full);
+    }
+
+    #[test]
+    fn strip_icon_only_template_falls_back_to_name() {
+        assert_eq!(
+            strip_icon_parts(parts_of("", "", "{classIcon}"), "Player#00AB"),
+            vec![body("Player#00AB", true)]
+        );
+    }
+
+    // 空白だけの本体が末尾に残っても落とし、イマジン/ロールスキルの順位と空白は保つ。
+    #[test]
+    fn strip_icon_keeps_shrink_rank_and_inner_spaces() {
+        let got = stripped("-ティナ", " (R:ファルファラ)", "{classIcon}{name}{imagine}{roleSkill} {classIcon}");
+        assert_eq!(texts(&got), vec!["ソラ", "-ティナ", " (R:ファルファラ)"]);
+        assert_eq!(
+            got.iter().map(|p| p.shrink_rank).collect::<Vec<_>>(),
+            vec![super::SHRINK_RANK_BODY, super::SHRINK_RANK_IMAGINE, super::SHRINK_RANK_ROLE_SKILL]
+        );
+        assert_eq!(got.iter().filter(|p| p.has_name).count(), 1);
     }
 
     // アイコン tint は ja/en どちらの表記でも同じ色になること。

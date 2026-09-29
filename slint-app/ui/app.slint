@@ -125,6 +125,20 @@ global ListCol {
     out property <length> name-gap: 5px;            // 名前セクション内 HorizontalLayout の spacing
     out property <length> name-min-text-w: 90px;    // NameTemplate の min-text-width
     out property <length> consumable-badge-w: 12px; // ConsumableBadge 1個の width
+
+    // 表示中のオプション列（会心率〜有効DPS）の数。RowStatColumns の並びと対応させる。
+    public pure function opt-cols-count(c: ColumnFlags) -> int {
+        return (c.crit ? 1 : 0) + (c.crit-value ? 1 : 0) + (c.lucky ? 1 : 0) + (c.lucky-value ? 1 : 0)
+            + (c.hits ? 1 : 0) + (c.hpm ? 1 : 0) + (c.score ? 1 : 0) + (c.eff-dps ? 1 : 0);
+    }
+    // オプション列すべての幅と、各列の手前の gap の合計。RowStatColumns の % 列より右側の
+    // 占有幅と等しく、列を持たない行（履歴のスキル行）が % 列の右端を揃えるために空けておく幅。
+    // 有効DPS列だけ dps-w を使う（RowStatColumns と同じ）。
+    public pure function opt-cols-width(c: ColumnFlags, scale: float) -> length {
+        return (ListCol.opt-cols-count(c) - (c.eff-dps ? 1 : 0)) * ListCol.opt-w * scale
+            + (c.eff-dps ? ListCol.dps-w * scale : 0px)
+            + ListCol.opt-cols-count(c) * ListCol.gap;
+    }
 }
 
 // NameTemplate/NamePartView(名前パーツ描画)の内部寸法。一覧・軽量分割表示の両方が
@@ -162,22 +176,62 @@ global CompactCol {
 // （値はfont-scale=1.0基準のpx。このglobal自体はfont-scaleを持たない。ListColと同じ役割）。
 // 全列がテキスト内容の幅なので使用側はすべて `* root.font-scale` を掛ける
 // （padding/spacingは文字ではないため掛けない）。
-// row-dps-w/row-pct-w はプレイヤー行とスキル行の右2列で同じ幅を共有し、縦に列が揃うようにする。
+// プレイヤー行とスキル行の数値3列(ダメージ/DPS/%)は一覧と同じ ListCol の幅・gap を使い、
+// 表示中のオプション列ぶんの右余白も揃えて、縦に列が揃うようにする。
 global HistCol {
+    // 行の外枠余白（見出し/プレイヤー行/スキル行で左だけ違う）
+    out property <length> pad-left-header: 8px;
+    out property <length> pad-left-player: 18px;
+    out property <length> pad-left-skill: 38px;
+    out property <length> pad-right: 8px;
+    out property <length> gap: 8px; // 外枠 HorizontalLayout の spacing
     // 見出し行
     out property <length> header-duration-w: 40px; // 経過時間
     out property <length> header-dps-w: 90px;      // DPS
     out property <length> header-dmg-w: 60px;      // ダメージ
     out property <length> header-count-w: 28px;    // 人数（ja「N人」用の幅。en訳は短縮して収める）
-    // プレイヤー行・スキル行で共有
-    out property <length> row-dps-w: 50px; // DPS
-    out property <length> row-pct-w: 40px; // %
+    out property <length> header-toggle-w: 9px;    // ▲/▼（font-size 9px の1字ぶんの概算）
     // プレイヤー行のみ
     out property <length> player-toggle-w: 12px; // ▶/▼
     out property <length> player-rank-w: 18px;   // 順位
     // スキル行のみ
     out property <length> skill-icon-w: 14px;  // 属性アイコン枠
-    out property <length> skill-total-w: 56px; // 合計
+
+    // 各行の最小幅（履歴 Flickable.min-width の算出根拠。Flickable は中身の幅要求を
+    // 窓の最小幅へ伝えないため、行の実構成と1対1に対応させてここから導出する）。
+    // 見出しは title/name/scope が min-width:0 の elide なので固定部分のみ（要素7個=spacing 6箇所）。
+    public pure function header-min-width(scale: float) -> length {
+        return HistCol.pad-left-header + HistCol.pad-right + 6 * HistCol.gap
+            + (HistCol.header-duration-w + HistCol.header-dps-w + HistCol.header-dmg-w
+                + HistCol.header-count-w + HistCol.header-toggle-w) * scale;
+    }
+    // プレイヤー行の名前セクションの下限（クラス色バー＋名前の内部フロア）。狭幅でも名前が
+    // 「ああ…」まで読める幅を残し、行の最小幅にも同じ値を足す。
+    public pure function player-name-min-width(scale: float) -> length {
+        return ListCol.name-bar-w + ListCol.name-gap + NameLayout.name-floor(12px * scale);
+    }
+    // トグル→順位→[名前セクション＋ダメージ/DPS/%＋オプション列]。
+    public pure function player-min-width(c: ColumnFlags, scale: float) -> length {
+        return HistCol.pad-left-player + HistCol.pad-right + 2 * HistCol.gap
+            + (HistCol.player-toggle-w + HistCol.player-rank-w) * scale
+            + HistCol.player-name-min-width(scale)
+            + (ListCol.dmg-w + ListCol.dps-w + ListCol.pct-w) * scale + 3 * ListCol.gap
+            + ListCol.opt-cols-width(c, scale);
+    }
+    // アイコン→[名前(min 0)＋ダメージ/DPS/%＋オプション列ぶんの右余白]。
+    public pure function skill-min-width(c: ColumnFlags, scale: float) -> length {
+        return HistCol.pad-left-skill + HistCol.pad-right + HistCol.gap
+            + HistCol.skill-icon-w * scale
+            + (ListCol.dmg-w + ListCol.dps-w + ListCol.pct-w) * scale + 3 * ListCol.gap
+            + ListCol.opt-cols-width(c, scale);
+    }
+    // 履歴 Flickable.min-width。3種類の行の最小幅の最大（同じ ColumnFlags を1つの式で
+    // 2回渡すと生成コードが move エラーになるため、呼び出し側でなくここで束ねる）。
+    public pure function row-min-width(c: ColumnFlags, scale: float) -> length {
+        return Math.max(
+            HistCol.header-min-width(scale),
+            Math.max(HistCol.player-min-width(c, scale), HistCol.skill-min-width(c, scale)));
+    }
 }
 
 // 設定パネルのトグル表示状態（Rust が cfg から set）
@@ -284,16 +338,18 @@ struct HistoryRowUi {
     count-text: string,
     rank-text: string,
     name: string,
-    class-color: color,
-    p-dps-text: string,
-    p-pct-text: string,
-    p-pct: float,
+    // プレイヤー行の表示内容（一覧と同じ Row。名前パーツは職アイコン除去済み）。
+    row: Row,
     elem-id: int,
     elem-color: color,
     skill-total-text: string,
     skill-dps-text: string,
     skill-pct-text: string,
     skill-pct: float,
+    // 行の高さ(font-scale 倍前)と、先頭からの積算位置。行は VerticalLayout に任せず y で直接置く
+    // （NameTemplate の動的リピーターを含む行は、VerticalLayout だと行スロットが誤配分される）。
+    h-units: float,
+    y-units: float,
 }
 
 // 自キャラUID 候補（現在のプレイヤーから）
@@ -1221,12 +1277,16 @@ component SkillRowItem inherits Rectangle {
 component HistoryRowItem inherits Rectangle {
     in property <HistoryRowUi> e;
     in property <float> font-scale: 1.0;
+    // プレイヤー行の RowStatColumns と、スキル行の右余白(オプション列ぶん)に使う。
+    in property <ColumnFlags> cols;
+    in property <string> bar-intensity; // プレイヤー行のバー濃度（"none"/"subtle"/"strong"）
     callback toggle(string);
     // SkillRowItem と同じ理由でフォントサイズに追随させる（固定高のままだと font-scale>1 で
     // `overflow: elide` の名前列が描画されなくなる）。height/preferred-height はこの1つの
     // プロパティから導出する（`preferred-height: self.height` は repeater 内で
     // "get_item_ref called on dynamic tree" パニックになるため使わない）。
-    property <length> row-h: (root.e.is-header ? 24px : (root.e.is-skill ? 18px : 20px)) * root.font-scale;
+    // 高さの元値(h-units)は Rust 側が y-units の積算と一緒に決める（単一ソース）。
+    property <length> row-h: root.e.h-units * 1px * root.font-scale;
     height: root.row-h;
     preferred-height: root.row-h;
     background: root.e.is-header
@@ -1234,13 +1294,12 @@ component HistoryRowItem inherits Rectangle {
         : ((!root.e.is-skill && hta.has-hover) ? #ffffff0d : transparent);
     animate background { duration: 100ms; easing: ease-out; }
 
-    // プレイヤー行の割合バー
-    if !root.e.is-header && !root.e.is-skill: Rectangle {
-        x: 0;
-        y: 0;
-        width: parent.width * (root.e.p-pct / 100.0);
-        height: 100%;
-        background: @linear-gradient(90deg, root.e.class-color.with-alpha(0.18) 0%, transparent 100%);
+    // プレイヤー行の割合バー（一覧と同じ RowPctBar。履歴はバー幅を動かさない）
+    if !root.e.is-header && !root.e.is-skill: RowPctBar {
+        pct: root.e.row.pct;
+        bar-color: root.e.row.class-color;
+        intensity: root.bar-intensity;
+        animate-width: false;
     }
     // スキル行の割合バー
     if root.e.is-skill: Rectangle {
@@ -1257,9 +1316,13 @@ component HistoryRowItem inherits Rectangle {
         clicked => { root.toggle(root.e.toggle-key); }
     }
     HorizontalLayout {
-        padding-left: root.e.is-header ? 8px : (root.e.is-skill ? 38px : 18px);
-        padding-right: 8px;
-        spacing: 8px;
+        // NameTemplate 内部が親高さ(100%)を参照するため、行全体へ明示的に広げる
+        // （PlayerRowItem と同じ。無いと行の高さ要求が膨らみ行間が空く）。
+        width: 100%;
+        height: 100%;
+        padding-left: root.e.is-header ? HistCol.pad-left-header : (root.e.is-skill ? HistCol.pad-left-skill : HistCol.pad-left-player);
+        padding-right: HistCol.pad-right;
+        spacing: HistCol.gap;
         // ── 見出し ──
         // scope-text は overflow:elide + min-width:0 で最小要求を外す（無いと倍率1.5で
         // 見出し行の最小幅が Flickable の幅を超え、histbox(viewport)が広がって右側の
@@ -1280,16 +1343,45 @@ component HistoryRowItem inherits Rectangle {
         if root.e.is-header: Text { text: root.e.expanded ? "▲" : "▼"; color: #555; font-size: 9px * root.font-scale; vertical-alignment: center; }
         // ── プレイヤー行 ──
         if !root.e.is-header && !root.e.is-skill: Text { text: root.e.toggle-key == "" ? "" : (root.e.expanded ? "▼" : "▶"); color: #666; font-size: 9px * root.font-scale; width: HistCol.player-toggle-w * root.font-scale; vertical-alignment: center; }
-        if !root.e.is-header && !root.e.is-skill: Text { text: root.e.rank-text; color: #555; font-size: 10px * root.font-scale; width: HistCol.player-rank-w * root.font-scale; vertical-alignment: center; }
-        if !root.e.is-header && !root.e.is-skill: Text { text: root.e.name; color: root.e.class-color; font-size: 11px * root.font-scale; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
-        if !root.e.is-header && !root.e.is-skill: Text { text: root.e.p-dps-text; color: Theme.accent; font-size: 10px * root.font-scale; width: HistCol.row-dps-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-        if !root.e.is-header && !root.e.is-skill: Text { text: root.e.p-pct-text; color: #aaa; font-size: 10px * root.font-scale; width: HistCol.row-pct-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        if !root.e.is-header && !root.e.is-skill: Text { text: root.e.rank-text; color: #8a8a99; font-size: 10px * root.font-scale; width: HistCol.player-rank-w * root.font-scale; vertical-alignment: center; }
+        // 一覧の PlayerRowItem と同じ並び（クラス色バー→名前→数値列）。アイコンは出さない
+        // （名前パーツは Rust 側で strip_icon_parts 済み）。狭幅・大倍率では名前セクションが
+        // 内部フロアまで縮み、数値列は押し潰されない（行の最小幅は HistCol.player-min-width）。
+        if !root.e.is-header && !root.e.is-skill: HorizontalLayout {
+            horizontal-stretch: 1;
+            spacing: ListCol.gap;
+            HorizontalLayout {
+                horizontal-stretch: 1;
+                min-width: HistCol.player-name-min-width(root.font-scale);
+                spacing: ListCol.name-gap;
+                Rectangle {
+                    width: ListCol.name-bar-w;
+                    background: root.e.row.class-color;
+                    border-radius: 1px;
+                }
+                NameTemplate {
+                    parts: root.e.row.name-parts;
+                    font-scale: root.font-scale;
+                    text-size: 12px * root.font-scale;
+                    icon-box: 18px * root.font-scale;
+                    min-text-width: 0px;
+                }
+            }
+            RowStatColumns { entry: root.e.row; cols: root.cols; font-scale: root.font-scale; }
+        }
         // ── スキル内訳 ──
         if root.e.is-skill: VerticalLayout { alignment: center; width: HistCol.skill-icon-w * root.font-scale; ElementIcon { id: root.e.elem-id; tint: root.e.elem-color; box: 13px * root.font-scale; } }
-        if root.e.is-skill: Text { text: root.e.name; color: #d8d8e4; font-size: 10px * root.font-scale; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
-        if root.e.is-skill: Text { text: root.e.skill-total-text; color: #aaa; font-size: 10px * root.font-scale; width: HistCol.skill-total-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-        if root.e.is-skill: Text { text: root.e.skill-dps-text; color: Theme.accent; font-size: 10px * root.font-scale; width: HistCol.row-dps-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
-        if root.e.is-skill: Text { text: root.e.skill-pct-text; color: #888; font-size: 10px * root.font-scale; width: HistCol.row-pct-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        // 数値3列はプレイヤー行と同じ幅・gap。オプション列は持たないので、その占有幅ぶんを
+        // padding-right で空けて % 列の右端をプレイヤー行に揃える。
+        if root.e.is-skill: HorizontalLayout {
+            horizontal-stretch: 1;
+            spacing: ListCol.gap;
+            padding-right: ListCol.opt-cols-width(root.cols, root.font-scale);
+            Text { text: root.e.name; color: #d8d8e4; font-size: 10px * root.font-scale; overflow: elide; horizontal-stretch: 1; min-width: 0px; vertical-alignment: center; }
+            Text { text: root.e.skill-total-text; color: #aaa; font-size: 10px * root.font-scale; width: ListCol.dmg-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+            Text { text: root.e.skill-dps-text; color: Theme.accent; font-size: 10px * root.font-scale; width: ListCol.dps-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+            Text { text: root.e.skill-pct-text; color: #888; font-size: 10px * root.font-scale; width: ListCol.pct-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        }
     }
 }
 
@@ -3417,6 +3509,14 @@ export component MainWindow inherits Window {
         + CompactCol.dmg-w * root.font-scale
         + CompactCol.dps-w * root.font-scale
         + root.compact-name-col-min-width;
+    // 履歴ビューの行の最小幅（見出し/プレイヤー行/スキル行の最大）。履歴 Flickable.min-width の
+    // 単一ソース。表示中のオプション列(effective-cols)に応じて伸びるが、col-level が窓幅から
+    // 値として決まるため、窓幅と互いを押し上げ合うことはない。
+    property <length> history-row-min-width: HistCol.row-min-width(root.effective-cols, root.font-scale);
+    // 履歴ビューの内容高（最終行の下端。行が無いときは空状態の案内ぶん）。
+    property <length> history-content-height: root.history-rows.length > 0
+        ? (root.history-rows[root.history-rows.length - 1].y-units + root.history-rows[root.history-rows.length - 1].h-units) * 1px * root.font-scale
+        : 60px;
     // 設定パネルの列数（窓幅でレスポンシブに 1/2/3）。短ラベルが多いので幅があれば3列まで。
     property <int> set-cols: root.width >= 660px ? 3 : (root.width >= 440px ? 2 : 1);
     // HSVピッカーをドラッグ中か。true の間は設定パネル Flickable の interactive を切り、
@@ -3978,14 +4078,23 @@ export component MainWindow inherits Window {
             Flickable {
                 vertical-stretch: 1;
                 max-height: 100000px;
-                viewport-height: histbox.preferred-height;
-                histbox := VerticalLayout {
+                // 窓の最小幅へ行の最小幅を伝える（理由は軽量分割の Flickable.min-width のコメント参照）。
+                min-width: root.history-row-min-width;
+                viewport-height: root.history-content-height;
+                histbox := Rectangle {
+                    width: 100%;
+                    height: root.history-content-height;
                     for h in root.history-rows: HistoryRowItem {
+                        y: h.y-units * 1px * root.font-scale;
+                        width: 100%;
                         e: h;
                         font-scale: root.font-scale;
+                        cols: root.effective-cols;
+                        bar-intensity: root.cfg-ui.dps-bar-intensity;
                         toggle(id) => { root.toggle-history(id); }
                     }
                     if root.history-rows.length == 0: VerticalLayout {
+                        width: 100%;
                         padding-top: 18px;
                         spacing: 5px;
                         Text {

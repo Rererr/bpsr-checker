@@ -575,6 +575,114 @@ struct BuiltPlayerRows {
     local_name_unresolved: bool,
 }
 
+/// 行の組み立てに必要な、一覧と履歴の展開行で共通の文脈。
+struct RowCtx<'a> {
+    template: &'a str,
+    abbreviate: bool,
+    privacy: bool,
+    bar_cfg: &'a dps_bar::DpsBarConfig,
+    /// バー比率の分母（最大値。1 未満は 1 に丸め済み）。
+    top: f64,
+    /// 自キャラの total_value（自分基準バー用。[`self_total_of`]）。
+    self_total: Option<f64>,
+    /// 名前から職アイコンを除く（履歴の展開行）。
+    strip_icons: bool,
+}
+
+/// 自キャラ行の total_value。`dps_bar::bar_pct` の SelfRelative フォールバック判定の入力。
+fn self_total_of(rows: &[bpsr_core::models::PlayerRow], local_uid: f64) -> Option<f64> {
+    rows.iter().find(|p| p.uid == local_uid).map(|p| p.total_value)
+}
+
+/// 有効DPSの表示。有効DPS追加（2026-08-16）以前の履歴は 0 で保存されており、DPS があるのに
+/// 0 と出すと「有効DPS 0」と誤読されるため「-」にする。
+fn eff_dps_text(p: &bpsr_core::models::PlayerRow) -> String {
+    if p.active_value_per_sec == 0.0 && p.value_per_sec > 0.0 {
+        "-".to_string()
+    } else {
+        format::format_dps(p.active_value_per_sec)
+    }
+}
+
+/// 1プレイヤー分の [`Row`] を組み立てる。一覧（build_rows）と履歴の展開行が共有し、
+/// 名前・数値の書式を2か所に持たない。`spark` と `watched` は一覧固有の表示状態。
+fn build_row(
+    p: &bpsr_core::models::PlayerRow,
+    rank: i32,
+    is_local: bool,
+    watched: bool,
+    spark: String,
+    ctx: &RowCtx,
+) -> Row {
+    // 食事/シロップの残量割合（0..1。アイコンの色が上から縦に抜ける）＋ホバー用の
+    // 残り時間テキスト・種類ラベル（base_id→日本語効果名）。
+    let (food_act, food_remaining, food_time, food_label, food_tint) =
+        consumable_display(p.food_remaining_ms, p.food_duration_ms, p.food_base_id, FOOD_TINT_RGB);
+    let (syrup_act, syrup_remaining, syrup_time, syrup_label, syrup_tint) =
+        consumable_display(p.syrup_remaining_ms, p.syrup_duration_ms, p.syrup_base_id, SYRUP_TINT_RGB);
+    let display = if ctx.privacy {
+        format::mask_player_name(p.uid as i64)
+    } else {
+        p.name.clone()
+    };
+    let name_parts = format::format_row_name_parts(
+        &display,
+        &p.class_name,
+        &p.class_spec_name,
+        p.ability_score,
+        p.season_level,
+        p.season_strength,
+        &p.imagine_suffix,
+        &p.role_skill_suffix,
+        rank,
+        ctx.template,
+        ctx.abbreviate,
+    );
+    let name_parts = if ctx.strip_icons {
+        format::strip_icon_parts(name_parts, &display)
+    } else {
+        name_parts
+    };
+    Row {
+        rank,
+        uid_str: format!("{}", p.uid as i64).into(),
+        name_parts: ui_name_parts(name_parts),
+        class_color: format::class_color(&p.class_name),
+        class_icon_id: format::class_icon_id(&p.class_name),
+        class_role_color: format::class_role_color(&p.class_name),
+        dmg_text: format::format_number(p.total_value).into(),
+        dps_text: format::format_dps(p.value_per_sec).into(),
+        pct_text: format::format_pct(p.value_pct).into(),
+        pct: dps_bar::bar_pct(ctx.bar_cfg, p, ctx.top, ctx.self_total),
+        is_local,
+        crit_text: format::format_pct(p.crit_rate).into(),
+        crit_value_text: format::format_pct(p.crit_value_rate).into(),
+        lucky_text: format::format_pct(p.lucky_rate).into(),
+        lucky_value_text: format::format_pct(p.lucky_value_rate).into(),
+        hits_text: format!("{}", p.hits as i64).into(),
+        hpm_text: format!("{:.1}", p.hits_per_minute).into(),
+        score_text: if p.ability_score > 0.0 {
+            format::format_score(p.ability_score, ctx.abbreviate)
+        } else {
+            "-".to_string()
+        }
+        .into(),
+        eff_dps_text: eff_dps_text(p).into(),
+        watched,
+        spark_commands: spark.into(),
+        food_active: food_act,
+        food_remaining,
+        food_time: food_time.into(),
+        food_label: food_label.into(),
+        food_tint,
+        syrup_active: syrup_act,
+        syrup_remaining,
+        syrup_time: syrup_time.into(),
+        syrup_label: syrup_label.into(),
+        syrup_tint,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn build_rows(
     pw: &bpsr_core::models::PlayersWindow,
@@ -586,14 +694,22 @@ fn build_rows(
     graph_for_local: bool,
     bar_cfg: &dps_bar::DpsBarConfig,
 ) -> BuiltPlayerRows {
-    let top = pw.top_value.max(1.0);
     let local = pw.local_player_uid;
     // 自分基準モード以外では未使用だが、行数は高々十数人なので線形探索のコストは無視できる
     // （モード判定を dps_bar::bar_pct 側の1箇所に集約するため、ここでは無条件に求める）。
-    let self_total = pw.player_rows.iter().find(|p| p.uid == local).map(|p| p.total_value);
+    let self_total = self_total_of(&pw.player_rows, local);
     // dps_bar::bar_pct の SelfRelative フォールバック条件と同一の判定（app.slint の
     // self-guide-has-data へ渡し、ガイド線の表示条件をバー計算のフォールバックと一致させる）。
     let self_guide_has_data = self_total.is_some_and(|s| s > 0.0);
+    let ctx = RowCtx {
+        template,
+        abbreviate,
+        privacy,
+        bar_cfg,
+        top: pw.top_value.max(1.0),
+        self_total,
+        strip_icons: false,
+    };
     // 非ローカルの上位 graph_count 人＋（設定時）ローカルにグラフを出す。
     let mut non_local_above: i32 = 0;
     let mut local_name_unresolved = false;
@@ -617,67 +733,14 @@ fn build_rows(
         if !is_local {
             non_local_above += 1;
         }
-        // 食事/シロップの残量割合（0..1。アイコンの色が上から縦に抜ける）＋ホバー用の
-        // 残り時間テキスト・種類ラベル（base_id→日本語効果名）。
-        let (food_act, food_remaining, food_time, food_label, food_tint) =
-            consumable_display(p.food_remaining_ms, p.food_duration_ms, p.food_base_id, FOOD_TINT_RGB);
-        let (syrup_act, syrup_remaining, syrup_time, syrup_label, syrup_tint) =
-            consumable_display(p.syrup_remaining_ms, p.syrup_duration_ms, p.syrup_base_id, SYRUP_TINT_RGB);
-        let display = if privacy {
-            format::mask_player_name(p.uid as i64)
-        } else {
-            p.name.clone()
-        };
-        out.push(Row {
+        out.push(build_row(
+            p,
             rank,
-            uid_str: format!("{}", p.uid as i64).into(),
-            name_parts: ui_name_parts(format::format_row_name_parts(
-                &display,
-                &p.class_name,
-                &p.class_spec_name,
-                p.ability_score,
-                p.season_level,
-                p.season_strength,
-                &p.imagine_suffix,
-                &p.role_skill_suffix,
-                rank,
-                template,
-                abbreviate,
-            )),
-            class_color: format::class_color(&p.class_name),
-            class_icon_id: format::class_icon_id(&p.class_name),
-            class_role_color: format::class_role_color(&p.class_name),
-            dmg_text: format::format_number(p.total_value).into(),
-            dps_text: format::format_dps(p.value_per_sec).into(),
-            pct_text: format::format_pct(p.value_pct).into(),
-            pct: dps_bar::bar_pct(bar_cfg, p, top, self_total),
             is_local,
-            crit_text: format::format_pct(p.crit_rate).into(),
-            crit_value_text: format::format_pct(p.crit_value_rate).into(),
-            lucky_text: format::format_pct(p.lucky_rate).into(),
-            lucky_value_text: format::format_pct(p.lucky_value_rate).into(),
-            hits_text: format!("{}", p.hits as i64).into(),
-            hpm_text: format!("{:.1}", p.hits_per_minute).into(),
-            score_text: if p.ability_score > 0.0 {
-                format::format_score(p.ability_score, abbreviate)
-            } else {
-                "-".to_string()
-            }
-            .into(),
-            eff_dps_text: format::format_dps(p.active_value_per_sec).into(),
-            watched: watched.contains(&(p.uid as i64)),
-            spark_commands: spark.into(),
-            food_active: food_act,
-            food_remaining,
-            food_time: food_time.into(),
-            food_label: food_label.into(),
-            food_tint,
-            syrup_active: syrup_act,
-            syrup_remaining,
-            syrup_time: syrup_time.into(),
-            syrup_label: syrup_label.into(),
-            syrup_tint,
-        });
+            watched.contains(&(p.uid as i64)),
+            spark,
+            &ctx,
+        ));
     }
     BuiltPlayerRows {
         rows: out,
@@ -732,13 +795,20 @@ fn build_history_title(start_ms: f64, content_name: &str) -> String {
     }
 }
 
+/// 履歴ビューの行高（px。font-scale を掛ける前）。プレイヤー行は一覧の行高(20px)と同じ。
+const HISTORY_HEADER_ROW_H: f32 = 24.0;
+const HISTORY_PLAYER_ROW_H: f32 = 20.0;
+const HISTORY_SKILL_ROW_H: f32 = 18.0;
+
 /// 履歴ビューのフラット行を構築（見出し → プレイヤー → スキル）。
 fn build_history_rows(
     hist: &[bpsr_core::models::EncounterSnapshot],
     expanded: Option<i64>,
     expanded_player: Option<(i64, i64)>,
-    privacy: bool,
+    c: &settings::Settings,
 ) -> Vec<HistoryRowUi> {
+    let privacy = c.privacy_mask_names;
+    let bar_cfg = dps_bar_config(c);
     let mut out = Vec::new();
     for snap in hist {
         let id = snap.id as i64;
@@ -779,18 +849,17 @@ fn build_history_rows(
             ..Default::default()
         });
         if is_exp {
-            let top = snap
-                .player_rows
-                .first()
-                .map(|p| p.total_value)
-                .unwrap_or(1.0)
-                .max(1.0);
+            // 一覧と同じ組み立て（build_row）へ、記録時点の自キャラ・最大値・設定を渡す。
+            let ctx = RowCtx {
+                template: &c.name_template,
+                abbreviate: c.abbreviate_scores,
+                privacy,
+                bar_cfg: &bar_cfg,
+                top: snap.player_rows.iter().map(|p| p.total_value).fold(1.0, f64::max),
+                self_total: self_total_of(&snap.player_rows, snap.local_player_uid),
+                strip_icons: true,
+            };
             for (i, p) in snap.player_rows.iter().enumerate() {
-                let name = if privacy {
-                    format::mask_player_name(p.uid as i64)
-                } else {
-                    p.name.clone()
-                };
                 let player_uid = p.uid as i64;
                 let has_skills = snap
                     .player_skill_rows
@@ -802,11 +871,8 @@ fn build_history_rows(
                     is_header: false,
                     is_skill: false,
                     rank_text: format!("{}.", i + 1).into(),
-                    name: name.into(),
-                    class_color: format::class_color(&p.class_name),
-                    p_dps_text: format::format_dps(p.value_per_sec).into(),
-                    p_pct_text: format::format_pct(p.value_pct).into(),
-                    p_pct: ((p.total_value / top) * 100.0) as f32,
+                    // 履歴では自キャラのマーカー・ピン・スパークは出さない。
+                    row: build_row(p, (i + 1) as i32, false, false, String::new(), &ctx),
                     toggle_key: if has_skills {
                         format!("p:{id}:{player_uid}").into()
                     } else {
@@ -841,6 +907,19 @@ fn build_history_rows(
                 }
             }
         }
+    }
+    // 行高(font-scale 倍前)と積算位置。.slint は行を y で直接置く。
+    let mut y = 0.0_f32;
+    for row in &mut out {
+        row.h_units = if row.is_header {
+            HISTORY_HEADER_ROW_H
+        } else if row.is_skill {
+            HISTORY_SKILL_ROW_H
+        } else {
+            HISTORY_PLAYER_ROW_H
+        };
+        row.y_units = y;
+        y += row.h_units;
     }
     out
 }
@@ -3236,7 +3315,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         &hist,
                         hist_exp_sel.get(),
                         hist_player_exp_sel.get(),
-                        cfg_sel.borrow().privacy_mask_names,
+                        &cfg_sel.borrow(),
                     ));
                 } else {
                     let c = cfg_sel.borrow();
@@ -4360,7 +4439,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     &hist,
                     he.get(),
                     hpe.get(),
-                    cfg_h.borrow().privacy_mask_names,
+                    &cfg_h.borrow(),
                 ));
             }
         });
@@ -4915,13 +4994,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // このタブでは一覧を組み立てないため、自キャラ名の未取得ヒント
             // (local-name-unresolved) は直近の一覧タブでの値を据え置く。名前は入場時にしか
             // 変わらないので陳腐化の実害が小さく、この判定のためだけに毎 tick 集計を回さない。
-            let privacy = cfg_poll.borrow().privacy_mask_names;
             let hist = compute::get_history();
             history_rows_poll.set_vec(build_history_rows(
                 &hist,
                 history_expanded_poll.get(),
                 history_player_expanded_poll.get(),
-                privacy,
+                &cfg_poll.borrow(),
             ));
         } else {
             let pw = fetch_players(&enc_poll, cur_tab);

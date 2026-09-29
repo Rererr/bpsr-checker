@@ -2627,17 +2627,63 @@ fn sync_model_if_changed<T>(model: &slint::VecModel<T>, last: &mut Vec<T>, next:
 where
     T: Clone + PartialEq + 'static,
 {
+    sync_model_if_changed_by(model, last, next, T::eq);
+}
+
+/// [`sync_model_if_changed`] の等価判定差し替え版。`PartialEq` が使えない型（`ModelRc` を含む行は
+/// ポインタ比較になり毎回不一致になる）向け。
+fn sync_model_if_changed_by<T>(
+    model: &slint::VecModel<T>,
+    last: &mut Vec<T>,
+    next: Vec<T>,
+    same: impl Fn(&T, &T) -> bool,
+) where
+    T: Clone + 'static,
+{
     if model.row_count() != next.len() {
         model.set_vec(next.clone());
         *last = next;
         return;
     }
     for (i, item) in next.iter().enumerate() {
-        if last.get(i) != Some(item) {
+        if !last.get(i).is_some_and(|prev| same(prev, item)) {
             model.set_row_data(i, item.clone());
         }
     }
     *last = next;
+}
+
+/// 履歴ビューの行モデルと、直近に流し込んだ内容。展開行は NameTemplate・RowStatColumns を持つため、
+/// 毎 tick の全置換は重い。内容が変わった行だけ更新する（[`sync_model_if_changed_by`]）。
+/// 流し込みは必ずこの型の [`HistoryRows::apply`] を通す（`last` とモデルを食い違わせないため）。
+struct HistoryRows {
+    model: Rc<VecModel<HistoryRowUi>>,
+    last: RefCell<Vec<HistoryRowUi>>,
+}
+
+impl HistoryRows {
+    fn new() -> Rc<Self> {
+        Rc::new(Self { model: Rc::new(VecModel::default()), last: RefCell::new(Vec::new()) })
+    }
+
+    fn apply(&self, next: Vec<HistoryRowUi>) {
+        sync_model_if_changed_by(&self.model, &mut self.last.borrow_mut(), next, history_row_same);
+    }
+}
+
+/// 履歴行の内容比較。名前パーツは `ModelRc`（ポインタ比較）なので中身で比べ、残りは `==`。
+fn history_row_same(a: &HistoryRowUi, b: &HistoryRowUi) -> bool {
+    let parts_a = &a.row.name_parts;
+    let parts_b = &b.row.name_parts;
+    if parts_a.row_count() != parts_b.row_count()
+        || !(0..parts_a.row_count()).all(|i| parts_a.row_data(i) == parts_b.row_data(i))
+    {
+        return false;
+    }
+    let (mut a, mut b) = (a.clone(), b.clone());
+    a.row.name_parts = slint::ModelRc::default();
+    b.row.name_parts = slint::ModelRc::default();
+    a == b
 }
 
 /// 初回 tick: winit 実体化後にメイン窓を復元する。復元が完了した tick で true を返す
@@ -3074,8 +3120,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let drill = Rc::new(Cell::new(Drill::None));
 
     // 履歴ビュー用モデル＋展開中エンカウンタ/プレイヤー（各 None=折りたたみ）
-    let history_rows = Rc::new(VecModel::<HistoryRowUi>::default());
-    main.set_history_rows(history_rows.clone().into());
+    let history_rows = HistoryRows::new();
+    main.set_history_rows(history_rows.model.clone().into());
     let history_expanded = Rc::new(Cell::new(None::<i64>));
     let history_player_expanded = Rc::new(Cell::new(None::<(i64, i64)>));
 
@@ -3311,7 +3357,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 refresh_header(&m, &enc_sel, n);
                 if n == 3 {
                     let hist = compute::get_history();
-                    hist_rows_sel.set_vec(build_history_rows(
+                    hist_rows_sel.apply(build_history_rows(
                         &hist,
                         hist_exp_sel.get(),
                         hist_player_exp_sel.get(),
@@ -4435,7 +4481,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             if w.upgrade().is_some() {
                 let hist = compute::get_history();
-                hr.set_vec(build_history_rows(
+                hr.apply(build_history_rows(
                     &hist,
                     he.get(),
                     hpe.get(),
@@ -4455,7 +4501,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             compute::clear_consumables(&enc_ch);
             he.set(None);
             hpe.set(None);
-            hr.set_vec(Vec::new());
+            hr.apply(Vec::new());
         });
     }
     // 3分計測: 通常→開始 / 待機・計測中→キャンセル（確認ダイアログは省略）。
@@ -4995,7 +5041,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // (local-name-unresolved) は直近の一覧タブでの値を据え置く。名前は入場時にしか
             // 変わらないので陳腐化の実害が小さく、この判定のためだけに毎 tick 集計を回さない。
             let hist = compute::get_history();
-            history_rows_poll.set_vec(build_history_rows(
+            history_rows_poll.apply(build_history_rows(
                 &hist,
                 history_expanded_poll.get(),
                 history_player_expanded_poll.get(),
@@ -5315,6 +5361,46 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn hist_row(name_text: &str, dmg: &str) -> HistoryRowUi {
+        let part = format::NamePart {
+            text: name_text.to_string(),
+            class_icon: false,
+            shrink_rank: 0,
+            has_name: true,
+        };
+        HistoryRowUi {
+            row: Row {
+                name_parts: ui_name_parts(vec![part]),
+                dmg_text: dmg.into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    // 名前パーツの ModelRc は行ごとに別インスタンスだが、中身が同じなら「変化なし」と判定する。
+    #[test]
+    fn history_row_same_compares_name_parts_by_content() {
+        assert!(history_row_same(&hist_row("ソラ", "1.0K"), &hist_row("ソラ", "1.0K")));
+        assert!(!history_row_same(&hist_row("ソラ", "1.0K"), &hist_row("ハヤテ", "1.0K")));
+        assert!(!history_row_same(&hist_row("ソラ", "1.0K"), &hist_row("ソラ", "2.0K")));
+    }
+
+    // 行数が同じでも、内容が変わった行はモデルへ反映される（テンプレート変更など）。
+    #[test]
+    fn history_rows_apply_reflects_changed_and_resized_rows() {
+        let rows = HistoryRows::new();
+        rows.apply(vec![hist_row("ソラ", "1.0K"), hist_row("ハヤテ", "2.0K")]);
+        rows.apply(vec![hist_row("ソラ", "1.0K"), hist_row("ハヤテ (x)", "2.0K")]);
+        let part_text = |i: usize| rows.model.row_data(i).unwrap().row.name_parts.row_data(0).unwrap().text;
+        assert_eq!(part_text(1).as_str(), "ハヤテ (x)");
+        assert_eq!(part_text(0).as_str(), "ソラ");
+        rows.apply(vec![hist_row("ソラ", "1.0K")]);
+        assert_eq!(rows.model.row_count(), 1);
+        rows.apply(Vec::new());
+        assert_eq!(rows.model.row_count(), 0);
+    }
 
     fn wl_with(watched: &[i64], excluded: &[i64]) -> watchlist::Watchlist {
         watchlist::Watchlist {

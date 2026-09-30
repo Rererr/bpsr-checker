@@ -216,7 +216,7 @@ global HistCol {
     // 窓の最小幅へ伝えないため、行の実構成と1対1に対応させてここから導出する）。
     // 見出しは title/name/scope が min-width:0 の elide なので固定部分のみ。外枠の要素は最大6個
     // （scope/title/name/人数/経過時間/数値部。絞り込み条件のラベル付き=spacing 5箇所）で数える。
-    // 数値部は RowStatColumns と同じ幅（stat-cols-width）＋ gap ＋ピン列(▲▼)。外枠の右余白は pad-x のみ。
+    // 数値部は RowStatColumns と同じ幅（stat-cols-width）＋ gap ＋ピン列(▲▼)。外枠の右余白は pad-right-header のみ。
     public pure function header-min-width(c: ColumnFlags, scale: float) -> length {
         return HistCol.pad-left-header + HistCol.pad-right-header + 5 * HistCol.gap
             + (HistCol.header-count-w + HistCol.header-duration-w) * scale

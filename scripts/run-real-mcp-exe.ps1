@@ -1,6 +1,6 @@
 # Launch the already-built debug bpsr-app.exe elevated, in real-capture mode,
 # with the embedded Slint MCP server. Local debugging helper only.
-# Build first with: SLINT_EMIT_DEBUG_INFO=1 cargo build -p bpsr-app --features mcp
+# Build first (PowerShell): $env:SLINT_EMIT_DEBUG_INFO='1'; cargo build -p bpsr-app --features mcp
 param([int]$Port = 18080)
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path

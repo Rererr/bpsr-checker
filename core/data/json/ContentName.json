@@ -314,16 +314,18 @@
     "ja": "不安定な空間・ティナ・精神領域"
   },
   "1631": {
-    "en": "Chaotic - Tina's Mindrealm",
-    "ja": "極限空間・ティナ・精神領域"
+    "en": "Void - Tina's Mindrealm",
+    "ja": "蝕・ティナの精神領域",
+    "difficulty": "normal"
   },
   "1632": {
-    "en": "Chaotic - Tina's Mindrealm",
-    "ja": "極限空間・ティナ・精神領域"
+    "en": "Void - Tina's Mindrealm",
+    "ja": "蝕・ティナの精神領域",
+    "difficulty": "hard"
   },
   "1633": {
     "en": "Void - Tina's Mindrealm",
-    "ja": "蝕・ティナ・精神領域",
+    "ja": "蝕・ティナの精神領域",
     "difficulty": "master"
   },
   "5000": {

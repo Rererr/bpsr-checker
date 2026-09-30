@@ -54,7 +54,7 @@ pub fn is_known_non_master(id: u32) -> bool {
 }
 
 /// `SyncDungeonData` の `difficulty`（int32）をそのままマスターの段階として扱う。負の値は 0（不明）。
-/// 1始まりは想定・未確認（参照実装の表示とゲーム内表記が1始まりであることから）。実機ログで確かめる。
+/// 1始まりは実機で確認済み（2026-09-30、マスター6 で difficulty=6 → 画面「マスター難易度6」）。
 pub fn master_stage(difficulty: i32) -> u32 {
     u32::try_from(difficulty).unwrap_or(0)
 }
@@ -153,7 +153,8 @@ mod tests {
         assert_eq!(master_stage(-1), 0);
     }
 
-    // ティナ・精神領域系（ユーザーがゲーム内の表記を確認済み）。
+    // ティナの精神領域系（ユーザーがゲーム内の表記を確認済み。版ごとに表記が違う）。
+    // 蝕の版のノーマル/ハードは Id 1631/1632（参照表の SceneID 1031/1032 ではなく、実機が送る level_map_id）。
     #[test]
     fn tina_mindrealm_ja_names() {
         assert_eq!(content_label(1001, 0, Lang::Ja), "ティナ・精神領域");
@@ -161,7 +162,9 @@ mod tests {
         assert_eq!(content_label(1031, 0, Lang::Ja), "ティナ・精神領域 ノーマル難易度");
         assert_eq!(content_label(1032, 0, Lang::Ja), "ティナ・精神領域 ハード難易度");
         assert_eq!(content_label(1033, 2, Lang::Ja), "ティナ・精神領域 マスター難易度2");
-        assert_eq!(content_label(1633, 1, Lang::Ja), "蝕・ティナ・精神領域 マスター難易度1");
+        assert_eq!(content_label(1631, 0, Lang::Ja), "蝕・ティナの精神領域 ノーマル難易度");
+        assert_eq!(content_label(1632, 0, Lang::Ja), "蝕・ティナの精神領域 ハード難易度");
+        assert_eq!(content_label(1633, 1, Lang::Ja), "蝕・ティナの精神領域 マスター難易度1");
     }
 
     // 難易度接尾辞は content_label が付けるため、データ側に残っていない（二重付与の防止）。
@@ -182,12 +185,21 @@ mod tests {
         }
     }
 
-    // ゲーム内表記は「ティナ・精神領域」（ユーザー確認済み）。loc 由来の旧表記の再混入を防ぐ。
+    // ゲーム内表記は版で違う（ユーザー確認済み）: 蝕は「ティナの精神領域」、
+    // 不安定な空間と無印は「ティナ・精神領域」。版をまたいだ表記の混入を防ぐ。
     #[test]
-    fn no_legacy_tina_spelling() {
+    fn tina_spelling_matches_variant() {
         for (id, entry) in CONTENT_NAMES.iter() {
-            if let Some(ja) = &entry.ja {
-                assert!(!ja.contains("ティナの精神領域"), "id={id} に旧表記: {ja}");
+            let Some(ja) = &entry.ja else { continue };
+            if !ja.contains("ティナ") {
+                continue;
+            }
+            if ja.starts_with("蝕・") {
+                assert!(ja.contains("ティナの精神領域"), "id={id} の蝕版が「ティナの」でない: {ja}");
+                assert!(!ja.contains("ティナ・精神領域"), "id={id} の蝕版に無印表記: {ja}");
+            } else {
+                assert!(ja.contains("ティナ・精神領域"), "id={id} が「ティナ・精神領域」でない: {ja}");
+                assert!(!ja.contains("ティナの"), "id={id} に蝕版の表記: {ja}");
             }
         }
     }

@@ -36,6 +36,10 @@ fn next_imagine_seq() -> u64 {
 /// （他キャラの通知が自クライアントに届くかは実機未確認）。
 static SOCIAL_ENVELOPE_MISMATCH_LOGGED: AtomicBool = AtomicBool::new(false);
 
+/// 0x17(SyncDungeonData) を「自キャラ確定済みで conn 未学習」を理由に破棄したことを、
+/// プロセス生存中1回だけ info で記録済みかどうか（2回目以降は debug）。
+static SYNC_DUNGEON_UNLEARNED_LOGGED: AtomicBool = AtomicBool::new(false);
+
 /// `pending_imagine` が単独昇格（自己修復）するまでに要求する再検知回数
 /// （rule4 の初回検知=1 を含む）。休眠イマジン（召喚報告ID未登録で相方が rule5 を
 /// 満たせない）が絡む装備替えでも、有限回の再検知で確定表示が自己修復するようにする。
@@ -739,7 +743,8 @@ fn log_team_change(encounter: &mut Encounter, f: impl FnOnce(&mut crate::engine:
 /// 止めない）。SocialEnvelope は自キャラのシーン追跡そのものなのでキャラ選択と関係するが、
 /// conn_to_uid へ書き込まない（学習経路ではない）ため、conn 単体では自他を判定できず、
 /// 呼び出し側で char_id による判定と組み合わせて絞り込む。
-/// 0x17 は char_id を持たないため、この判定だけが自他の唯一の防御になる（未学習 conn は通す）。
+/// 0x17 は char_id を持たないため、conn だけが自他の判定材料になる。実機では学習済みの自キャラ conn から
+/// 届くので、0x17 は追加で `conn_is_unlearned_while_self_known` により未学習 conn も破棄する。
 /// conn が学習済み（`conn_to_uid` に載っている）で、その uid が追跡中キャラ
 /// （`encounter.local_player_uid`）と異なるときだけ true。
 /// 未学習 conn は常に false（通す）: 起動直後の精度と、Team 通知が別 TCP リンクで
@@ -756,6 +761,16 @@ fn conn_is_other_client(encounter: &Encounter, conn: Option<Server>) -> bool {
         Some(&uid) => uid != encounter.local_player_uid,
         None => false,
     }
+}
+
+/// 自キャラが確定済み（`self_player_uid()` が Some）で、conn が未学習（`conn_to_uid` に無い）なら true。
+/// `conn_is_other_client` が通してしまう未学習 conn を、0x17 のように conn しか判定材料が無い通知で
+/// 弾くために使う。conn が None（取得元不明）と自キャラ未確定のときは false（判定材料が無い）。
+fn conn_is_unlearned_while_self_known(encounter: &Encounter, conn: Option<Server>) -> bool {
+    let Some(conn) = conn else {
+        return false;
+    };
+    encounter.self_player_uid().is_some() && !encounter.conn_to_uid.contains_key(&conn)
 }
 
 /// 自キャラの level_map_id を更新し、変わったときだけシーン変更をログに残す
@@ -778,8 +793,8 @@ fn should_accept(encounter: &mut Encounter, conn: Option<Server>, op: &Pkt) -> b
     // ServerHandover と SocialEnvelope と WorldSyncDungeonData は process_opcode の専用アームで
     // 処理されるため、ここには到達しない（SocialEnvelope は conn_is_other_client と char_id 判定を
     // 自前で行う。ここを経由させると、自キャラ確定後の ServerHandover 直後に未学習 conn へ届く
-    // 継続通知が落ちる。WorldSyncDungeonData は SocialEnvelope と同じ扱いにしているが、未学習 conn
-    // で届くかどうかは未確認で、実機ログ（conn の学習状態）で確かめてから方針を決める）。
+    // 継続通知が落ちる。WorldSyncDungeonData は、実機で学習済みの自キャラ conn から届くと分かったので、
+    // 専用アームで自キャラ確定済みなら未学習 conn も破棄する）。
     // WorldEnterSnapshot/WorldEnterScene/LocalDeltaBatch は conn ↔ char_id の学習経路なので、
     // 身元不明の conn でも必ず通す（ここで弾くと学習が永久に起きず、UID 指定時に何も
     // 表示されなくなる）。他クライアント由来かどうかは各 process_* が learn_connection で
@@ -908,10 +923,11 @@ pub fn process_opcode(enc: &EncounterMutex, env: PktEnvelope) -> AppResult<()> {
             }
         }
 
-        // WorldNtf method 0x17: ダンジョン入場時のマスター難易度の段階。should_accept を経由せず、
-        // 学習済みの他キャラ conn だけを破棄し、未学習 conn は受け入れる。
-        // 未確認: 0x17 が未学習 conn で届くかは実機で見ていない。DungeonSyncData に char_id は無く
-        // conn だけが自他の判定材料なので、ログの conn 状態を実機で確かめてから受け入れ方針を決める。
+        // WorldNtf method 0x17: ダンジョン入場時のマスター難易度の段階。should_accept を経由しない。
+        // SyncDungeonData に char_id は無く conn だけが自他の判定材料になる。実機（2026-09-30）では
+        // 町・フィールド・ダンジョンのどの遷移でも届き（マスター以外は difficulty=0）、SocialEnvelope の
+        // 後に、学習済みの自キャラ conn から届いた。そこで自キャラ確定済みなら、学習済みの他キャラ conn と
+        // 未学習 conn を破棄する。自キャラ未確定なら判定材料が無いので受理する。
         Pkt::WorldSyncDungeonData => {
             let Some(msg) = decode_packet::<pb::SyncDungeonData>(data, "SyncDungeonData") else {
                 return Ok(());
@@ -926,6 +942,16 @@ pub fn process_opcode(enc: &EncounterMutex, env: PktEnvelope) -> AppResult<()> {
             };
             if conn_is_other_client(&encounter, conn) {
                 debug!("[SyncDungeonData] discarded: other client {conn_state}");
+                return Ok(());
+            }
+            if conn_is_unlearned_while_self_known(&encounter, conn) {
+                if SYNC_DUNGEON_UNLEARNED_LOGGED.swap(true, Ordering::Relaxed) {
+                    debug!("[SyncDungeonData] discarded: unlearned conn {conn_state}");
+                } else {
+                    info!(
+                        "[SyncDungeonData] discarded (first occurrence, logged once): unlearned conn {conn_state}"
+                    );
+                }
                 return Ok(());
             }
             match msg.v_data.and_then(|d| d.dungeon_scene_info) {
@@ -2899,13 +2925,21 @@ mod tests {
         enc
     }
 
+    /// 自キャラ(uid=100)の conn として学習済みにした conn を返す（実機の 0x17 はこの conn から届く）。
+    fn learned_conn(enc: &EncounterMutex, port: u16) -> Server {
+        let c = conn(port);
+        enc.lock().unwrap().conn_to_uid.insert(c, 100);
+        c
+    }
+
     /// 0x17 の difficulty が current_dungeon_difficulty になる。
     #[test]
     fn sync_dungeon_data_sets_current_stage() {
         let _guard = lock_selected_uid();
         selected_uid::set(None);
         let enc = enc_with_self(100);
-        assert_eq!(stage_after_sync_dungeon_data(&enc, Some(3), conn(40201)), 3);
+        let c = learned_conn(&enc, 40201);
+        assert_eq!(stage_after_sync_dungeon_data(&enc, Some(3), c), 3);
     }
 
     /// 学習済みの他キャラの conn 由来は破棄する。
@@ -2919,13 +2953,23 @@ mod tests {
         assert_eq!(stage_after_sync_dungeon_data(&enc, Some(3), other_conn), 0);
     }
 
-    /// 未学習の conn からでも受理する（通常の経路では落ちるパケットのため）。
+    /// 自キャラ確定済みなら、未学習の conn 由来は破棄する（実機では学習済みの自キャラ conn から届く）。
     #[test]
-    fn sync_dungeon_data_accepts_unlearned_conn() {
+    fn sync_dungeon_data_rejects_unlearned_conn_when_self_known() {
         let _guard = lock_selected_uid();
         selected_uid::set(None);
         let enc = enc_with_self(100);
-        assert_eq!(stage_after_sync_dungeon_data(&enc, Some(5), conn(40203)), 5);
+        enc.lock().unwrap().current_dungeon_difficulty = 4;
+        assert_eq!(stage_after_sync_dungeon_data(&enc, Some(5), conn(40203)), 4);
+    }
+
+    /// 自キャラが未確定なら判定材料が無いので、未学習の conn でも受理する。
+    #[test]
+    fn sync_dungeon_data_accepts_unlearned_conn_when_self_unknown() {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+        let enc = EncounterMutex::default();
+        assert_eq!(stage_after_sync_dungeon_data(&enc, Some(5), conn(40209)), 5);
     }
 
     /// dungeon_scene_info が無いときは段階を変えない。
@@ -2934,8 +2978,9 @@ mod tests {
         let _guard = lock_selected_uid();
         selected_uid::set(None);
         let enc = enc_with_self(100);
+        let c = learned_conn(&enc, 40204);
         enc.lock().unwrap().current_dungeon_difficulty = 4;
-        assert_eq!(stage_after_sync_dungeon_data(&enc, None, conn(40204)), 4);
+        assert_eq!(stage_after_sync_dungeon_data(&enc, None, c), 4);
     }
 
     /// 負の difficulty は 0（不明）にする。
@@ -2944,8 +2989,9 @@ mod tests {
         let _guard = lock_selected_uid();
         selected_uid::set(None);
         let enc = enc_with_self(100);
+        let c = learned_conn(&enc, 40205);
         enc.lock().unwrap().current_dungeon_difficulty = 4;
-        assert_eq!(stage_after_sync_dungeon_data(&enc, Some(-1), conn(40205)), 0);
+        assert_eq!(stage_after_sync_dungeon_data(&enc, Some(-1), c), 0);
     }
 
     /// SocialEnvelope で level_map_id が変わったときの段階の扱い（from → to, 前の段階 8）。
@@ -2986,12 +3032,10 @@ mod tests {
         let _guard = lock_selected_uid();
         selected_uid::set(None);
         let enc = enc_with_self(100);
-        process_opcode(
-            &enc,
-            envelope(Pkt::SocialEnvelope, social_envelope_bytes(100, 6545), conn(40207)),
-        )
-        .unwrap();
-        assert_eq!(stage_after_sync_dungeon_data(&enc, Some(2), conn(40207)), 2);
+        let c = learned_conn(&enc, 40207);
+        process_opcode(&enc, envelope(Pkt::SocialEnvelope, social_envelope_bytes(100, 6545), c))
+            .unwrap();
+        assert_eq!(stage_after_sync_dungeon_data(&enc, Some(2), c), 2);
         assert_eq!(enc.lock().unwrap().current_level_map_id, 6545);
     }
 
@@ -3001,12 +3045,10 @@ mod tests {
         let _guard = lock_selected_uid();
         selected_uid::set(None);
         let enc = enc_with_self(100);
-        assert_eq!(stage_after_sync_dungeon_data(&enc, Some(2), conn(40208)), 2);
-        process_opcode(
-            &enc,
-            envelope(Pkt::SocialEnvelope, social_envelope_bytes(100, 6545), conn(40208)),
-        )
-        .unwrap();
+        let c = learned_conn(&enc, 40208);
+        assert_eq!(stage_after_sync_dungeon_data(&enc, Some(2), c), 2);
+        process_opcode(&enc, envelope(Pkt::SocialEnvelope, social_envelope_bytes(100, 6545), c))
+            .unwrap();
         let e = enc.lock().unwrap();
         assert_eq!((e.current_level_map_id, e.current_dungeon_difficulty), (6545, 2));
     }

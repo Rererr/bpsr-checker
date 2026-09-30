@@ -628,9 +628,6 @@ msgstr "3-min run"
 msgid "一覧をコピー"
 msgstr "Copy list"
 
-msgid "常に最前面"
-msgstr "Always on top"
-
 msgid "キーを押してください…"
 msgstr "Press a key…"
 

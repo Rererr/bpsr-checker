@@ -176,7 +176,7 @@ global CompactCol {
 // （値はfont-scale=1.0基準のpx。このglobal自体はfont-scaleを持たない。ListColと同じ役割）。
 // 全列がテキスト内容の幅なので使用側はすべて `* root.font-scale` を掛ける
 // （padding/spacingは文字ではないため掛けない）。
-// プレイヤー行とスキル行の数値3列(ダメージ/DPS/%)は一覧と同じ ListCol の幅・gap を使い、
+// 見出し・プレイヤー行・スキル行の数値列(ダメージ/DPS/%＝見出しは人数と▲▼)は一覧と同じ ListCol の幅・gap を使い、
 // 表示中のオプション列ぶんの右余白も揃えて、縦に列が揃うようにする。
 global HistCol {
     // 行の外枠余白（見出し/プレイヤー行/スキル行で左だけ違う）
@@ -189,10 +189,8 @@ global HistCol {
     out property <length> gap: 8px; // 外枠 HorizontalLayout の spacing
     // 見出し行
     out property <length> header-duration-w: 40px; // 経過時間
-    out property <length> header-dps-w: 90px;      // DPS
-    out property <length> header-dmg-w: 60px;      // ダメージ
-    out property <length> header-count-w: 28px;    // 人数（ja「N人」用の幅。en訳は短縮して収める）
-    out property <length> header-toggle-w: 12px;   // ▲/▼（font-size 9px の1字が収まる幅）
+    // 見出しの数値部（ダメージ/DPS/人数＋▲▼）は ListCol の幅・gap を使い、展開行と右端を揃える
+    // （人数＋▲▼は % 列＋オプション列の占有幅の中に右詰め）。
     // プレイヤー行のみ
     out property <length> player-toggle-w: 12px; // ▶/▼
     out property <length> player-rank-w: 18px;   // 順位
@@ -201,12 +199,14 @@ global HistCol {
 
     // 各行の最小幅（履歴 Flickable.min-width の算出根拠。Flickable は中身の幅要求を
     // 窓の最小幅へ伝えないため、行の実構成と1対1に対応させてここから導出する）。
-    // 見出しは title/name/scope が min-width:0 の elide なので固定部分のみ。要素は最大8個
-    // （絞り込み条件のラベル付き=spacing 7箇所）で数える。
-    public pure function header-min-width(scale: float) -> length {
-        return HistCol.pad-left-header + HistCol.pad-right + 7 * HistCol.gap
-            + (HistCol.header-duration-w + HistCol.header-dps-w + HistCol.header-dmg-w
-                + HistCol.header-count-w + HistCol.header-toggle-w) * scale;
+    // 見出しは title/name/scope が min-width:0 の elide なので固定部分のみ。外枠の要素は最大5個
+    // （scope/title/name/経過時間/数値部。絞り込み条件のラベル付き=spacing 4箇所）で数える。
+    // 数値部の内訳はダメージ・DPS・[% 列＋オプション列の占有幅]（内側 spacing 2箇所）。
+    public pure function header-min-width(c: ColumnFlags, scale: float) -> length {
+        return HistCol.pad-left-header + HistCol.pad-right + 4 * HistCol.gap
+            + HistCol.header-duration-w * scale
+            + (ListCol.dmg-w + ListCol.dps-w + ListCol.pct-w) * scale + 2 * ListCol.gap
+            + ListCol.opt-cols-width(c, scale);
     }
     // プレイヤー行の名前セクションの下限（クラス色バー＋名前の内部フロア）。狭幅でも名前が
     // 「ああ…」まで読める幅を残し、行の最小幅にも同じ値を足す。
@@ -229,10 +229,10 @@ global HistCol {
             + ListCol.opt-cols-width(c, scale);
     }
     // 履歴 Flickable.min-width。3種類の行の最小幅の最大（同じ ColumnFlags を1つの式で
-    // 2回渡すと生成コードが move エラーになるため、呼び出し側でなくここで束ねる）。
+    // 複数回渡すと生成コードが move エラーになるため、呼び出し側でなくここで束ねる）。
     public pure function row-min-width(c: ColumnFlags, scale: float) -> length {
         return Math.max(
-            HistCol.header-min-width(scale),
+            HistCol.header-min-width(c, scale),
             Math.max(HistCol.player-min-width(c, scale), HistCol.skill-min-width(c, scale)));
     }
 }
@@ -1330,21 +1330,32 @@ component HistoryRowItem inherits Rectangle {
         // ── 見出し ──
         // scope-text は overflow:elide + min-width:0 で最小要求を外す（無いと倍率1.5で
         // 見出し行の最小幅が Flickable の幅を超え、histbox(viewport)が広がって右側の
-        // 人数/▼/%列が見切れる。title/name と同じ理由）。
+        // 数値列(ダメージ/DPS/人数)が見切れる。title/name と同じ理由）。
         if root.e.is-header && root.e.scope-text != "": Text { text: "[" + root.e.scope-text + "] "; color: Theme.accent; font-size: 10px * root.font-scale; overflow: elide; min-width: 0px; vertical-alignment: center; }
         // タイトル(日時＋コンテンツ名)。縮む順は name → title → scope（stretch 比 100000:1:0。name が縮める段階で title が削られないよう比を大きく取る）。
         // stretch 0 同士は同じ量ずつ縮むため、title を 0 のままにすると短い scope が先に消える。
         // 条件付き計測の印(scope)は通常計測と比較できないことを示すので最後まで残す
         // （overflow 既定の clip だとテキストは自然幅を最小要求し、それが Flickable の幅を超えると
-        // histbox(viewport)が広がって右側の人数/▼/%列が見切れるため、overflow:elide + min-width:0
+        // histbox(viewport)が広がって右側の数値列(ダメージ/DPS/人数)が見切れるため、overflow:elide + min-width:0
         // で最小要求を外す）。
         if root.e.is-header: Text { text: root.e.title; color: #e6e6f0; font-size: 11px * root.font-scale; overflow: elide; horizontal-stretch: 1; min-width: 0px; vertical-alignment: center; }
         if root.e.is-header: Text { text: root.e.name; color: #888; font-size: 10px * root.font-scale; overflow: elide; horizontal-stretch: 100000; min-width: 0px; vertical-alignment: center; }
         if root.e.is-header: Text { text: root.e.duration-text; color: #888; font-size: 10px * root.font-scale; width: HistCol.header-duration-w * root.font-scale; vertical-alignment: center; }
-        if root.e.is-header: Text { text: root.e.dps-text + " DPS"; color: Theme.accent; font-size: 11px * root.font-scale; width: HistCol.header-dps-w * root.font-scale; vertical-alignment: center; }
-        if root.e.is-header: Text { text: root.e.dmg-text; color: #aaa; font-size: 10px * root.font-scale; width: HistCol.header-dmg-w * root.font-scale; vertical-alignment: center; }
-        if root.e.is-header: Text { text: @tr("{}人", root.e.count-text); color: #666; font-size: 10px * root.font-scale; width: HistCol.header-count-w * root.font-scale; vertical-alignment: center; }
-        if root.e.is-header: Text { text: root.e.expanded ? "▲" : "▼"; color: #555; font-size: 9px * root.font-scale; width: HistCol.header-toggle-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        // 数値はダメージ→DPS の順で、展開行(RowStatColumns)のダメージ/DPS列と右端を揃える。
+        // 人数と▲▼は % 列＋オプション列の占有幅の中へ右詰めで置く（スキル行の右余白と同じ幅）。
+        if root.e.is-header: HorizontalLayout {
+            horizontal-stretch: 0;
+            spacing: ListCol.gap;
+            Text { text: root.e.dmg-text; color: #e6e6f0; font-size: 11px * root.font-scale; width: ListCol.dmg-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+            Text { text: root.e.dps-text; color: Theme.accent; font-size: 11px * root.font-scale; width: ListCol.dps-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+            HorizontalLayout {
+                width: ListCol.pct-w * root.font-scale + ListCol.opt-cols-width(root.cols, root.font-scale);
+                alignment: end;
+                spacing: 4px;
+                Text { text: @tr("{}人", root.e.count-text); color: #666; font-size: 10px * root.font-scale; vertical-alignment: center; }
+                Text { text: root.e.expanded ? "▲" : "▼"; color: #555; font-size: 9px * root.font-scale; vertical-alignment: center; }
+            }
+        }
         // ── プレイヤー行 ──
         if !root.e.is-header && !root.e.is-skill: Text { text: root.e.toggle-key == "" ? "" : (root.e.expanded ? "▼" : "▶"); color: #666; font-size: 9px * root.font-scale; width: HistCol.player-toggle-w * root.font-scale; vertical-alignment: center; }
         if !root.e.is-header && !root.e.is-skill: Text { text: root.e.rank-text; color: #8a8a99; font-size: 10px * root.font-scale; width: HistCol.player-rank-w * root.font-scale; vertical-alignment: center; }

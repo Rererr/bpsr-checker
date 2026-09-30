@@ -288,6 +288,12 @@ msgstr "无历史"
 msgid "{}人"
 msgstr "{}人"
 
+msgid "時間"
+msgstr "时长"
+
+msgid "人数"
+msgstr "人数"
+
 msgid "推移"
 msgstr "趋势"
 

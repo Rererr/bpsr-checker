@@ -733,7 +733,7 @@ fn log_team_change(encounter: &mut Encounter, f: impl FnOnce(&mut crate::engine:
     }
 }
 
-/// 0x2B(WorldSyncServerTime) / Team系5アーム / SocialEnvelope は should_accept を
+/// 0x2B(WorldSyncServerTime) / 0x17(WorldSyncDungeonData) / Team系5アーム / SocialEnvelope は should_accept を
 /// 意図的に経由しないため、他クライアント由来のパケットを弾く判定をこの1箇所に集約する。
 /// WorldSyncServerTime/Team系はキャラ選択と無関係にアプリ全体で使う値（is_paused でも
 /// 止めない）。SocialEnvelope は自キャラのシーン追跡そのものなのでキャラ選択と関係するが、
@@ -758,9 +758,10 @@ fn conn_is_other_client(encounter: &Encounter, conn: Option<Server>) -> bool {
 }
 
 fn should_accept(encounter: &mut Encounter, conn: Option<Server>, op: &Pkt) -> bool {
-    // ServerHandover と SocialEnvelope は process_opcode の専用アームで処理されるため、
-    // ここには到達しない（SocialEnvelope は conn_is_other_client と char_id 判定を自前で行う。
-    // ここを経由させると、自キャラ確定後の ServerHandover 直後に未学習 conn へ届く継続通知が落ちる）。
+    // ServerHandover と SocialEnvelope と WorldSyncDungeonData は process_opcode の専用アームで
+    // 処理されるため、ここには到達しない（SocialEnvelope は conn_is_other_client と char_id 判定を
+    // 自前で行う。ここを経由させると、自キャラ確定後の ServerHandover 直後に未学習 conn へ届く
+    // 継続通知が落ちる。WorldSyncDungeonData も未学習 conn で届くことがあり、同じ理由で通す）。
     // WorldEnterSnapshot/WorldEnterScene/LocalDeltaBatch は conn ↔ char_id の学習経路なので、
     // 身元不明の conn でも必ず通す（ここで弾くと学習が永久に起きず、UID 指定時に何も
     // 表示されなくなる）。他クライアント由来かどうかは各 process_* が learn_connection で
@@ -770,6 +771,7 @@ fn should_accept(encounter: &mut Encounter, conn: Option<Server>, op: &Pkt) -> b
         op,
         Pkt::ServerHandover
             | Pkt::SocialEnvelope
+            | Pkt::WorldSyncDungeonData
             | Pkt::WorldEnterSnapshot
             | Pkt::WorldEnterScene
             | Pkt::LocalDeltaBatch
@@ -883,11 +885,46 @@ pub fn process_opcode(enc: &EncounterMutex, env: PktEnvelope) -> AppResult<()> {
             if let Some(scene) = body.scene_data {
                 if scene.level_map_id != 0 && scene.level_map_id != encounter.current_level_map_id
                 {
+                    let stage_reset = encounter.set_current_level_map_id(scene.level_map_id);
                     info!(
-                        "[SocialEnvelope] scene changed: char_id={} line_id={} level_map_id={} (encounter retained)",
-                        body.char_id, scene.line_id, scene.level_map_id
+                        "[SocialEnvelope] scene changed: char_id={} line_id={} level_map_id={} stage {} (encounter retained)",
+                        body.char_id,
+                        scene.line_id,
+                        scene.level_map_id,
+                        if stage_reset { "reset" } else { "kept" }
                     );
-                    encounter.current_level_map_id = scene.level_map_id;
+                }
+            }
+        }
+
+        // WorldNtf method 0x17: ダンジョン入場時のマスター難易度の段階。SocialEnvelope と同じく
+        // should_accept を経由しない（未学習 conn で届くことがあり、通常の経路では落ちるため）。
+        // DungeonSyncData に char_id は無いので、自キャラの分かどうかは conn だけで判定する。
+        Pkt::WorldSyncDungeonData => {
+            let Some(msg) = decode_packet::<pb::SyncDungeonData>(data, "SyncDungeonData") else {
+                return Ok(());
+            };
+            let mut encounter = enc.lock().map_err(|e| AppError::LockPoisoned(e.to_string()))?;
+            if conn_is_other_client(&encounter, conn) {
+                debug!("[SyncDungeonData] discarded: other client conn");
+                return Ok(());
+            }
+            match msg.v_data.and_then(|d| d.dungeon_scene_info) {
+                Some(info) => {
+                    encounter.current_dungeon_difficulty =
+                        crate::engine::content_names::master_stage(info.difficulty);
+                    info!(
+                        "[SyncDungeonData] scene_info=present difficulty={} -> stage={} current_level_map_id={}",
+                        info.difficulty,
+                        encounter.current_dungeon_difficulty,
+                        encounter.current_level_map_id
+                    );
+                }
+                None => {
+                    info!(
+                        "[SyncDungeonData] scene_info=absent (kept stage={})",
+                        encounter.current_dungeon_difficulty
+                    );
                 }
             }
         }
@@ -1254,7 +1291,7 @@ fn process_world_enter_snapshot(
     // conn/char_id によるフィルタは不要。
     if let Some(scene) = &v_data.scene_data {
         if scene.level_map_id != 0 {
-            encounter.current_level_map_id = scene.level_map_id;
+            encounter.set_current_level_map_id(scene.level_map_id);
         }
     }
 
@@ -1912,6 +1949,11 @@ pub(crate) fn process_scene_delta(encounter: &mut Encounter, scene_delta: pb::Sc
     if encounter.time_fight_start_ms == 0 {
         encounter.time_fight_start_ms = ts;
         encounter.fight_level_map_id = encounter.current_level_map_id;
+        encounter.fight_dungeon_difficulty = encounter.current_dungeon_difficulty;
+        info!(
+            "[fight start] level_map_id={} dungeon_difficulty stage={}",
+            encounter.fight_level_map_id, encounter.fight_dungeon_difficulty
+        );
         // M6/M9計測: 戦闘時計の起点となったデルタが damages を含んでいたか（false なら
         // 自己バフ・詠唱等で分母が実ダメージ開始より早く進み始めている）と、そのダメージが
         // 自分のものだったか（false なら他人の与ダメージや自分の被弾で計測窓が回り始めている）。
@@ -2804,6 +2846,132 @@ mod tests {
             0,
             "char_id=0 でも他クライアントの conn は破棄する"
         );
+    }
+
+    fn sync_dungeon_data_bytes(difficulty: Option<i32>) -> Vec<u8> {
+        pb::SyncDungeonData {
+            v_data: Some(pb::DungeonSyncData {
+                dungeon_scene_info: difficulty.map(|difficulty| pb::DungeonSceneInfo { difficulty }),
+            }),
+        }
+        .encode_to_vec()
+    }
+
+    /// 自キャラ(local_player_uid=100)確定済みの Encounter で、SyncDungeonData を1通流して段階を返す。
+    fn stage_after_sync_dungeon_data(
+        enc: &EncounterMutex,
+        difficulty: Option<i32>,
+        c: Server,
+    ) -> u32 {
+        process_opcode(
+            enc,
+            PktEnvelope {
+                op: Pkt::WorldSyncDungeonData,
+                data: sync_dungeon_data_bytes(difficulty),
+                conn: Some(c),
+            },
+        )
+        .unwrap();
+        let stage = enc.lock().unwrap().current_dungeon_difficulty;
+        stage
+    }
+
+    fn enc_with_self(uid: i64) -> EncounterMutex {
+        let enc = EncounterMutex::default();
+        enc.lock().unwrap().local_player_uid = uid;
+        enc
+    }
+
+    /// 0x17 の difficulty が current_dungeon_difficulty になる。
+    #[test]
+    fn sync_dungeon_data_sets_current_stage() {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+        let enc = enc_with_self(100);
+        assert_eq!(stage_after_sync_dungeon_data(&enc, Some(3), conn(40201)), 3);
+    }
+
+    /// 学習済みの他キャラの conn 由来は破棄する。
+    #[test]
+    fn sync_dungeon_data_rejects_other_client_conn() {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+        let enc = enc_with_self(100);
+        let other_conn = conn(40202);
+        enc.lock().unwrap().conn_to_uid.insert(other_conn, 200);
+        assert_eq!(stage_after_sync_dungeon_data(&enc, Some(3), other_conn), 0);
+    }
+
+    /// 未学習の conn からでも受理する（通常の経路では落ちるパケットのため）。
+    #[test]
+    fn sync_dungeon_data_accepts_unlearned_conn() {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+        let enc = enc_with_self(100);
+        assert_eq!(stage_after_sync_dungeon_data(&enc, Some(5), conn(40203)), 5);
+    }
+
+    /// dungeon_scene_info が無いときは段階を変えない。
+    #[test]
+    fn sync_dungeon_data_without_scene_info_keeps_stage() {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+        let enc = enc_with_self(100);
+        enc.lock().unwrap().current_dungeon_difficulty = 4;
+        assert_eq!(stage_after_sync_dungeon_data(&enc, None, conn(40204)), 4);
+    }
+
+    /// 負の difficulty は 0（不明）にする。
+    #[test]
+    fn sync_dungeon_data_negative_difficulty_is_zero() {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+        let enc = enc_with_self(100);
+        enc.lock().unwrap().current_dungeon_difficulty = 4;
+        assert_eq!(stage_after_sync_dungeon_data(&enc, Some(-1), conn(40205)), 0);
+    }
+
+    /// SocialEnvelope で level_map_id が変わったときの段階の扱い（from → to, 前の段階 8）。
+    fn stage_after_scene_change(from: u32, to: u32) -> u32 {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+        let enc = enc_with_self(100);
+        {
+            let mut e = enc.lock().unwrap();
+            e.current_level_map_id = from;
+            e.current_dungeon_difficulty = 8;
+        }
+        process_opcode(
+            &enc,
+            envelope(Pkt::SocialEnvelope, social_envelope_bytes(100, to), conn(40206)),
+        )
+        .unwrap();
+        let stage = enc.lock().unwrap().current_dungeon_difficulty;
+        stage
+    }
+
+    #[test]
+    fn social_envelope_scene_change_resets_stage_unless_master() {
+        assert_eq!(stage_after_scene_change(6545, 8), 0, "マスター→町はリセット");
+        assert_eq!(stage_after_scene_change(8, 6545), 8, "→マスターは据え置き(0x17 が先に届いた場合)");
+        assert_eq!(stage_after_scene_change(6545, 999_999_999), 0, "未知の id はリセット");
+        assert_eq!(stage_after_scene_change(6545, 6543), 0, "→ノーマルはリセット");
+        assert_eq!(stage_after_scene_change(6545, 6544), 0, "→ハードはリセット");
+    }
+
+    /// 0x17 が SocialEnvelope より後に届く順序でも段階が正しくなる。
+    #[test]
+    fn stage_survives_either_arrival_order_of_sync_dungeon_data_and_social_envelope() {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+        let enc = enc_with_self(100);
+        process_opcode(
+            &enc,
+            envelope(Pkt::SocialEnvelope, social_envelope_bytes(100, 6545), conn(40207)),
+        )
+        .unwrap();
+        assert_eq!(stage_after_sync_dungeon_data(&enc, Some(2), conn(40207)), 2);
+        assert_eq!(enc.lock().unwrap().current_level_map_id, 6545);
     }
 
     /// 値を bare varint(LEB128) で符号化する（attr raw_data の形式）。
@@ -4390,6 +4558,30 @@ mod tests {
         // 次の戦闘は、その時点の current_level_map_id を新たに記録する。
         process_scene_delta(&mut enc, damage_delta(boss_uuid, player_uuid_for(my_uid), 500));
         assert_eq!(enc.fight_level_map_id, 9999, "次の戦闘は新しいシーンを記録する");
+    }
+
+    /// fight_dungeon_difficulty は戦闘開始の瞬間に current の段階を写し、clear_combat_stats では
+    /// fight だけ 0 になる（current は保持）。
+    #[test]
+    fn fight_dungeon_difficulty_captured_at_fight_start_and_reset_by_clear_combat_stats() {
+        let my_uid = 555_i64;
+        let boss_uuid = monster_uuid_for(9001);
+
+        let mut enc = Encounter::default();
+        enc.set_local_player_uid(my_uid);
+        enc.current_level_map_id = 6545;
+        enc.current_dungeon_difficulty = 3;
+
+        process_scene_delta(&mut enc, damage_delta(boss_uuid, player_uuid_for(my_uid), 500));
+        assert_eq!(enc.fight_dungeon_difficulty, 3, "戦闘開始の瞬間の段階を記録する");
+
+        enc.current_dungeon_difficulty = 7;
+        process_scene_delta(&mut enc, damage_delta(boss_uuid, player_uuid_for(my_uid), 500));
+        assert_eq!(enc.fight_dungeon_difficulty, 3, "戦闘中の変化で書き換わってはいけない");
+
+        enc.clear_combat_stats();
+        assert_eq!(enc.fight_dungeon_difficulty, 0, "fight だけリセットする");
+        assert_eq!(enc.current_dungeon_difficulty, 7, "current は保持する");
     }
 
     /// モンスター→プレイヤーのダメージ（反撃）は総ダメージに積まれず、被ダメ側にのみ残る。

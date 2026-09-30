@@ -10,6 +10,7 @@ pub enum Pkt {
     WorldEntityBatch,
     WorldEnterSnapshot,
     WorldSyncServerTime,
+    WorldSyncDungeonData,
     LocalDeltaBatch,
     WorldDeltaBatch,
     BuffTick,
@@ -35,6 +36,7 @@ impl TryFrom<u32> for Pkt {
             0x00000003 => Pkt::WorldEnterScene, // EnterScene: 自キャラ入場時のフル属性(PlayerEnt.Attrs)
             0x00000006 => Pkt::WorldEntityBatch,
             0x00000015 => Pkt::WorldEnterSnapshot,
+            0x00000017 => Pkt::WorldSyncDungeonData, // SyncDungeonData: ダンジョン難易度(マスター段階)
             0x0000002b => Pkt::WorldSyncServerTime, // SyncServerTime: client/server 時刻同期
             0x0000002d => Pkt::WorldDeltaBatch,
             0x0000002e => Pkt::LocalDeltaBatch,
@@ -96,5 +98,11 @@ mod tests {
     #[test]
     fn try_from_maps_sync_server_time_opcode() {
         assert!(matches!(Pkt::try_from(0x0000002b).unwrap(), Pkt::WorldSyncServerTime));
+    }
+
+    // WorldNtf method 0x17 (SyncDungeonData) が Pkt::WorldSyncDungeonData にマップされる。
+    #[test]
+    fn try_from_maps_sync_dungeon_data_opcode() {
+        assert!(matches!(Pkt::try_from(0x00000017).unwrap(), Pkt::WorldSyncDungeonData));
     }
 }

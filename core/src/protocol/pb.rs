@@ -313,6 +313,26 @@ pub struct SyncServerTime {
     #[prost(int64, tag = "2")]
     pub server_milliseconds: i64,
 }
+/// WorldNtf method 0x17。ダンジョンの状態同期。マスター難易度の段階は
+/// v_data.dungeon_scene_info.difficulty で届く想定（値が 1 始まりの段階と一致するかは実機ログで確認する）。
+/// 参照実装のプロトコル定義・コメント由来（SyncDungeonData.v_data=1 /
+/// DungeonSyncData.dungeon_scene_info=21 / DungeonSceneInfo.difficulty=1。マップ変更時にだけ
+/// 自キャラ分が届くとされる。当アプリでの到着タイミングは未確認）。
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SyncDungeonData {
+    #[prost(message, optional, tag = "1")]
+    pub v_data: ::core::option::Option<DungeonSyncData>,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct DungeonSyncData {
+    #[prost(message, optional, tag = "21")]
+    pub dungeon_scene_info: ::core::option::Option<DungeonSceneInfo>,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct DungeonSceneInfo {
+    #[prost(int32, tag = "1")]
+    pub difficulty: i32,
+}
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DamageRecord {
     #[prost(bool, tag = "2")]

@@ -217,6 +217,15 @@ message SyncServerTime {
   int64 server_milliseconds = 2;
 }
 
+// WorldNtf method 0x17。ダンジョンの状態同期。マスター難易度の段階は
+// v_data.dungeon_scene_info.difficulty で届く想定（値が 1 始まりの段階と一致するかは実機ログで確認する）。
+// 参照実装のプロトコル定義・コメント由来（SyncDungeonData.v_data=1 /
+// DungeonSyncData.dungeon_scene_info=21 / DungeonSceneInfo.difficulty=1。マップ変更時にだけ
+// 自キャラ分が届くとされる。当アプリでの到着タイミングは未確認）。
+message SyncDungeonData { DungeonSyncData v_data = 1; }
+message DungeonSyncData { DungeonSceneInfo dungeon_scene_info = 21; }
+message DungeonSceneInfo { int32 difficulty = 1; }
+
 message DamageRecord {
   bool is_miss = 2;
   DmgKind type = 4;

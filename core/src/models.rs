@@ -13,6 +13,8 @@ pub struct HeaderInfo {
     /// この計測が行われたコンテンツの id（`Encounter::fight_level_map_id`）。
     /// 表示名への変換は content_names.rs を都度引く（issue #9 PR2b）。
     pub fight_level_map_id: u32,
+    /// この計測が行われたときのマスター難易度の段階（`Encounter::fight_dungeon_difficulty`、0=不明）。
+    pub fight_dungeon_difficulty: u32,
 }
 
 pub type PlayerRows = Vec<PlayerRow>;
@@ -112,6 +114,9 @@ pub struct EncounterSnapshot {
     /// 名前の文字列は保存せず id だけを保存する（表示は content_names.rs を都度引く）。
     /// 旧 history.json には無いフィールドで、default は 0（コンテンツ不明）。
     pub level_map_id: u32,
+    /// この計測が行われたときのマスター難易度の段階（`Encounter::fight_dungeon_difficulty` の保存値）。
+    /// 旧 history.json には無いフィールドで、default は 0（段階不明）。
+    pub dungeon_difficulty: u32,
     /// 記録時点の自キャラ uid。履歴の展開行を一覧と同じ組み立て（自分基準のバー等）で描くために
     /// 保存する。旧 history.json には無いフィールドで、default は 0（自分不明）。
     pub local_player_uid: f64,

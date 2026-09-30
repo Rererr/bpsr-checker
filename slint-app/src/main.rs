@@ -459,7 +459,7 @@ fn refresh_header(m: &MainWindow, enc: &EncounterMutex, tab: i32) {
     m.set_content_name(
         engine::content_names::content_label(
             header.fight_level_map_id,
-            0,
+            header.fight_dungeon_difficulty,
             engine::runtime_settings::display_lang(),
         )
         .into(),
@@ -841,7 +841,7 @@ fn build_history_rows(
                 snap.start_ms,
                 &engine::content_names::content_label(
                     snap.level_map_id,
-                    0,
+                    snap.dungeon_difficulty,
                     engine::runtime_settings::display_lang(),
                 ),
             )

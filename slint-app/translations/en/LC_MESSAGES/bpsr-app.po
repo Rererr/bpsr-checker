@@ -418,7 +418,7 @@ msgid "{}人"
 msgstr "{}"
 
 msgid "時間"
-msgstr "Duration"
+msgstr "Time"
 
 msgid "人数"
 msgstr "Players"

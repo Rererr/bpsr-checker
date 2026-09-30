@@ -82,16 +82,19 @@
     "ja": "不安定な空間・ティナ・精神領域"
   },
   "1031": {
-    "en": "Tina's Mindrealm Normal",
-    "ja": "ティナ・精神領域 ノーマル難易度"
+    "en": "Tina's Mindrealm",
+    "ja": "ティナ・精神領域",
+    "difficulty": "normal"
   },
   "1032": {
-    "en": "Tina's Mindrealm Hard",
-    "ja": "ティナ・精神領域 ハード難易度"
+    "en": "Tina's Mindrealm",
+    "ja": "ティナ・精神領域",
+    "difficulty": "hard"
   },
   "1033": {
-    "en": "Tina's Mindrealm Master 1",
-    "ja": "ティナ・精神領域 マスター難易度1"
+    "en": "Tina's Mindrealm",
+    "ja": "ティナ・精神領域",
+    "difficulty": "master"
   },
   "1101": {
     "en": "Towering Ruin",
@@ -110,28 +113,34 @@
     "ja": "不安定な空間・巨塔の遺跡"
   },
   "1121": {
-    "en": "Towering Ruin Normal",
-    "ja": "巨塔の遺跡 ノーマル難易度"
+    "en": "Towering Ruin",
+    "ja": "巨塔の遺跡",
+    "difficulty": "normal"
   },
   "1122": {
-    "en": "Towering Ruin Hard",
-    "ja": "巨塔の遺跡 ハード難易度"
+    "en": "Towering Ruin",
+    "ja": "巨塔の遺跡",
+    "difficulty": "hard"
   },
   "1123": {
-    "en": "Towering Ruin Master 1",
-    "ja": "巨塔の遺跡 マスター難易度1"
+    "en": "Towering Ruin",
+    "ja": "巨塔の遺跡",
+    "difficulty": "master"
   },
   "1150": {
-    "en": "Void - Towering Ruin Master 1",
-    "ja": "蝕・巨塔の遺跡 マスター難易度1"
+    "en": "Void - Towering Ruin",
+    "ja": "蝕・巨塔の遺跡",
+    "difficulty": "master"
   },
   "1151": {
-    "en": "Void - Towering Ruin Hard",
-    "ja": "蝕・巨塔の遺跡 ハード難易度"
+    "en": "Void - Towering Ruin",
+    "ja": "蝕・巨塔の遺跡",
+    "difficulty": "hard"
   },
   "1152": {
-    "en": "Void - Towering Ruin Normal",
-    "ja": "蝕・巨塔の遺跡 ノーマル難易度"
+    "en": "Void - Towering Ruin",
+    "ja": "蝕・巨塔の遺跡",
+    "difficulty": "normal"
   },
   "1153": {
     "en": "Unstable - Towering Ruin",
@@ -158,16 +167,19 @@
     "ja": "不安定な空間・巨竜の爪痕"
   },
   "1221": {
-    "en": "Dragon Claw Valley Normal",
-    "ja": "巨竜の爪痕 ノーマル難易度"
+    "en": "Dragon Claw Valley",
+    "ja": "巨竜の爪痕",
+    "difficulty": "normal"
   },
   "1222": {
-    "en": "Dragon Claw Valley Hard",
-    "ja": "巨竜の爪痕 ハード難易度"
+    "en": "Dragon Claw Valley",
+    "ja": "巨竜の爪痕",
+    "difficulty": "hard"
   },
   "1223": {
-    "en": "Dragon Claw Valley Master 1",
-    "ja": "巨竜の爪痕 マスター難易度1"
+    "en": "Dragon Claw Valley",
+    "ja": "巨竜の爪痕",
+    "difficulty": "master"
   },
   "1231": {
     "en": "Unstable - Dragon Claw Valley",
@@ -178,16 +190,19 @@
     "ja": "不安定な空間・巨竜の爪痕"
   },
   "1233": {
-    "en": "Dragon Claw Valley Normal",
-    "ja": "巨竜の爪痕 ノーマル難易度"
+    "en": "Dragon Claw Valley",
+    "ja": "巨竜の爪痕",
+    "difficulty": "normal"
   },
   "1234": {
-    "en": "Dragon Claw Valley Hard",
-    "ja": "巨竜の爪痕 ハード難易度"
+    "en": "Dragon Claw Valley",
+    "ja": "巨竜の爪痕",
+    "difficulty": "hard"
   },
   "1235": {
-    "en": "Dragon Claw Valley Master 1",
-    "ja": "巨竜の爪痕 マスター難易度1"
+    "en": "Dragon Claw Valley",
+    "ja": "巨竜の爪痕",
+    "difficulty": "master"
   },
   "1301": {
     "en": "Dark Mist Fortress",
@@ -206,16 +221,19 @@
     "ja": "不安定な空間・暗霧要塞"
   },
   "1331": {
-    "en": "Dark Mist Fortress Normal",
-    "ja": "暗霧要塞 ノーマル難易度"
+    "en": "Dark Mist Fortress",
+    "ja": "暗霧要塞",
+    "difficulty": "normal"
   },
   "1332": {
-    "en": "Dark Mist Fortress Hard",
-    "ja": "暗霧要塞 ハード難易度"
+    "en": "Dark Mist Fortress",
+    "ja": "暗霧要塞",
+    "difficulty": "hard"
   },
   "1333": {
-    "en": "Dark Mist Fortress Master 1",
-    "ja": "暗霧要塞 マスター難易度1"
+    "en": "Dark Mist Fortress",
+    "ja": "暗霧要塞",
+    "difficulty": "master"
   },
   "1399": {
     "en": "Level quest test",
@@ -242,16 +260,19 @@
     "ja": "不安定な空間・幻華流月の野"
   },
   "1421": {
-    "en": "Illusory Moonveil Wilds Normal",
-    "ja": "幻華流月の野 ノーマル難易度"
+    "en": "Illusory Moonveil Wilds",
+    "ja": "幻華流月の野",
+    "difficulty": "normal"
   },
   "1422": {
-    "en": "Illusory Moonveil Wilds Hard",
-    "ja": "幻華流月の野 ハード難易度"
+    "en": "Illusory Moonveil Wilds",
+    "ja": "幻華流月の野",
+    "difficulty": "hard"
   },
   "1423": {
-    "en": "Illusory Moonveil Wilds Master 1",
-    "ja": "幻華流月の野 マスター難易度1"
+    "en": "Illusory Moonveil Wilds",
+    "ja": "幻華流月の野",
+    "difficulty": "master"
   },
   "1501": {
     "en": "Rock Serpent Lair",
@@ -270,16 +291,19 @@
     "ja": "不安定な空間・ロックスネークの巣"
   },
   "1531": {
-    "en": "Rock Serpent Lair Normal",
-    "ja": "ロックスネークの巣 ノーマル難易度"
+    "en": "Rock Serpent Lair",
+    "ja": "ロックスネークの巣",
+    "difficulty": "normal"
   },
   "1532": {
-    "en": "Rock Serpent Lair Hard",
-    "ja": "ロックスネークの巣 ハード難易度"
+    "en": "Rock Serpent Lair",
+    "ja": "ロックスネークの巣",
+    "difficulty": "hard"
   },
   "1533": {
-    "en": "Rock Serpent Lair Master 1",
-    "ja": "ロックスネークの巣 マスター難易度1"
+    "en": "Rock Serpent Lair",
+    "ja": "ロックスネークの巣",
+    "difficulty": "master"
   },
   "1611": {
     "en": "Unstable - Tina's Mindrealm",
@@ -298,8 +322,9 @@
     "ja": "極限空間・ティナ・精神領域"
   },
   "1633": {
-    "en": "Void - Tina's Mindrealm Master 1",
-    "ja": "蝕・ティナ・精神領域 マスター難易度1"
+    "en": "Void - Tina's Mindrealm",
+    "ja": "蝕・ティナ・精神領域",
+    "difficulty": "master"
   },
   "5000": {
     "en": "Content mechanism test scene",
@@ -387,16 +412,19 @@
     "ja": "不安定な空間・ゴブリンの巣窟"
   },
   "6007": {
-    "en": "Goblin Lair Normal",
-    "ja": "ゴブリンの巣窟 ノーマル難易度"
+    "en": "Goblin Lair",
+    "ja": "ゴブリンの巣窟",
+    "difficulty": "normal"
   },
   "6008": {
-    "en": "Goblin Lair Hard",
-    "ja": "ゴブリンの巣窟 ハード難易度"
+    "en": "Goblin Lair",
+    "ja": "ゴブリンの巣窟",
+    "difficulty": "hard"
   },
   "6009": {
-    "en": "Goblin Lair Master 1",
-    "ja": "ゴブリンの巣窟 マスター難易度1"
+    "en": "Goblin Lair",
+    "ja": "ゴブリンの巣窟",
+    "difficulty": "master"
   },
   "6011": {
     "en": "Unstable - Kanamia Trial",
@@ -407,13 +435,16 @@
     "ja": "不安定な空間・カナミアの試練"
   },
   "6021": {
-    "en": "Kanamia Trial Normal"
+    "en": "Kanamia Trial",
+    "difficulty": "normal"
   },
   "6022": {
-    "en": "Kanamia Trial Hard"
+    "en": "Kanamia Trial",
+    "difficulty": "hard"
   },
   "6023": {
-    "en": "Kanamia Trial Master 1"
+    "en": "Kanamia Trial",
+    "difficulty": "master"
   },
   "6031": {
     "en": "Unstable - Kanamia Trial",
@@ -436,16 +467,19 @@
     "ja": "不安定な空間・音無き都"
   },
   "6043": {
-    "en": "Soundless City Normal",
-    "ja": "音無き都 ノーマル難易度"
+    "en": "Soundless City",
+    "ja": "音無き都",
+    "difficulty": "normal"
   },
   "6044": {
-    "en": "Soundless City Hard",
-    "ja": "音無き都 ハード難易度"
+    "en": "Soundless City",
+    "ja": "音無き都",
+    "difficulty": "hard"
   },
   "6045": {
-    "en": "Soundless City Master 1",
-    "ja": "音無き都 マスター難易度1"
+    "en": "Soundless City",
+    "ja": "音無き都",
+    "difficulty": "master"
   },
   "6111": {
     "en": "Unstable - Wraith Shrine",
@@ -456,16 +490,19 @@
     "ja": "不安定な空間・荒魂の祭殿"
   },
   "6121": {
-    "en": "Wraith Shrine Normal",
-    "ja": "荒魂の祭殿 ノーマル難易度"
+    "en": "Wraith Shrine",
+    "ja": "荒魂の祭殿",
+    "difficulty": "normal"
   },
   "6122": {
-    "en": "Wraith Shrine Hard",
-    "ja": "荒魂の祭殿 ハード難易度"
+    "en": "Wraith Shrine",
+    "ja": "荒魂の祭殿",
+    "difficulty": "hard"
   },
   "6123": {
-    "en": "Wraith Shrine Master 1",
-    "ja": "荒魂の祭殿 マスター難易度1"
+    "en": "Wraith Shrine",
+    "ja": "荒魂の祭殿",
+    "difficulty": "master"
   },
   "6211": {
     "en": "Unstable - Depths of Decay",
@@ -476,16 +513,19 @@
     "ja": "不安定な空間・衰亡の深淵"
   },
   "6221": {
-    "en": "Depths of Decay Normal",
-    "ja": "衰亡の深淵 ノーマル難易度"
+    "en": "Depths of Decay",
+    "ja": "衰亡の深淵",
+    "difficulty": "normal"
   },
   "6222": {
-    "en": "Depths of Decay Hard",
-    "ja": "衰亡の深淵 ハード難易度"
+    "en": "Depths of Decay",
+    "ja": "衰亡の深淵",
+    "difficulty": "hard"
   },
   "6223": {
-    "en": "Depths of Decay Master 1",
-    "ja": "衰亡の深淵 マスター難易度1"
+    "en": "Depths of Decay",
+    "ja": "衰亡の深淵",
+    "difficulty": "master"
   },
   "6311": {
     "en": "Unstable - Devourer Cage",
@@ -496,16 +536,19 @@
     "ja": "不安定な空間・光亡き牢"
   },
   "6331": {
-    "en": "Devourer Cage Normal",
-    "ja": "光亡き牢 ノーマル難易度"
+    "en": "Devourer Cage",
+    "ja": "光亡き牢",
+    "difficulty": "normal"
   },
   "6332": {
-    "en": "Devourer Cage Hard",
-    "ja": "光亡き牢 ハード難易度"
+    "en": "Devourer Cage",
+    "ja": "光亡き牢",
+    "difficulty": "hard"
   },
   "6333": {
-    "en": "Devourer Cage Master 1",
-    "ja": "光亡き牢 マスター難易度1"
+    "en": "Devourer Cage",
+    "ja": "光亡き牢",
+    "difficulty": "master"
   },
   "6411": {
     "en": "Unstable - Soundless City",
@@ -516,16 +559,19 @@
     "ja": "不安定な空間・音無き都"
   },
   "6421": {
-    "en": "Soundless City Normal",
-    "ja": "音無き都 ノーマル難易度"
+    "en": "Soundless City",
+    "ja": "音無き都",
+    "difficulty": "normal"
   },
   "6422": {
-    "en": "Soundless City Hard",
-    "ja": "音無き都 ハード難易度"
+    "en": "Soundless City",
+    "ja": "音無き都",
+    "difficulty": "hard"
   },
   "6423": {
-    "en": "Soundless City Master 1",
-    "ja": "音無き都 マスター難易度1"
+    "en": "Soundless City",
+    "ja": "音無き都",
+    "difficulty": "master"
   },
   "6511": {
     "en": "Unstable Space - Cursed Radiant Tomb",
@@ -536,16 +582,19 @@
     "ja": "不安定な空間・呪われし煌墓"
   },
   "6513": {
-    "en": "Cursed Radiant Tomb Normal",
-    "ja": "呪われし煌墓 ノーマル難易度"
+    "en": "Cursed Radiant Tomb",
+    "ja": "呪われし煌墓",
+    "difficulty": "normal"
   },
   "6514": {
-    "en": "Cursed Radiant Tomb Hard",
-    "ja": "呪われし煌墓 ハード難易度"
+    "en": "Cursed Radiant Tomb",
+    "ja": "呪われし煌墓",
+    "difficulty": "hard"
   },
   "6515": {
-    "en": "Cursed Radiant Tomb Master 1",
-    "ja": "呪われし煌墓 マスター難易度1"
+    "en": "Cursed Radiant Tomb",
+    "ja": "呪われし煌墓",
+    "difficulty": "master"
   },
   "6521": {
     "en": "Chaotic - Mech Facility",
@@ -556,16 +605,19 @@
     "ja": "極限空間・機械化工場"
   },
   "6523": {
-    "en": "Mech Facility Normal",
-    "ja": "機械化工場 ノーマル難易度"
+    "en": "Mech Facility",
+    "ja": "機械化工場",
+    "difficulty": "normal"
   },
   "6524": {
-    "en": "Mech Facility Hard",
-    "ja": "機械化工場 ハード難易度"
+    "en": "Mech Facility",
+    "ja": "機械化工場",
+    "difficulty": "hard"
   },
   "6525": {
-    "en": "Mech Facility Master 1",
-    "ja": "機械化工場 マスター難易度1"
+    "en": "Mech Facility",
+    "ja": "機械化工場",
+    "difficulty": "master"
   },
   "6541": {
     "en": "Unstable Space - Mistveil Hunting Ground",
@@ -576,16 +628,19 @@
     "ja": "不安定な空間・霧海の猟場"
   },
   "6543": {
-    "en": "Mistveil Hunting Ground Normal",
-    "ja": "霧海の猟場 ノーマル難易度"
+    "en": "Mistveil Hunting Ground",
+    "ja": "霧海の猟場",
+    "difficulty": "normal"
   },
   "6544": {
-    "en": "Mistveil Hunting Ground Hard",
-    "ja": "霧海の猟場 ハード難易度"
+    "en": "Mistveil Hunting Ground",
+    "ja": "霧海の猟場",
+    "difficulty": "hard"
   },
   "6545": {
-    "en": "Mistveil Hunting Ground Master 1",
-    "ja": "霧海の猟場 マスター難易度1"
+    "en": "Mistveil Hunting Ground",
+    "ja": "霧海の猟場",
+    "difficulty": "master"
   },
   "6561": {
     "en": "Unstable Space - Sea-Ringed Reef",
@@ -596,16 +651,19 @@
     "ja": "不安定な空間・珊瑚岩の谷"
   },
   "6563": {
-    "en": "Sea-Ringed Reef Normal",
-    "ja": "珊瑚岩の谷 ノーマル難易度"
+    "en": "Sea-Ringed Reef",
+    "ja": "珊瑚岩の谷",
+    "difficulty": "normal"
   },
   "6564": {
-    "en": "Sea-Ringed Reef Hard",
-    "ja": "珊瑚岩の谷 ハード難易度"
+    "en": "Sea-Ringed Reef",
+    "ja": "珊瑚岩の谷",
+    "difficulty": "hard"
   },
   "6565": {
-    "en": "Sea-Ringed Reef Master 1",
-    "ja": "珊瑚岩の谷 マスター難易度1"
+    "en": "Sea-Ringed Reef",
+    "ja": "珊瑚岩の谷",
+    "difficulty": "master"
   },
   "7001": {
     "en": "Parkour",

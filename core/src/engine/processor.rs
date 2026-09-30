@@ -737,7 +737,7 @@ fn log_team_change(encounter: &mut Encounter, f: impl FnOnce(&mut crate::engine:
     }
 }
 
-/// 0x2B(WorldSyncServerTime) / 0x17(WorldSyncDungeonData) / Team系5アーム / SocialEnvelope は should_accept を
+/// 0x2B(WorldSyncServerTime) / Team系5アーム / SocialEnvelope は should_accept を
 /// 意図的に経由しないため、他クライアント由来のパケットを弾く判定をこの1箇所に集約する。
 /// WorldSyncServerTime/Team系はキャラ選択と無関係にアプリ全体で使う値（is_paused でも
 /// 止めない）。SocialEnvelope は自キャラのシーン追跡そのものなのでキャラ選択と関係するが、

@@ -53,9 +53,21 @@ mod tests {
     #[test]
     fn tina_mindrealm_ja_names() {
         assert_eq!(content_name(1001, Lang::Ja), Some("ティナ・精神領域"));
+        assert_eq!(content_name(1002, Lang::Ja), Some("ティナ・精神領域"));
         assert_eq!(content_name(1031, Lang::Ja), Some("ティナ・精神領域 ノーマル難易度"));
+        assert_eq!(content_name(1032, Lang::Ja), Some("ティナ・精神領域 ハード難易度"));
         assert_eq!(content_name(1033, Lang::Ja), Some("ティナ・精神領域 マスター難易度1"));
         assert_eq!(content_name(1633, Lang::Ja), Some("蝕・ティナ・精神領域 マスター難易度1"));
+    }
+
+    // ゲーム内表記は「ティナ・精神領域」（ユーザー確認済み）。loc 由来の旧表記の再混入を防ぐ。
+    #[test]
+    fn no_legacy_tina_spelling() {
+        for (id, entry) in CONTENT_NAMES.iter() {
+            if let Some(ja) = &entry.ja {
+                assert!(!ja.contains("ティナの精神領域"), "id={id} に旧表記: {ja}");
+            }
+        }
     }
 
     #[test]

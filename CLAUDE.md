@@ -87,6 +87,8 @@ Slint テストバックエンド同梱の MCP サーバーで、起動中の UI
 （UIツリー探索・スクショ・クリック・入力）。Codex ではプロジェクトの `SessionStart` フックが
 `scripts/start-slint-mcp.ps1` を呼び出し、セッション開始時に実観測モードで自動起動する（UAC はセッション開始時に1回）。
 手動でデモモードを使う場合は `powershell -File scripts/run-mcp.ps1` を実行する。
+実観測モードは、`run-mcp.ps1 -NoDemo` が cargo run 経由だと os error 740 で起動できないことがあるため、
+ビルド後に `scripts/run-real-mcp-exe.ps1`（既定ポート 18080）で exe を昇格起動する。
 内部的には slint-app の opt-in feature `mcp`（`set_platform` 後に `mcp_server::init()` を自前呼出）+
 `SLINT_EMIT_DEBUG_INFO=1`（内省メタ埋め込み・ビルド時必須）+ `SLINT_MCP_PORT`（設定時のみ起動）。
 エンドポイントは `http://127.0.0.1:<port>/mcp`（localhost 限定）。

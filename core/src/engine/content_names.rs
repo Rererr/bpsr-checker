@@ -30,7 +30,8 @@ static CONTENT_NAMES: LazyLock<HashMap<u32, ContentNameEntry>> = LazyLock::new(|
 
 /// id のコンテンツ名。ja 表示時のみ公式 ja 名があれば優先し、無ければ en へフォールバック
 /// （zh も en 辞書を使う。ja 以外の言語ソースが無いため skill_names/monster_names と同じ扱い）。
-/// 表に無い id は None。
+/// 表に無い id は None。表示は `content_label` を使う（ja/en の振り分けはそちらが正）。
+#[cfg(test)]
 pub fn content_name(id: u32, lang: Lang) -> Option<&'static str> {
     let entry = CONTENT_NAMES.get(&id)?;
     match lang {
@@ -44,7 +45,16 @@ pub fn difficulty_kind(id: u32) -> Option<DifficultyKind> {
     CONTENT_NAMES.get(&id)?.difficulty
 }
 
-/// `SyncDungeonData` の `difficulty`（int32）をマスターの段階（1始まり）へ変換する。負の値は 0（不明）。
+/// 表にあり、かつマスター以外（ノーマル/ハード/種別なし）の id なら true。表に無い id は false
+/// （マスターかどうか判断できないので、段階を捨てる根拠にしない）。
+pub fn is_known_non_master(id: u32) -> bool {
+    CONTENT_NAMES
+        .get(&id)
+        .is_some_and(|entry| entry.difficulty != Some(DifficultyKind::Master))
+}
+
+/// `SyncDungeonData` の `difficulty`（int32）をそのままマスターの段階として扱う。負の値は 0（不明）。
+/// 1始まりは想定・未確認（参照実装の表示とゲーム内表記が1始まりであることから）。実機ログで確かめる。
 pub fn master_stage(difficulty: i32) -> u32 {
     u32::try_from(difficulty).unwrap_or(0)
 }
@@ -98,6 +108,15 @@ mod tests {
         assert_eq!(difficulty_kind(6544), Some(DifficultyKind::Hard));
         assert_eq!(difficulty_kind(12011), None);
         assert_eq!(difficulty_kind(999_999_999), None);
+    }
+
+    #[test]
+    fn known_non_master_excludes_master_and_unknown_ids() {
+        assert!(is_known_non_master(6543), "ノーマル");
+        assert!(is_known_non_master(6544), "ハード");
+        assert!(is_known_non_master(12011), "種別なし（表にある）");
+        assert!(!is_known_non_master(6545), "マスター");
+        assert!(!is_known_non_master(999_999_999), "表に無い id");
     }
 
     #[test]

@@ -48,6 +48,17 @@ pub enum MeasureMode {
     },
 }
 
+/// `Encounter::set_current_level_map_id` の結果。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LevelMapChange {
+    /// 0 か現在値と同じ id で、何も変えなかった。
+    Unchanged,
+    /// id を更新し、マスターの段階は残した（マスター id、または表に無く判断できない id）。
+    StageKept,
+    /// id を更新し、マスターの段階を 0 に戻した（表にあるマスター以外の id）。
+    StageReset,
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct Encounter {
     pub is_paused: bool,
@@ -93,9 +104,10 @@ pub struct Encounter {
     /// の記録用で、戦闘中にシーンが変わっても遡って書き換えない。`clear_combat_stats` で
     /// 0 に戻す（次の戦闘開始時に改めて写される）。
     pub fight_level_map_id: u32,
-    /// 自キャラのマスター難易度の段階（1始まり、0=不明/マスター以外）。level_map_id と同じく
-    /// 自キャラ単位で、`clear_combat_stats`・ServerHandover では保持し、自キャラ切替
-    /// （`clear_current_scene`）と、マスター以外のシーンへの移動（`set_current_level_map_id`）で 0 に戻す。
+    /// 自キャラのマスター難易度の段階（0=不明。マスター以外のシーンでは、通知が無い限り 0）。
+    /// level_map_id と同じく自キャラ単位で、`clear_combat_stats`・ServerHandover では保持し、
+    /// 自キャラ切替（`clear_current_scene`）と、表にあるマスター以外のシーンへの移動
+    /// （`set_current_level_map_id`）で 0 に戻す。
     pub current_dungeon_difficulty: u32,
     /// 戦闘開始の瞬間に `current_dungeon_difficulty` を写した値（`fight_level_map_id` の対）。
     /// `clear_combat_stats` で 0 に戻す。
@@ -110,21 +122,20 @@ impl Encounter {
         self.current_dungeon_difficulty = 0;
     }
 
-    /// 自キャラの level_map_id を更新する。変わったときだけ書き換え、新しい id がマスターで
-    /// なければ段階も 0 に戻す（マスターなら、先に届いた段階通知を残す）。
-    /// 段階を 0 に戻したとき true。
-    pub fn set_current_level_map_id(&mut self, level_map_id: u32) -> bool {
-        if level_map_id == self.current_level_map_id {
-            return false;
+    /// 自キャラの level_map_id を更新する。0（未確定）と現在値と同じ id では何も変えない。
+    /// 変わったとき、表にあってマスター以外の id なら段階を 0 に戻す。マスターの id は、先に届いた
+    /// 段階通知を残すため戻さない。表に無い id はマスターかどうか判断できないので、段階は前の値のまま。
+    pub fn set_current_level_map_id(&mut self, level_map_id: u32) -> LevelMapChange {
+        if level_map_id == 0 || level_map_id == self.current_level_map_id {
+            return LevelMapChange::Unchanged;
         }
         self.current_level_map_id = level_map_id;
-        let is_master = crate::engine::content_names::difficulty_kind(level_map_id)
-            == Some(crate::engine::content_names::DifficultyKind::Master);
-        if is_master {
-            return false;
+        if crate::engine::content_names::is_known_non_master(level_map_id) {
+            self.current_dungeon_difficulty = 0;
+            LevelMapChange::StageReset
+        } else {
+            LevelMapChange::StageKept
         }
-        self.current_dungeon_difficulty = 0;
-        true
     }
 
     /// `local_player_uid` を更新する。processor.rs 側の自動検出経路（should_accept /
@@ -296,23 +307,53 @@ mod tests {
         assert_eq!(enc.current_dungeon_difficulty, 0);
     }
 
-    // 段階は、マスター以外のシーンへ変わったときだけ 0 に戻る。
+    // 段階は、表にあるマスター以外のシーンへ変わったときだけ 0 に戻る。
     #[test]
-    fn set_current_level_map_id_resets_stage_only_for_non_master() {
+    fn set_current_level_map_id_resets_stage_only_for_known_non_master() {
         let mut enc = Encounter {
             current_level_map_id: 6545,
             current_dungeon_difficulty: 8,
             ..Default::default()
         };
-        assert!(enc.set_current_level_map_id(8), "町(8)へ移ると段階は 0 に戻る");
+        assert_eq!(
+            enc.set_current_level_map_id(8),
+            LevelMapChange::StageReset,
+            "町(8)は表にありマスターでないので段階を 0 に戻す"
+        );
         assert_eq!((enc.current_level_map_id, enc.current_dungeon_difficulty), (8, 0));
 
         enc.current_dungeon_difficulty = 8; // 0x17 が先に届いた状態
-        assert!(!enc.set_current_level_map_id(6545), "マスターへ移るときは段階を残す");
+        assert_eq!(
+            enc.set_current_level_map_id(6545),
+            LevelMapChange::StageKept,
+            "マスターへ移るときは段階を残す"
+        );
         assert_eq!((enc.current_level_map_id, enc.current_dungeon_difficulty), (6545, 8));
 
-        assert!(!enc.set_current_level_map_id(6545), "同じ id では何も変えない");
+        assert_eq!(
+            enc.set_current_level_map_id(6545),
+            LevelMapChange::Unchanged,
+            "同じ id では何も変えない"
+        );
         assert_eq!(enc.current_dungeon_difficulty, 8);
+
+        assert_eq!(enc.set_current_level_map_id(0), LevelMapChange::Unchanged, "0 は未確定");
+        assert_eq!((enc.current_level_map_id, enc.current_dungeon_difficulty), (6545, 8));
+    }
+
+    // 表に無い id はマスターかどうか判断できないので、段階を前の値のまま持ち越す。
+    #[test]
+    fn set_current_level_map_id_carries_stage_over_for_unknown_id() {
+        let mut enc = Encounter {
+            current_level_map_id: 6545,
+            current_dungeon_difficulty: 8,
+            ..Default::default()
+        };
+        assert_eq!(
+            enc.set_current_level_map_id(999_999_999),
+            LevelMapChange::StageKept
+        );
+        assert_eq!((enc.current_level_map_id, enc.current_dungeon_difficulty), (999_999_999, 8));
     }
 
     // 同じ uid を再指定しただけ（切替ではない）なら current_level_map_id は保持される。

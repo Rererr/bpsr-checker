@@ -1,7 +1,7 @@
 use crate::capture::server::Server;
 use crate::engine::class::{Class, ClassSpec, get_class_from_spec, get_class_spec_from_skill_id};
 use crate::engine::combat_stats::{actual_value, process_stats};
-use crate::engine::encounter::{Encounter, EncounterMutex};
+use crate::engine::encounter::{Encounter, EncounterMutex, LevelMapChange};
 use crate::engine::entity::{
     Entity, EntityKey, ImagineSlot, MAX_IMAGINE_NAMES, MAX_ROLE_SKILL_IMAGINES, SkillMeta,
 };
@@ -739,6 +739,7 @@ fn log_team_change(encounter: &mut Encounter, f: impl FnOnce(&mut crate::engine:
 /// 止めない）。SocialEnvelope は自キャラのシーン追跡そのものなのでキャラ選択と関係するが、
 /// conn_to_uid へ書き込まない（学習経路ではない）ため、conn 単体では自他を判定できず、
 /// 呼び出し側で char_id による判定と組み合わせて絞り込む。
+/// 0x17 は char_id を持たないため、この判定だけが自他の唯一の防御になる（未学習 conn は通す）。
 /// conn が学習済み（`conn_to_uid` に載っている）で、その uid が追跡中キャラ
 /// （`encounter.local_player_uid`）と異なるときだけ true。
 /// 未学習 conn は常に false（通す）: 起動直後の精度と、Team 通知が別 TCP リンクで
@@ -757,11 +758,28 @@ fn conn_is_other_client(encounter: &Encounter, conn: Option<Server>) -> bool {
     }
 }
 
+/// 自キャラの level_map_id を更新し、変わったときだけシーン変更をログに残す
+/// （SocialEnvelope と WorldEnterSnapshot の両経路がここを通る）。
+fn apply_level_map_id(encounter: &mut Encounter, level_map_id: u32, source: &str) {
+    let previous = encounter.current_level_map_id;
+    let change = encounter.set_current_level_map_id(level_map_id);
+    let stage = match change {
+        LevelMapChange::Unchanged => return,
+        LevelMapChange::StageKept => "kept",
+        LevelMapChange::StageReset => "reset",
+    };
+    info!(
+        "[{source}] scene changed: level_map_id {previous} -> {level_map_id} stage {stage} (now {})",
+        encounter.current_dungeon_difficulty
+    );
+}
+
 fn should_accept(encounter: &mut Encounter, conn: Option<Server>, op: &Pkt) -> bool {
     // ServerHandover と SocialEnvelope と WorldSyncDungeonData は process_opcode の専用アームで
     // 処理されるため、ここには到達しない（SocialEnvelope は conn_is_other_client と char_id 判定を
     // 自前で行う。ここを経由させると、自キャラ確定後の ServerHandover 直後に未学習 conn へ届く
-    // 継続通知が落ちる。WorldSyncDungeonData も未学習 conn で届くことがあり、同じ理由で通す）。
+    // 継続通知が落ちる。WorldSyncDungeonData は SocialEnvelope と同じ扱いにしているが、未学習 conn
+    // で届くかどうかは未確認で、実機ログ（conn の学習状態）で確かめてから方針を決める）。
     // WorldEnterSnapshot/WorldEnterScene/LocalDeltaBatch は conn ↔ char_id の学習経路なので、
     // 身元不明の conn でも必ず通す（ここで弾くと学習が永久に起きず、UID 指定時に何も
     // 表示されなくなる）。他クライアント由来かどうかは各 process_* が learn_connection で
@@ -883,30 +901,28 @@ pub fn process_opcode(enc: &EncounterMutex, env: PktEnvelope) -> AppResult<()> {
             }
 
             if let Some(scene) = body.scene_data {
-                if scene.level_map_id != 0 && scene.level_map_id != encounter.current_level_map_id
-                {
-                    let stage_reset = encounter.set_current_level_map_id(scene.level_map_id);
-                    info!(
-                        "[SocialEnvelope] scene changed: char_id={} line_id={} level_map_id={} stage {} (encounter retained)",
-                        body.char_id,
-                        scene.line_id,
-                        scene.level_map_id,
-                        if stage_reset { "reset" } else { "kept" }
-                    );
-                }
+                apply_level_map_id(&mut encounter, scene.level_map_id, "SocialEnvelope");
             }
         }
 
-        // WorldNtf method 0x17: ダンジョン入場時のマスター難易度の段階。SocialEnvelope と同じく
-        // should_accept を経由しない（未学習 conn で届くことがあり、通常の経路では落ちるため）。
-        // DungeonSyncData に char_id は無いので、自キャラの分かどうかは conn だけで判定する。
+        // WorldNtf method 0x17: ダンジョン入場時のマスター難易度の段階。should_accept を経由せず、
+        // 学習済みの他キャラ conn だけを破棄し、未学習 conn は受け入れる。
+        // 未確認: 0x17 が未学習 conn で届くかは実機で見ていない。DungeonSyncData に char_id は無く
+        // conn だけが自他の判定材料なので、ログの conn 状態を実機で確かめてから受け入れ方針を決める。
         Pkt::WorldSyncDungeonData => {
             let Some(msg) = decode_packet::<pb::SyncDungeonData>(data, "SyncDungeonData") else {
                 return Ok(());
             };
             let mut encounter = enc.lock().map_err(|e| AppError::LockPoisoned(e.to_string()))?;
+            let conn_state = match conn {
+                None => "conn=none".to_string(),
+                Some(c) => match encounter.conn_to_uid.get(&c) {
+                    Some(uid) => format!("conn={c} learned uid={uid}"),
+                    None => format!("conn={c} unlearned"),
+                },
+            };
             if conn_is_other_client(&encounter, conn) {
-                debug!("[SyncDungeonData] discarded: other client conn");
+                debug!("[SyncDungeonData] discarded: other client {conn_state}");
                 return Ok(());
             }
             match msg.v_data.and_then(|d| d.dungeon_scene_info) {
@@ -914,7 +930,7 @@ pub fn process_opcode(enc: &EncounterMutex, env: PktEnvelope) -> AppResult<()> {
                     encounter.current_dungeon_difficulty =
                         crate::engine::content_names::master_stage(info.difficulty);
                     info!(
-                        "[SyncDungeonData] scene_info=present difficulty={} -> stage={} current_level_map_id={}",
+                        "[SyncDungeonData] scene_info=present difficulty={} -> stage={} current_level_map_id={} {conn_state}",
                         info.difficulty,
                         encounter.current_dungeon_difficulty,
                         encounter.current_level_map_id
@@ -922,7 +938,7 @@ pub fn process_opcode(enc: &EncounterMutex, env: PktEnvelope) -> AppResult<()> {
                 }
                 None => {
                     info!(
-                        "[SyncDungeonData] scene_info=absent (kept stage={})",
+                        "[SyncDungeonData] scene_info=absent (kept stage={}) {conn_state}",
                         encounter.current_dungeon_difficulty
                     );
                 }
@@ -1290,9 +1306,7 @@ fn process_world_enter_snapshot(
     // ここまで到達すれば自キャラ確定済み（上の match で他クライアントは return 済み）なので、
     // conn/char_id によるフィルタは不要。
     if let Some(scene) = &v_data.scene_data {
-        if scene.level_map_id != 0 {
-            encounter.set_current_level_map_id(scene.level_map_id);
-        }
+        apply_level_map_id(encounter, scene.level_map_id, "WorldEnterSnapshot");
     }
 
     let target_entity = get_or_create_entity(encounter, EntityKey::player(player_uid));
@@ -2954,14 +2968,18 @@ mod tests {
     fn social_envelope_scene_change_resets_stage_unless_master() {
         assert_eq!(stage_after_scene_change(6545, 8), 0, "マスター→町はリセット");
         assert_eq!(stage_after_scene_change(8, 6545), 8, "→マスターは据え置き(0x17 が先に届いた場合)");
-        assert_eq!(stage_after_scene_change(6545, 999_999_999), 0, "未知の id はリセット");
+        assert_eq!(
+            stage_after_scene_change(6545, 999_999_999),
+            8,
+            "表に無い id は判断できないので据え置き"
+        );
         assert_eq!(stage_after_scene_change(6545, 6543), 0, "→ノーマルはリセット");
         assert_eq!(stage_after_scene_change(6545, 6544), 0, "→ハードはリセット");
     }
 
-    /// 0x17 が SocialEnvelope より後に届く順序でも段階が正しくなる。
+    /// SocialEnvelope（マスターへ移動）の後に 0x17 が届く順序。
     #[test]
-    fn stage_survives_either_arrival_order_of_sync_dungeon_data_and_social_envelope() {
+    fn stage_is_set_when_sync_dungeon_data_follows_social_envelope() {
         let _guard = lock_selected_uid();
         selected_uid::set(None);
         let enc = enc_with_self(100);
@@ -2972,6 +2990,62 @@ mod tests {
         .unwrap();
         assert_eq!(stage_after_sync_dungeon_data(&enc, Some(2), conn(40207)), 2);
         assert_eq!(enc.lock().unwrap().current_level_map_id, 6545);
+    }
+
+    /// 0x17 が先、SocialEnvelope（マスターへ移動）が後に届く順序でも、段階は消えない。
+    #[test]
+    fn stage_survives_social_envelope_arriving_after_sync_dungeon_data() {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+        let enc = enc_with_self(100);
+        assert_eq!(stage_after_sync_dungeon_data(&enc, Some(2), conn(40208)), 2);
+        process_opcode(
+            &enc,
+            envelope(Pkt::SocialEnvelope, social_envelope_bytes(100, 6545), conn(40208)),
+        )
+        .unwrap();
+        let e = enc.lock().unwrap();
+        assert_eq!((e.current_level_map_id, e.current_dungeon_difficulty), (6545, 2));
+    }
+
+    fn world_enter_snapshot_bytes(char_id: i64, level_map_id: u32) -> Vec<u8> {
+        pb::WorldEnterSnapshot {
+            v_data: Some(pb::PlayerSnapshot {
+                char_id,
+                scene_data: Some(pb::WorldLocation { level_map_id, line_id: 1 }),
+                ..Default::default()
+            }),
+        }
+        .encode_to_vec()
+    }
+
+    /// WorldEnterSnapshot 経由の level_map_id 更新でも、SocialEnvelope と同じ段階の扱いになる
+    /// （マスター以外の既知シーンでリセット、マスターでは据え置き）。
+    fn stage_after_snapshot_level(from: u32, to: u32) -> u32 {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+        let enc = enc_with_self(100);
+        {
+            let mut e = enc.lock().unwrap();
+            e.current_level_map_id = from;
+            e.current_dungeon_difficulty = 8;
+        }
+        process_opcode(
+            &enc,
+            envelope(Pkt::WorldEnterSnapshot, world_enter_snapshot_bytes(100, to), conn(40209)),
+        )
+        .unwrap();
+        let e = enc.lock().unwrap();
+        assert_eq!(e.current_level_map_id, to, "level_map_id は更新される");
+        let stage = e.current_dungeon_difficulty;
+        stage
+    }
+
+    #[test]
+    fn world_enter_snapshot_scene_change_resets_stage_unless_master() {
+        assert_eq!(stage_after_snapshot_level(6545, 8), 0, "マスター→町はリセット");
+        assert_eq!(stage_after_snapshot_level(6545, 6545), 8, "同じマスターでは据え置き");
+        assert_eq!(stage_after_snapshot_level(8, 6545), 8, "→マスターは据え置き");
     }
 
     /// 値を bare varint(LEB128) で符号化する（attr raw_data の形式）。

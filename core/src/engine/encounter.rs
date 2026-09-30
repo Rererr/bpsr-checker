@@ -104,7 +104,8 @@ pub struct Encounter {
     /// の記録用で、戦闘中にシーンが変わっても遡って書き換えない。`clear_combat_stats` で
     /// 0 に戻す（次の戦闘開始時に改めて写される）。
     pub fight_level_map_id: u32,
-    /// 自キャラのマスター難易度の段階（0=不明。マスター以外のシーンでは、通知が無い限り 0）。
+    /// 自キャラのマスター難易度の段階（0=不明。表にあるマスター以外のシーンでは、通知が無い限り 0。
+    /// 表に無いシーンへの移動では前の値を持ち越す）。
     /// level_map_id と同じく自キャラ単位で、`clear_combat_stats`・ServerHandover では保持し、
     /// 自キャラ切替（`clear_current_scene`）と、表にあるマスター以外のシーンへの移動
     /// （`set_current_level_map_id`）で 0 に戻す。

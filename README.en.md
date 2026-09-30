@@ -25,6 +25,7 @@ Feature details and screenshots are organized into separate pages.
 - [DPS, healing, damage taken, and history tabs](docs/features/metrics-tabs.md)
 - [Per-skill breakdown](docs/features/skill-breakdown.md)
 - [Measurement mode](docs/features/measurement-mode.md)
+- [Total row and content name](docs/features/total-row-content-name.md)
 - [Effective DPS column](docs/features/effective-dps.md)
 - [DPS trend graphs](docs/features/dps-trend.md)
 
@@ -148,7 +149,7 @@ For details, see [`core/src/capture/windivert.rs`](./core/src/capture/windivert.
 Open it with the **Settings** button in the header (slider icon in narrow layouts). Main items:
 
 - Fixing your character UID / selecting from candidates
-- Opacity, font size, column visibility (including ON/OFF for food/syrup display)
+- Opacity, font size, column visibility (including ON/OFF for food/syrup display), total row ON/OFF
 - Copy templates (placeholders such as `{name} {dmg} {dps}`)
 - Time setting for the 3-minute measurement mode, plus optional narrowing during a measurement (own records only / first enemy attacked only)
 - Imagine debuff timer display toggle / sync with the main DPS list (order-following ON/OFF, clear-all watch) / individual selection of which Imagine types to show / dense layout / debuff-timer-only mode (stops DPS aggregation for lighter operation) / 2-column compact layout ON/OFF

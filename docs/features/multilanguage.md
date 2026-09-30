@@ -20,7 +20,7 @@
   <img src="../images/feature-language-english.png" alt="英語表示へ切り替えた通常のメイン画面" width="820">
 </p>
 
-再起動後は、メイン画面のタブ、列、操作名が英語表示になります。
+再起動後は、メイン画面のタブ、列、操作名、合計行のコンテンツ名が英語表示になります。
 
 <p align="center">
   <img src="../images/feature-language-english-settings.png" alt="英語表示へ切り替えた設定パネル" width="820">

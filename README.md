@@ -25,6 +25,7 @@
 - [DPS・回復・被ダメ・履歴タブ](docs/features/metrics-tabs.md)
 - [スキル別内訳](docs/features/skill-breakdown.md)
 - [計測モード](docs/features/measurement-mode.md)
+- [合計行とコンテンツ名](docs/features/total-row-content-name.md)
 - [有効DPS列](docs/features/effective-dps.md)
 - [DPS推移グラフ](docs/features/dps-trend.md)
 
@@ -146,7 +147,7 @@
 ヘッダーの **設定** ボタン（狭い表示ではスライダーアイコン）から開きます。主な項目:
 
 - 自キャラ UID の固定 / 候補からの選択
-- 透明度・フォントサイズ・列の表示切替（食事 / シロップ表示の ON/OFF を含む）
+- 透明度・フォントサイズ・列の表示切替（食事 / シロップ表示の ON/OFF を含む）・合計行の表示切替
 - コピーテンプレート (`{name} {dmg} {dps}` 等のプレースホルダ)
 - 3 分計測モードの時間設定 / 計測中だけ自分の記録に絞る / 計測中だけ最初に攻撃した敵に絞る
 - イマジンデバフタイマーの表示切替 / メイン DPS との同期（並び順追従の ON/OFF・ウォッチ一括クリア）/ 表示イマジン種類の個別選択 / 行を詰める密表示 / デバフタイマー専用モード (DPS 集計を停止して軽量化) / 2 列コンパクト表示の ON/OFF

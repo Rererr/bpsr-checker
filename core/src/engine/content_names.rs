@@ -54,7 +54,7 @@ pub fn is_known_non_master(id: u32) -> bool {
 }
 
 /// `SyncDungeonData` の `difficulty`（int32）をそのままマスターの段階として扱う。負の値は 0（不明）。
-/// 1始まりは実機で確認済み（2026-09-30、マスター6 で difficulty=6 → 画面「マスター難易度6」）。
+/// 2026-09-30 の実機ログでは、ゲームのマスター6 で difficulty=6（アプリの表示もマスター難易度6）だった。
 pub fn master_stage(difficulty: i32) -> u32 {
     u32::try_from(difficulty).unwrap_or(0)
 }
@@ -153,7 +153,7 @@ mod tests {
         assert_eq!(master_stage(-1), 0);
     }
 
-    // ティナの精神領域系（ユーザーがゲーム内の表記を確認済み。版ごとに表記が違う）。
+    // ティナの精神領域系（版ごとに表記が違う。ゲーム内で確認済みなのは蝕の版と不安定な空間の版）。
     // 蝕の版のノーマル/ハードは Id 1631/1632（参照表の SceneID 1031/1032 ではなく、実機が送る level_map_id）。
     #[test]
     fn tina_mindrealm_ja_names() {
@@ -185,8 +185,9 @@ mod tests {
         }
     }
 
-    // ゲーム内表記は版で違う（ユーザー確認済み）: 蝕は「ティナの精神領域」、
-    // 不安定な空間と無印は「ティナ・精神領域」。版をまたいだ表記の混入を防ぐ。
+    // ユーザーがゲーム内で確認したのは蝕の版（「ティナの精神領域」）と不安定な空間の版（「ティナ・精神領域」）。
+    // 無印の版は確認済みではなく、不安定な空間の版と同じ「ティナ・精神領域」に揃えている。
+    // 版をまたいだ表記の混入を防ぐ。
     #[test]
     fn tina_spelling_matches_variant() {
         for (id, entry) in CONTENT_NAMES.iter() {

@@ -743,8 +743,7 @@ fn log_team_change(encounter: &mut Encounter, f: impl FnOnce(&mut crate::engine:
 /// 止めない）。SocialEnvelope は自キャラのシーン追跡そのものなのでキャラ選択と関係するが、
 /// conn_to_uid へ書き込まない（学習経路ではない）ため、conn 単体では自他を判定できず、
 /// 呼び出し側で char_id による判定と組み合わせて絞り込む。
-/// 0x17 は char_id を持たないため、conn だけが自他の判定材料になる。実機では学習済みの自キャラ conn から
-/// 届くので、0x17 は追加で `conn_is_unlearned_while_self_known` により未学習 conn も破棄する。
+/// 0x17 は別の判定（`gate_sync_dungeon_data`）を使う。
 /// conn が学習済み（`conn_to_uid` に載っている）で、その uid が追跡中キャラ
 /// （`encounter.local_player_uid`）と異なるときだけ true。
 /// 未学習 conn は常に false（通す）: 起動直後の精度と、Team 通知が別 TCP リンクで
@@ -763,14 +762,31 @@ fn conn_is_other_client(encounter: &Encounter, conn: Option<Server>) -> bool {
     }
 }
 
-/// 自キャラが確定済み（`self_player_uid()` が Some）で、conn が未学習（`conn_to_uid` に無い）なら true。
-/// `conn_is_other_client` が通してしまう未学習 conn を、0x17 のように conn しか判定材料が無い通知で
-/// 弾くために使う。conn が None（取得元不明）と自キャラ未確定のときは false（判定材料が無い）。
-fn conn_is_unlearned_while_self_known(encounter: &Encounter, conn: Option<Server>) -> bool {
-    let Some(conn) = conn else {
-        return false;
+/// 0x17(SyncDungeonData) の受理判定の結果。
+#[derive(Debug, PartialEq, Eq)]
+enum SyncDungeonGate {
+    Accept,
+    /// 学習済みで、自キャラ以外の conn。
+    OtherClient,
+    /// 自キャラ確定済みなのに、まだ学習していない conn。
+    UnlearnedConn,
+}
+
+/// 0x17 は char_id を持たないので、conn だけで自他を判定する。自キャラの導出は
+/// `self_player_uid()` の1か所に寄せる。受理するのは次のいずれか:
+/// conn が None（取得元不明）／自キャラ未確定／conn が自キャラとして学習済み／一時停止中の未学習 conn
+/// （学習パケットが停止中は処理されず、再開後も次のマップ移動まで段階が取れなくなるため）。
+/// 学習済みの他キャラ conn は、停止中でも破棄する。
+fn gate_sync_dungeon_data(encounter: &Encounter, conn: Option<Server>) -> SyncDungeonGate {
+    let (Some(self_uid), Some(conn)) = (encounter.self_player_uid(), conn) else {
+        return SyncDungeonGate::Accept;
     };
-    encounter.self_player_uid().is_some() && !encounter.conn_to_uid.contains_key(&conn)
+    match encounter.conn_to_uid.get(&conn) {
+        Some(&uid) if uid == self_uid => SyncDungeonGate::Accept,
+        Some(_) => SyncDungeonGate::OtherClient,
+        None if encounter.is_paused => SyncDungeonGate::Accept,
+        None => SyncDungeonGate::UnlearnedConn,
+    }
 }
 
 /// 自キャラの level_map_id を更新し、変わったときだけシーン変更をログに残す
@@ -793,8 +809,8 @@ fn should_accept(encounter: &mut Encounter, conn: Option<Server>, op: &Pkt) -> b
     // ServerHandover と SocialEnvelope と WorldSyncDungeonData は process_opcode の専用アームで
     // 処理されるため、ここには到達しない（SocialEnvelope は conn_is_other_client と char_id 判定を
     // 自前で行う。ここを経由させると、自キャラ確定後の ServerHandover 直後に未学習 conn へ届く
-    // 継続通知が落ちる。WorldSyncDungeonData は、実機で学習済みの自キャラ conn から届くと分かったので、
-    // 専用アームで自キャラ確定済みなら未学習 conn も破棄する）。
+    // 継続通知が落ちる。WorldSyncDungeonData は専用アームの `gate_sync_dungeon_data` で判定する。
+    // 計測中（非停止）の1クライアントの実機ログでは学習済みの自キャラ conn から届いた）。
     // WorldEnterSnapshot/WorldEnterScene/LocalDeltaBatch は conn ↔ char_id の学習経路なので、
     // 身元不明の conn でも必ず通す（ここで弾くと学習が永久に起きず、UID 指定時に何も
     // 表示されなくなる）。他クライアント由来かどうかは各 process_* が learn_connection で
@@ -924,10 +940,10 @@ pub fn process_opcode(enc: &EncounterMutex, env: PktEnvelope) -> AppResult<()> {
         }
 
         // WorldNtf method 0x17: ダンジョン入場時のマスター難易度の段階。should_accept を経由しない。
-        // SyncDungeonData に char_id は無く conn だけが自他の判定材料になる。実機（2026-09-30）では
-        // 町・フィールド・ダンジョンのどの遷移でも届き（マスター以外は difficulty=0）、SocialEnvelope の
-        // 後に、学習済みの自キャラ conn から届いた。そこで自キャラ確定済みなら、学習済みの他キャラ conn と
-        // 未学習 conn を破棄する。自キャラ未確定なら判定材料が無いので受理する。
+        // SyncDungeonData に char_id は無く conn だけが自他の判定材料になる。2026-09-30 に観測した遷移
+        // （町・フィールド・蝕ティナのノーマル/ハード/マスター）では届き、町・フィールド・ノーマル/ハードは
+        // difficulty=0 だった。到着順は SocialEnvelope の後で、計測中（非停止）の1クライアントの実機ログでは
+        // 学習済みの自キャラ conn から届いた。判定は `gate_sync_dungeon_data`（受理条件はそちら）。
         Pkt::WorldSyncDungeonData => {
             let Some(msg) = decode_packet::<pb::SyncDungeonData>(data, "SyncDungeonData") else {
                 return Ok(());
@@ -940,19 +956,22 @@ pub fn process_opcode(enc: &EncounterMutex, env: PktEnvelope) -> AppResult<()> {
                     None => format!("conn={c} unlearned"),
                 },
             };
-            if conn_is_other_client(&encounter, conn) {
-                debug!("[SyncDungeonData] discarded: other client {conn_state}");
-                return Ok(());
-            }
-            if conn_is_unlearned_while_self_known(&encounter, conn) {
-                if SYNC_DUNGEON_UNLEARNED_LOGGED.swap(true, Ordering::Relaxed) {
-                    debug!("[SyncDungeonData] discarded: unlearned conn {conn_state}");
-                } else {
-                    info!(
-                        "[SyncDungeonData] discarded (first occurrence, logged once): unlearned conn {conn_state}"
-                    );
+            match gate_sync_dungeon_data(&encounter, conn) {
+                SyncDungeonGate::Accept => {}
+                SyncDungeonGate::OtherClient => {
+                    debug!("[SyncDungeonData] discarded: other client {conn_state}");
+                    return Ok(());
                 }
-                return Ok(());
+                SyncDungeonGate::UnlearnedConn => {
+                    if SYNC_DUNGEON_UNLEARNED_LOGGED.swap(true, Ordering::Relaxed) {
+                        debug!("[SyncDungeonData] discarded: unlearned conn {conn_state}");
+                    } else {
+                        info!(
+                            "[SyncDungeonData] discarded (first occurrence, logged once): unlearned conn {conn_state}"
+                        );
+                    }
+                    return Ok(());
+                }
             }
             match msg.v_data.and_then(|d| d.dungeon_scene_info) {
                 Some(info) => {
@@ -2925,7 +2944,7 @@ mod tests {
         enc
     }
 
-    /// 自キャラ(uid=100)の conn として学習済みにした conn を返す（実機の 0x17 はこの conn から届く）。
+    /// 自キャラ(uid=100)の conn として学習済みにした conn を返す（計測中の1クライアントの実機ログでは、0x17 はこの種の conn から届いた）。
     fn learned_conn(enc: &EncounterMutex, port: u16) -> Server {
         let c = conn(port);
         enc.lock().unwrap().conn_to_uid.insert(c, 100);
@@ -2953,7 +2972,7 @@ mod tests {
         assert_eq!(stage_after_sync_dungeon_data(&enc, Some(3), other_conn), 0);
     }
 
-    /// 自キャラ確定済みなら、未学習の conn 由来は破棄する（実機では学習済みの自キャラ conn から届く）。
+    /// 自キャラ確定済みなら、未学習の conn 由来は破棄する（計測中の実機ログでは学習済みの自キャラ conn から届いた）。
     #[test]
     fn sync_dungeon_data_rejects_unlearned_conn_when_self_known() {
         let _guard = lock_selected_uid();
@@ -2961,6 +2980,20 @@ mod tests {
         let enc = enc_with_self(100);
         enc.lock().unwrap().current_dungeon_difficulty = 4;
         assert_eq!(stage_after_sync_dungeon_data(&enc, Some(5), conn(40203)), 4);
+    }
+
+    /// 一時停止中は学習パケットが処理されず conn が未学習のまま残るので、未学習 conn でも受理する。
+    /// 学習済みの他キャラ conn は停止中でも破棄する。
+    #[test]
+    fn sync_dungeon_data_while_paused_accepts_unlearned_but_not_other_client() {
+        let _guard = lock_selected_uid();
+        selected_uid::set(None);
+        let enc = enc_with_self(100);
+        enc.lock().unwrap().is_paused = true;
+        assert_eq!(stage_after_sync_dungeon_data(&enc, Some(5), conn(40210)), 5);
+        let other = conn(40211);
+        enc.lock().unwrap().conn_to_uid.insert(other, 200);
+        assert_eq!(stage_after_sync_dungeon_data(&enc, Some(7), other), 5);
     }
 
     /// 自キャラが未確定なら判定材料が無いので、未学習の conn でも受理する。

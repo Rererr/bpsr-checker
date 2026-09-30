@@ -218,9 +218,10 @@ message SyncServerTime {
 }
 
 // WorldNtf method 0x17。ダンジョンの状態同期。マスター難易度の段階は
-// v_data.dungeon_scene_info.difficulty で届く。値は 1 始まりの段階と一致することを実機で確認済み
-// （2026-09-30、マスター6 で difficulty=6）。町・フィールド・ダンジョンのどの遷移でも届き、
-// マスター以外は 0。SocialEnvelope の後に、学習済みの自キャラ conn から届いた。
+// v_data.dungeon_scene_info.difficulty で届く。2026-09-30 の実機ログでは、ゲームのマスター6 で
+// difficulty=6（アプリの表示もマスター難易度6）だった。観測した遷移（町・フィールド・蝕ティナの
+// ノーマル/ハード/マスター）では届き、町・フィールド・ノーマル/ハードでは difficulty=0。
+// SocialEnvelope の後に、計測中（非停止）の1クライアントでは学習済みの自キャラ conn から届いた。
 // メッセージ定義は参照実装のプロトコル定義由来（SyncDungeonData.v_data=1 /
 // DungeonSyncData.dungeon_scene_info=21 / DungeonSceneInfo.difficulty=1）。
 message SyncDungeonData { DungeonSyncData v_data = 1; }

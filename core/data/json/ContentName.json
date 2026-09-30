@@ -66,10 +66,12 @@
     "ja": "落日古道"
   },
   "1001": {
-    "en": "Tina's Mindrealm"
+    "en": "Tina's Mindrealm",
+    "ja": "ティナ・精神領域"
   },
   "1002": {
-    "en": "Tina's Mindrealm"
+    "en": "Tina's Mindrealm",
+    "ja": "ティナ・精神領域"
   },
   "1011": {
     "en": "Unstable - Tina's Mindrealm",
@@ -80,13 +82,16 @@
     "ja": "不安定な空間・ティナ・精神領域"
   },
   "1031": {
-    "en": "Tina's Mindrealm Normal"
+    "en": "Tina's Mindrealm Normal",
+    "ja": "ティナ・精神領域 ノーマル難易度"
   },
   "1032": {
-    "en": "Tina's Mindrealm Hard"
+    "en": "Tina's Mindrealm Hard",
+    "ja": "ティナ・精神領域 ハード難易度"
   },
   "1033": {
-    "en": "Tina's Mindrealm Master 1"
+    "en": "Tina's Mindrealm Master 1",
+    "ja": "ティナ・精神領域 マスター難易度1"
   },
   "1101": {
     "en": "Towering Ruin",
@@ -294,7 +299,7 @@
   },
   "1633": {
     "en": "Void - Tina's Mindrealm Master 1",
-    "ja": "蝕・ティナの精神領域 マスター難易度1"
+    "ja": "蝕・ティナ・精神領域 マスター難易度1"
   },
   "5000": {
     "en": "Content mechanism test scene",

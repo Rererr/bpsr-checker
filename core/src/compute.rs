@@ -307,6 +307,7 @@ pub fn get_header_info(enc: &EncounterMutex, stat: StatType) -> HeaderInfo {
             elapsed_ms: elapsed_ms as f64,
             time_last_combat_packet_ms: encounter.time_last_combat_packet_ms as f64,
             fight_level_map_id: encounter.fight_level_map_id,
+            fight_dungeon_difficulty: encounter.fight_dungeon_difficulty,
         }
     })
 }
@@ -1004,6 +1005,7 @@ pub fn build_encounter_snapshot(encounter: &Encounter, now: u128) -> EncounterSn
             .map(|&v| v as f64)
             .collect(),
         level_map_id: encounter.fight_level_map_id,
+        dungeon_difficulty: encounter.fight_dungeon_difficulty,
     }
 }
 
@@ -1275,11 +1277,11 @@ pub fn set_selected_uid(enc: &EncounterMutex, uid: Option<f64>) {
     selected_uid::set(uid_i64);
     with_lock_or(enc, "set_selected_uid", (), |encounter| {
         let new_uid = uid_i64.unwrap_or(0);
-        // シーン(current_level_map_id)はキャラ単位。前キャラのシーンを新キャラの最初の
+        // シーン(current_level_map_id / 難易度の段階)はキャラ単位。前キャラのシーンを新キャラの最初の
         // 戦闘記録に引き継がないよう、自キャラが実際に切り替わるときだけクリアする
         // （同じ UID を再指定しただけなら、既に持っている値を失わせない）。
         if encounter.local_player_uid != new_uid {
-            encounter.current_level_map_id = 0;
+            encounter.clear_current_scene();
         }
         encounter.clear_combat_stats();
         encounter.active_connection = None;
@@ -2170,6 +2172,7 @@ mod tests {
             crate::engine::encounter::MeasureScope::default()
         );
         assert_eq!(snap.level_map_id, 0, "旧 history.json は level_map_id 不明として 0 で読める");
+        assert_eq!(snap.dungeon_difficulty, 0, "旧 history.json は段階不明として 0 で読める");
     }
 
     /// 与ダメージ0でも自分の行は残る。回復専業や被ダメージ計測では dmg_stats が0のまま
@@ -2407,6 +2410,20 @@ mod tests {
         assert_eq!(snap.level_map_id, 6545);
     }
 
+    // 段階も level_map_id と同じく fight の値を保存し、current の値は使わない。
+    #[test]
+    fn build_encounter_snapshot_uses_fight_dungeon_difficulty_not_current() {
+        let _guard = selected_uid::lock_for_test();
+        selected_uid::set(None);
+        let enc = Encounter {
+            fight_dungeon_difficulty: 3,
+            current_dungeon_difficulty: 9,
+            ..Default::default()
+        };
+        let snap = build_encounter_snapshot(&enc, 0);
+        assert_eq!(snap.dungeon_difficulty, 3);
+    }
+
     // build_encounter_snapshot は記録時点の自キャラ uid（一覧と同じ window.local_player_uid）を保存する。
     #[test]
     fn build_encounter_snapshot_stores_local_player_uid() {
@@ -2434,6 +2451,26 @@ mod tests {
         set_selected_uid(&enc, Some(200.0));
 
         assert_eq!(enc.lock().unwrap().current_level_map_id, 0, "自キャラの切替でクリアする");
+        selected_uid::set(None);
+    }
+
+    // 難易度の段階も自キャラ切替でクリアされる（clear_current_scene 経由）。
+    #[test]
+    fn set_selected_uid_clears_current_dungeon_difficulty_on_character_switch() {
+        let _guard = selected_uid::lock_for_test();
+        let enc: EncounterMutex = std::sync::Mutex::new(Encounter {
+            local_player_uid: 100,
+            current_level_map_id: 6545,
+            current_dungeon_difficulty: 3,
+            ..Default::default()
+        });
+
+        set_selected_uid(&enc, Some(200.0));
+
+        let e = enc.lock().unwrap();
+        assert_eq!(e.current_level_map_id, 0);
+        assert_eq!(e.current_dungeon_difficulty, 0, "自キャラの切替で段階もクリアする");
+        drop(e);
         selected_uid::set(None);
     }
 

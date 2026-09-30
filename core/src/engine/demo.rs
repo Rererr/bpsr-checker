@@ -561,8 +561,9 @@ pub fn spawn(enc: Arc<EncounterMutex>) {
 
     if let Ok(mut e) = enc.lock() {
         e.local_player_uid = SELF_UID;
-        // コンテンツ名表示(issue #9 PR2b)のデモ確認用。6545=霧海の猟場 マスター難易度1。
+        // コンテンツ名表示(issue #9 PR2b)のデモ確認用。6545=霧海の猟場（マスター）、段階は 3。
         e.current_level_map_id = 6545;
+        e.current_dungeon_difficulty = 3;
         e.entities.entry(EntityKey::monster(BOSS_UID)).or_insert_with(|| Entity {
             monster_id: Some(BOSS_MONSTER_ID),
             curr_hp: Some(8_000_000_000),

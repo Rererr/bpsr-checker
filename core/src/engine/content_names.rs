@@ -49,6 +49,15 @@ mod tests {
         assert_eq!(content_name(6545, Lang::En), Some("Mistveil Hunting Ground Master 1"));
     }
 
+    // ティナ・精神領域系（ユーザーがゲーム内の表記を確認済み）。
+    #[test]
+    fn tina_mindrealm_ja_names() {
+        assert_eq!(content_name(1001, Lang::Ja), Some("ティナ・精神領域"));
+        assert_eq!(content_name(1031, Lang::Ja), Some("ティナ・精神領域 ノーマル難易度"));
+        assert_eq!(content_name(1033, Lang::Ja), Some("ティナ・精神領域 マスター難易度1"));
+        assert_eq!(content_name(1633, Lang::Ja), Some("蝕・ティナ・精神領域 マスター難易度1"));
+    }
+
     #[test]
     fn unknown_id_returns_none() {
         assert_eq!(content_name(999_999_999, Lang::Ja), None);

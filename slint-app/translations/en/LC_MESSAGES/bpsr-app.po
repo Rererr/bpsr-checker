@@ -417,6 +417,12 @@ msgstr "Finished battles are recorded here automatically"
 msgid "{}人"
 msgstr "{}"
 
+msgid "時間"
+msgstr "Duration"
+
+msgid "人数"
+msgstr "Players"
+
 msgid "推移"
 msgstr "Trend"
 

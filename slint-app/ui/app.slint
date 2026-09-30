@@ -132,12 +132,22 @@ global ListCol {
             + (c.hits ? 1 : 0) + (c.hpm ? 1 : 0) + (c.score ? 1 : 0) + (c.eff-dps ? 1 : 0);
     }
     // オプション列すべての幅と、各列の手前の gap の合計。RowStatColumns の % 列より右側の
-    // 占有幅と等しく、列を持たない行（履歴のスキル行）が % 列の右端を揃えるために空けておく幅。
+    // 占有幅と等しい。履歴のスキル行は列を持たないので、% 列の右端を揃えるためにこの幅を右に空ける。
     // 有効DPS列だけ dps-w を使う（RowStatColumns と同じ）。
     public pure function opt-cols-width(c: ColumnFlags, scale: float) -> length {
         return (ListCol.opt-cols-count(c) - (c.eff-dps ? 1 : 0)) * ListCol.opt-w * scale
             + (c.eff-dps ? ListCol.dps-w * scale : 0px)
             + ListCol.opt-cols-count(c) * ListCol.gap;
+    }
+    // % 列とオプション列の占有幅。履歴の見出し行・列見出し行は「人数」「人数＋▲▼」をこの幅の中に
+    // 右詰めで置く（展開行の % 列の右端と揃う）。
+    public pure function pct-opt-width(c: ColumnFlags, scale: float) -> length {
+        return ListCol.pct-w * scale + ListCol.opt-cols-width(c, scale);
+    }
+    // RowStatColumns 全体の幅（ダメージ/DPS/%＋オプション列と、その間の gap）。履歴の各行の最小幅と
+    // 見出し側の数値部が同じ式を使う。
+    public pure function stat-cols-width(c: ColumnFlags, scale: float) -> length {
+        return (ListCol.dmg-w + ListCol.dps-w) * scale + 2 * ListCol.gap + ListCol.pct-opt-width(c, scale);
     }
 }
 
@@ -201,32 +211,30 @@ global HistCol {
     // 窓の最小幅へ伝えないため、行の実構成と1対1に対応させてここから導出する）。
     // 見出しは title/name/scope が min-width:0 の elide なので固定部分のみ。外枠の要素は最大5個
     // （scope/title/name/経過時間/数値部。絞り込み条件のラベル付き=spacing 4箇所）で数える。
-    // 数値部の内訳はダメージ・DPS・[% 列＋オプション列の占有幅]（内側 spacing 2箇所）。
+    // 数値部はダメージ・DPS・[% 列＋オプション列の占有幅] で、RowStatColumns と同じ幅（stat-cols-width）。
     public pure function header-min-width(c: ColumnFlags, scale: float) -> length {
         return HistCol.pad-left-header + HistCol.pad-right + 4 * HistCol.gap
             + HistCol.header-duration-w * scale
-            + (ListCol.dmg-w + ListCol.dps-w + ListCol.pct-w) * scale + 2 * ListCol.gap
-            + ListCol.opt-cols-width(c, scale);
+            + ListCol.stat-cols-width(c, scale);
     }
     // プレイヤー行の名前セクションの下限（クラス色バー＋名前の内部フロア）。狭幅でも名前が
     // 「ああ…」まで読める幅を残し、行の最小幅にも同じ値を足す。
     public pure function player-name-min-width(scale: float) -> length {
         return ListCol.name-bar-w + ListCol.name-gap + NameLayout.name-floor(12px * scale);
     }
-    // トグル→順位→[名前セクション＋ダメージ/DPS/%＋オプション列]。
+    // トグル→順位→[名前セクション＋(ListCol.gap)＋RowStatColumns]。
     public pure function player-min-width(c: ColumnFlags, scale: float) -> length {
         return HistCol.pad-left-player + HistCol.pad-right + 2 * HistCol.gap
             + (HistCol.player-toggle-w + HistCol.player-rank-w) * scale
             + HistCol.player-name-min-width(scale)
-            + (ListCol.dmg-w + ListCol.dps-w + ListCol.pct-w) * scale + 3 * ListCol.gap
-            + ListCol.opt-cols-width(c, scale);
+            + ListCol.gap + ListCol.stat-cols-width(c, scale);
     }
-    // アイコン→[名前(min 0)＋ダメージ/DPS/%＋オプション列ぶんの右余白]。
+    // アイコン→[名前(min 0)＋(ListCol.gap)＋ダメージ/DPS/%＋オプション列ぶんの右余白]。
+    // 数値部の幅は RowStatColumns と同じ（stat-cols-width）。
     public pure function skill-min-width(c: ColumnFlags, scale: float) -> length {
         return HistCol.pad-left-skill + HistCol.pad-right + HistCol.gap
             + HistCol.skill-icon-w * scale
-            + (ListCol.dmg-w + ListCol.dps-w + ListCol.pct-w) * scale + 3 * ListCol.gap
-            + ListCol.opt-cols-width(c, scale);
+            + ListCol.gap + ListCol.stat-cols-width(c, scale);
     }
     // 履歴 Flickable.min-width。3種類の行の最小幅の最大（同じ ColumnFlags を1つの式で
     // 複数回渡すと生成コードが move エラーになるため、呼び出し側でなくここで束ねる）。
@@ -932,8 +940,8 @@ component RowPctBar inherits Rectangle {
 
 // データ行の数値列（ダメージ・DPS・%＋設定で足すオプション列）の並び・幅・色をここに集約する。
 // 表示可否は MainWindow の effective-cols が単一ソース。列見出し行と合計行の空欄は同じ並びを
-// 別に持つ。履歴の行の最小幅も ListCol.opt-cols-count / opt-cols-width から導出するので、
-// 列を足すときはこの4か所を揃える。
+// 別に持つ。履歴の行の最小幅と見出しの数値部も ListCol.opt-cols-count / opt-cols-width /
+// pct-opt-width / stat-cols-width から導出するので、列を足すときはこの4か所を揃える。
 // 推移列・ウォッチピンは含めない（行ごとに要否が違うため呼び出し側が並べる）。
 // 外側の名前列(stretch 1)と伸び方を張り合わないよう stretch は 0 を明示し、既定値に依存しない。
 component RowStatColumns inherits HorizontalLayout {
@@ -1281,7 +1289,7 @@ component SkillRowItem inherits Rectangle {
 component HistoryRowItem inherits Rectangle {
     in property <HistoryRowUi> e;
     in property <float> font-scale: 1.0;
-    // プレイヤー行の RowStatColumns と、スキル行の右余白(オプション列ぶん)に使う。
+    // プレイヤー行の RowStatColumns、スキル行の右余白(オプション列ぶん)、見出しの人数領域(% 列＋オプション列ぶん)に使う。
     in property <ColumnFlags> cols;
     in property <string> bar-intensity; // プレイヤー行のバー濃度（"none"/"subtle"/"strong"）
     callback toggle(string);
@@ -1340,16 +1348,18 @@ component HistoryRowItem inherits Rectangle {
         // で最小要求を外す）。
         if root.e.is-header: Text { text: root.e.title; color: #e6e6f0; font-size: 11px * root.font-scale; overflow: elide; horizontal-stretch: 1; min-width: 0px; vertical-alignment: center; }
         if root.e.is-header: Text { text: root.e.name; color: #888; font-size: 10px * root.font-scale; overflow: elide; horizontal-stretch: 100000; min-width: 0px; vertical-alignment: center; }
-        if root.e.is-header: Text { text: root.e.duration-text; color: #888; font-size: 10px * root.font-scale; width: HistCol.header-duration-w * root.font-scale; vertical-alignment: center; }
+        if root.e.is-header: Text { text: root.e.duration-text; color: #888; font-size: 10px * root.font-scale; width: HistCol.header-duration-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
         // 数値はダメージ→DPS の順で、展開行(RowStatColumns)のダメージ/DPS列と右端を揃える。
-        // 人数と▲▼は % 列＋オプション列の占有幅の中へ右詰めで置く（スキル行の右余白と同じ幅）。
+        // 人数と▲▼は % 列＋オプション列の占有幅(ListCol.pct-opt-width)の中へ右詰めで置く。
+        // オプション列なしのときこの幅は pct-w*scale まで縮むので、人数(10px)＋間隔4px＋▲▼(9px)が
+        // それに収まる必要がある（ja「20人」でも約33px<44px）。en の msgstr が「{}」と短いのも同じ理由。
         if root.e.is-header: HorizontalLayout {
             horizontal-stretch: 0;
             spacing: ListCol.gap;
             Text { text: root.e.dmg-text; color: #e6e6f0; font-size: 11px * root.font-scale; width: ListCol.dmg-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
             Text { text: root.e.dps-text; color: Theme.accent; font-size: 11px * root.font-scale; width: ListCol.dps-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
             HorizontalLayout {
-                width: ListCol.pct-w * root.font-scale + ListCol.opt-cols-width(root.cols, root.font-scale);
+                width: ListCol.pct-opt-width(root.cols, root.font-scale);
                 alignment: end;
                 spacing: 4px;
                 Text { text: @tr("{}人", root.e.count-text); color: #666; font-size: 10px * root.font-scale; vertical-alignment: center; }
@@ -1396,6 +1406,28 @@ component HistoryRowItem inherits Rectangle {
             Text { text: root.e.skill-total-text; color: #aaa; font-size: 10px * root.font-scale; width: ListCol.dmg-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
             Text { text: root.e.skill-dps-text; color: Theme.accent; font-size: 10px * root.font-scale; width: ListCol.dps-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
             Text { text: root.e.skill-pct-text; color: #888; font-size: 10px * root.font-scale; width: ListCol.pct-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        }
+    }
+}
+
+// 履歴ビューの列見出し行（Flickable の外に固定）。見出し行(HistoryRowItem)と同じ外枠余白・spacing・
+// 数値部の幅を使い、ラベルの右端を見出し・展開行の数値と縦にそろえる。左側は空の伸縮要素。
+component HistoryColHeader inherits Rectangle {
+    in property <ColumnFlags> cols;
+    in property <float> font-scale: 1.0;
+    height: 16px;
+    HorizontalLayout {
+        padding-left: HistCol.pad-left-header;
+        padding-right: HistCol.pad-right;
+        spacing: HistCol.gap;
+        Rectangle { horizontal-stretch: 1; min-width: 0px; }
+        Text { text: @tr("時間"); color: #888; font-size: 10px * root.font-scale; width: HistCol.header-duration-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+        HorizontalLayout {
+            horizontal-stretch: 0;
+            spacing: ListCol.gap;
+            Text { text: @tr("ダメージ"); color: #888; font-size: 10px * root.font-scale; width: ListCol.dmg-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+            Text { text: @tr("DPS"); color: #888; font-size: 10px * root.font-scale; width: ListCol.dps-w * root.font-scale; horizontal-alignment: right; vertical-alignment: center; }
+            Text { text: @tr("人数"); color: #888; font-size: 10px * root.font-scale; width: ListCol.pct-opt-width(root.cols, root.font-scale); horizontal-alignment: right; vertical-alignment: center; }
         }
     }
 }
@@ -4091,6 +4123,7 @@ export component MainWindow inherits Window {
                     }
                 }
             }
+            HistoryColHeader { cols: root.effective-cols; font-scale: root.font-scale; }
             Flickable {
                 vertical-stretch: 1;
                 max-height: 100000px;

@@ -900,8 +900,11 @@ pub fn process_opcode(enc: &EncounterMutex, env: PktEnvelope) -> AppResult<()> {
                 }
             }
 
+            // char_id はログに残す（自キャラ未確定時の暫定受理・char_id=0 の経路では、
+            // どのキャラのシーンを取り込んだかを示す唯一の記録になるため）。
+            let source = format!("SocialEnvelope char_id={}", body.char_id);
             if let Some(scene) = body.scene_data {
-                apply_level_map_id(&mut encounter, scene.level_map_id, "SocialEnvelope");
+                apply_level_map_id(&mut encounter, scene.level_map_id, &source);
             }
         }
 

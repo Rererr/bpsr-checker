@@ -183,7 +183,9 @@ global HistCol {
     out property <length> pad-left-header: 8px;
     out property <length> pad-left-player: 18px;
     out property <length> pad-left-skill: 38px;
-    out property <length> pad-right: 8px;
+    // 右端は一覧の右端（末尾のピン列・その手前の gap・外枠余白）と同じ位置に揃える。
+    // 見出し・プレイヤー行・スキル行が同じ値を使い、最小幅の式（下の *-min-width）も同じ値を参照する。
+    out property <length> pad-right: ListCol.pad-x + ListCol.gap + ListCol.pin-w;
     out property <length> gap: 8px; // 外枠 HorizontalLayout の spacing
     // 見出し行
     out property <length> header-duration-w: 40px; // 経過時間
